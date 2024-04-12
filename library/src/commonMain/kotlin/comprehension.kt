@@ -1,11 +1,11 @@
-@file:OptIn(ExperimentalStdlibApi::class)
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
 import kotlinx.coroutines.CoroutineStart
@@ -18,35 +18,27 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
 internal sealed interface ComprehensionScope {
-  fun obtainLock(): ComprehensionLock
-  fun removeLock(lock: ComprehensionLock)
+  fun ComprehensionLock.register()
 }
 
-internal class ComprehensionLock(private val parent: ComprehensionScope) : AutoCloseable {
-  private val waitingMutex = Mutex(true)
-  private val resetMutex = Mutex(true)
-  override fun close() {
-    parent.removeLock(this)
-  }
+internal class ComprehensionLock {
+  private val waitingMutex = Mutex()
 
   val done: Boolean
-    get() = resetMutex.isLocked && !waitingMutex.isLocked
+    get() = !waitingMutex.isLocked
+
+  var reset by mutableStateOf(false)
 
   suspend fun awaitNextItem() {
     waitingMutex.lock()
   }
 
-  suspend fun awaitReset() {
+  fun unlock() {
     waitingMutex.unlock()
-    resetMutex.lock()
   }
 
-  fun unlockOrReset() {
-    if (done) {
-      resetMutex.unlock()
-    } else {
-      waitingMutex.unlock()
-    }
+  fun signalFinished() {
+    waitingMutex.unlock()
   }
 }
 
@@ -55,20 +47,34 @@ internal class ComprehensionScopeImpl : ComprehensionScope {
   val finished: Boolean
     get() = stack.all { it.done }
 
-  override fun obtainLock(): ComprehensionLock = ComprehensionLock(this).also {
-    stack.add(it)
+  override fun ComprehensionLock.register() {
+    if (this !in stack) stack.add(this)
   }
 
-  override fun removeLock(lock: ComprehensionLock) {
-    stack.remove(lock)
-  }
-
-  fun unlockNext() {
-    val i = stack.indexOfLast { !it.done }.coerceAtLeast(0)
-    for (lock in stack.subList(i, stack.size)) {
-      lock.unlockOrReset()
+  fun unlockNext() : Boolean = finished.also {
+    val index = stack.indexOfLast { !it.done }
+    if (index == -1) return@also
+    stack[index].unlock()
+    for (i in (index + 1) ..< stack.size) {
+      stack.removeAt(index + 1).apply {
+        reset = !reset
+      }
     }
   }
+
+  override fun equals(other: Any?): Boolean {
+    if (this === other) return true
+    if (other == null || this::class != other::class) return false
+
+    other as ComprehensionScopeImpl
+
+    return stack == other.stack
+  }
+
+  override fun hashCode(): Int {
+    return stack.hashCode()
+  }
+
 }
 
 internal inline fun <T> listComprehension(
@@ -87,9 +93,8 @@ internal inline fun <T> listComprehension(
         outputBuffer.trySend(it).getOrThrow()
       })
     }
-
+    var finished = false
     do {
-      scope.unlockNext()
       val result = outputBuffer.tryReceive()
       // Per `ReceiveChannel.tryReceive` documentation: isFailure means channel is empty.
       val value = if (result.isFailure) {
@@ -98,8 +103,10 @@ internal inline fun <T> listComprehension(
       } else {
         result.getOrThrow()
       }
+      println("emitting $value")
       emit(value)
-    } while (!scope.finished)
+      finished = scope.unlockNext()
+    } while (!finished)
     coroutineContext.cancelChildren()
   }
 }
@@ -107,24 +114,22 @@ internal inline fun <T> listComprehension(
 context(ComprehensionScope)
 @Composable
 internal fun <T> List<T>.bind(): State<T> {
-  val lock = remember(this@bind) { obtainLock() }
-  return remember(this@bind) { mutableStateOf(first(), neverEqualPolicy()) }.apply {
-    LaunchedEffect(this@bind) {
-      lock.use { lock ->
-        var first = true
-        while (true) {
-          lock.awaitReset()
-          for (element in this@bind) {
-            lock.awaitNextItem()
-            if (first) {
-              first = false
-            } else {
-              println("generating $element")
-              value = element
-            }
-          }
+  val lock = remember { ComprehensionLock() }
+  lock.register()
+  return remember(lock.reset) { mutableStateOf(first(), neverEqualPolicy()) }.apply {
+    LaunchedEffect(lock.reset) {
+      var first = true
+      for (element in this@bind) {
+        lock.awaitNextItem()
+        if (first) {
+          println("skipping $element")
+          first = false
+        } else {
+          println("generating $element")
+          value = element
         }
       }
+      lock.signalFinished()
     }
   }
 }
@@ -132,3 +137,5 @@ internal fun <T> List<T>.bind(): State<T> {
 context(ComprehensionScope)
 @Composable
 internal fun <T> List<T>.bindHere(): T = bind().value
+
+context(A) private fun <A> given(): A = this@A

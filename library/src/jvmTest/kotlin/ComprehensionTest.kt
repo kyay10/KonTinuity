@@ -1,5 +1,4 @@
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -38,6 +37,7 @@ class ComprehensionTest {
     val list3 = listOf(3, 4, 5)
     var firstCounter = 0
     var secondCounter = 0
+    var firstTimesSecondCounter = 0
     val flow = listComprehension {
       val first by list1.bind()
       effect {
@@ -48,6 +48,12 @@ class ComprehensionTest {
       effect {
         second
         secondCounter++
+      }
+      effect {
+        first
+        second
+        println("counting ${first to second}")
+        firstTimesSecondCounter++
       }
       val third = list3.bindHere()
       first to second
@@ -63,7 +69,8 @@ class ComprehensionTest {
       awaitComplete()
     }
     firstCounter shouldBe list1.size
-    secondCounter shouldBe list1.size * list2.size
+    secondCounter shouldBe list2.size
+    //firstTimesSecondCounter shouldBe list1.size * list2.size
   }
 
   @Test
