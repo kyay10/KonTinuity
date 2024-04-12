@@ -1,7 +1,4 @@
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import app.cash.turbine.test
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
@@ -37,7 +34,7 @@ class ComprehensionTest {
     val list3 = listOf(3, 4, 5)
     var firstCounter = 0
     var secondCounter = 0
-    var firstTimesSecondCounter = 0
+    var firstAndSecondCounter = 0
     val flow = listComprehension {
       val first by list1.bind()
       effect {
@@ -52,8 +49,7 @@ class ComprehensionTest {
       effect {
         first
         second
-        println("counting ${first to second}")
-        firstTimesSecondCounter++
+        firstAndSecondCounter++
       }
       val third = list3.bindHere()
       first to second
@@ -69,8 +65,8 @@ class ComprehensionTest {
       awaitComplete()
     }
     firstCounter shouldBe list1.size
-    secondCounter shouldBe list2.size
-    //firstTimesSecondCounter shouldBe list1.size * list2.size
+    secondCounter shouldBe list1.size * list2.size
+    firstAndSecondCounter shouldBe list1.size * list2.size
   }
 
   @Test
@@ -99,10 +95,19 @@ class ComprehensionTest {
   @Test
   fun nested() = runTest {
     val list = listOf(listOf(1, 2), listOf(3, 4), listOf(5, 6))
+    var innerCount = 0
+    var itemCount = 0
     val flow = listComprehension {
       val inner by list.bind()
+      effect {
+        inner
+        innerCount++
+      }
       val item by inner.bind()
-      println("producing $item")
+      effect {
+        item
+        itemCount++
+      }
       item
     }
     flow.test(10.seconds) {
@@ -111,11 +116,7 @@ class ComprehensionTest {
       }
       awaitComplete()
     }
-
+    innerCount shouldBe list.size
+    itemCount shouldBe list.sumOf { it.size }
   }
-}
-
-@Composable
-fun effect(block: () -> Unit) {
-  remember { derivedStateOf(block) }.value
 }

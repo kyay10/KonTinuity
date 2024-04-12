@@ -1,6 +1,8 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
@@ -93,7 +95,7 @@ internal inline fun <T> listComprehension(
         outputBuffer.trySend(it).getOrThrow()
       })
     }
-    var finished = false
+    var finished: Boolean
     do {
       val result = outputBuffer.tryReceive()
       // Per `ReceiveChannel.tryReceive` documentation: isFailure means channel is empty.
@@ -103,35 +105,34 @@ internal inline fun <T> listComprehension(
       } else {
         result.getOrThrow()
       }
-      println("emitting $value")
       emit(value)
       finished = scope.unlockNext()
     } while (!finished)
     coroutineContext.cancelChildren()
   }
 }
-
 context(ComprehensionScope)
 @Composable
 internal fun <T> List<T>.bind(): State<T> {
   val lock = remember { ComprehensionLock() }
-  lock.register()
-  return remember(lock.reset) { mutableStateOf(first(), neverEqualPolicy()) }.apply {
-    LaunchedEffect(lock.reset) {
-      var first = true
-      for (element in this@bind) {
-        lock.awaitNextItem()
-        if (first) {
-          println("skipping $element")
-          first = false
-        } else {
-          println("generating $element")
-          value = element
-        }
-      }
-      lock.signalFinished()
-    }
+  val stateOfState = remember { mutableStateOf<MutableState<T>?>(null) }
+  remember(lock.reset) {
+    stateOfState.value = mutableStateOf(first(), neverEqualPolicy())
   }
+  lock.register()
+  LaunchedEffect(lock.reset) {
+    var first = true
+    for (element in this@bind) {
+      lock.awaitNextItem()
+      if (first) {
+        first = false
+      } else {
+        stateOfState.value!!.value = element
+      }
+    }
+    lock.signalFinished()
+  }
+  return remember { derivedStateOf { stateOfState.value!!.value } }
 }
 
 context(ComprehensionScope)
@@ -139,3 +140,6 @@ context(ComprehensionScope)
 internal fun <T> List<T>.bindHere(): T = bind().value
 
 context(A) private fun <A> given(): A = this@A
+
+@Composable
+public fun <R> effect(block: () -> R): R = remember { derivedStateOf(block) }.value
