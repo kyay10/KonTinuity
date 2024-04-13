@@ -8,8 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
+import arrow.core.Option
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
@@ -53,15 +55,19 @@ internal class ComprehensionScopeImpl : ComprehensionScope {
     if (this !in stack) stack.add(this)
   }
 
-  fun unlockNext() : Boolean = finished.also {
+  fun unlockNext(): Boolean = finished.also {
     val index = stack.indexOfLast { !it.done }
     if (index == -1) return@also
-    stack[index].unlock()
-    for (i in (index + 1) ..< stack.size) {
-      stack.removeAt(index + 1).apply {
-        reset = !reset
+    val snapshot = Snapshot.takeMutableSnapshot()
+    snapshot.enter {
+      stack[index].unlock()
+      for (i in (index + 1)..<stack.size) {
+        stack.removeAt(index + 1).apply {
+          reset = !reset
+        }
       }
     }
+    snapshot.apply().check()
   }
 
   override fun equals(other: Any?): Boolean {
@@ -80,12 +86,12 @@ internal class ComprehensionScopeImpl : ComprehensionScope {
 }
 
 internal inline fun <T> listComprehension(
-  crossinline body: @Composable context(ComprehensionScope) () -> T
+  crossinline body: @Composable context(ComprehensionScope) () -> Option<T>
 ): Flow<T> = flow {
   coroutineScope {
     val scope = ComprehensionScopeImpl()
     val clock = GatedFrameClock(this)
-    val outputBuffer = Channel<T>(1)
+    val outputBuffer = Channel<Option<T>>(1)
 
     launch(clock, start = CoroutineStart.UNDISPATCHED) {
       launchMolecule(mode = RecompositionMode.ContextClock, body = {
@@ -105,12 +111,13 @@ internal inline fun <T> listComprehension(
       } else {
         result.getOrThrow()
       }
-      emit(value)
+      value.onSome { emit(it) }
       finished = scope.unlockNext()
     } while (!finished)
     coroutineContext.cancelChildren()
   }
 }
+
 context(ComprehensionScope)
 @Composable
 internal fun <T> List<T>.bind(): State<T> {

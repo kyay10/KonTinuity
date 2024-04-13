@@ -1,5 +1,7 @@
 import androidx.compose.runtime.getValue
 import app.cash.turbine.test
+import arrow.core.None
+import arrow.core.raise.option
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -11,12 +13,14 @@ class ComprehensionTest {
     val list = listOf(1, 2, 3)
     var counter = 0
     val flow = listComprehension {
-      val item by list.bind()
-      effect {
+      option {
+        val item by list.bind()
+        effect {
+          item
+          counter++
+        }
         item
-        counter++
       }
-      item
     }
     flow.test(10.seconds) {
       for (i in list) {
@@ -28,6 +32,23 @@ class ComprehensionTest {
   }
 
   @Test
+  fun filtering() = runTest {
+    val list = listOf(1, 2, 3)
+    val flow = listComprehension {
+      option {
+        val item by list.bind()
+        if (item == 2) raise(None) else item
+      }
+    }
+    flow.test(10.seconds) {
+      for (i in list.filterNot { it == 2 }) {
+        awaitItem() shouldBe i
+      }
+      awaitComplete()
+    }
+  }
+
+  @Test
   fun lists() = runTest {
     val list1 = listOf(1, 2, 3)
     val list2 = listOf(2, 3, 4)
@@ -36,23 +57,25 @@ class ComprehensionTest {
     var secondCounter = 0
     var firstAndSecondCounter = 0
     val flow = listComprehension {
-      val first by list1.bind()
-      effect {
-        first
-        firstCounter++
+      option {
+        val first by list1.bind()
+        effect {
+          first
+          firstCounter++
+        }
+        val second by list2.bind()
+        effect {
+          second
+          secondCounter++
+        }
+        effect {
+          first
+          second
+          firstAndSecondCounter++
+        }
+        val third = list3.bindHere()
+        first to second
       }
-      val second by list2.bind()
-      effect {
-        second
-        secondCounter++
-      }
-      effect {
-        first
-        second
-        firstAndSecondCounter++
-      }
-      val third = list3.bindHere()
-      first to second
     }
     flow.test(10.seconds) {
       for (i in list1) {
@@ -75,10 +98,12 @@ class ComprehensionTest {
     val list2 = listOf(2, 3, 4)
     val list3 = listOf(3, 4, 5)
     val flow = listComprehension {
-      val first = list1.bindHere()
-      val second = list2.bindHere()
-      val third = list3.bindHere()
-      first to second
+      option {
+        val first = list1.bindHere()
+        val second = list2.bindHere()
+        val third = list3.bindHere()
+        first to second
+      }
     }
     flow.test(10.seconds) {
       for (i in list1) {
@@ -98,17 +123,19 @@ class ComprehensionTest {
     var innerCount = 0
     var itemCount = 0
     val flow = listComprehension {
-      val inner by list.bind()
-      effect {
-        inner
-        innerCount++
-      }
-      val item by inner.bind()
-      effect {
+      option {
+        val inner by list.bind()
+        val item by inner.bind()
+        effect {
+          inner
+          innerCount++
+        }
+        effect {
+          item
+          itemCount++
+        }
         item
-        itemCount++
       }
-      item
     }
     flow.test(10.seconds) {
       for (i in 1..6) {
