@@ -11,7 +11,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
+import arrow.core.None
 import arrow.core.Option
+import arrow.core.Some
+import arrow.core.raise.OptionRaise
+import arrow.core.raise.option
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
@@ -68,6 +72,7 @@ internal class ComprehensionScopeImpl : ComprehensionScope {
       }
     }
     snapshot.apply().check()
+    snapshot.dispose()
   }
 
   override fun equals(other: Any?): Boolean {
@@ -82,7 +87,6 @@ internal class ComprehensionScopeImpl : ComprehensionScope {
   override fun hashCode(): Int {
     return stack.hashCode()
   }
-
 }
 
 internal inline fun <T> listComprehension(
@@ -103,6 +107,7 @@ internal inline fun <T> listComprehension(
     }
     var finished: Boolean
     do {
+      finished = scope.unlockNext()
       val result = outputBuffer.tryReceive()
       // Per `ReceiveChannel.tryReceive` documentation: isFailure means channel is empty.
       val value = if (result.isFailure) {
@@ -111,8 +116,8 @@ internal inline fun <T> listComprehension(
       } else {
         result.getOrThrow()
       }
+      println("emitting: $value")
       value.onSome { emit(it) }
-      finished = scope.unlockNext()
     } while (!finished)
     coroutineContext.cancelChildren()
   }
@@ -120,33 +125,45 @@ internal inline fun <T> listComprehension(
 
 context(ComprehensionScope)
 @Composable
-internal fun <T> List<T>.bind(): State<T> {
+internal fun <T> List<T>.bind(): OptionalState<T> {
   val lock = remember { ComprehensionLock() }
-  val stateOfState = remember { mutableStateOf<MutableState<T>?>(null) }
+  val stateOfState = remember { mutableStateOf<MutableState<Option<T>>?>(null) }
   remember(lock.reset) {
-    stateOfState.value = mutableStateOf(first(), neverEqualPolicy())
+    stateOfState.value = mutableStateOf(None, neverEqualPolicy())
   }
   lock.register()
   LaunchedEffect(lock.reset) {
-    var first = true
+    val state = stateOfState.value!!
+    lock.awaitNextItem()
     for (element in this@bind) {
       lock.awaitNextItem()
-      if (first) {
-        first = false
-      } else {
-        stateOfState.value!!.value = element
-      }
+      println("producing: $element")
+      state.value = Some(element)
     }
     lock.signalFinished()
   }
-  return remember { derivedStateOf { stateOfState.value!!.value } }
+  return remember { OptionalState(derivedStateOf(neverEqualPolicy()) { stateOfState.value!!.value }) }
 }
 
-context(ComprehensionScope)
-@Composable
-internal fun <T> List<T>.bindHere(): T = bind().value
+public data class OptionalState<T>(val state: State<Option<T>>)
+
+context(OptionRaise)
+public val <T> OptionalState<T>.value: T
+  get() = state.value.bind()
+
+context(OptionRaise)
+public operator fun <T> OptionalState<T>.provideDelegate(
+  thisRef: Any?,
+  property: Any?
+): OptionalState<T> {
+  state.value.bind()
+  return this
+}
+
+public operator fun <T> OptionalState<T>.getValue(thisRef: Any?, property: Any?): T =
+  state.value.getOrNull() ?: error("Should never happen")
 
 context(A) private fun <A> given(): A = this@A
 
 @Composable
-public fun <R> effect(block: () -> R): R = remember { derivedStateOf(block) }.value
+public fun <R> effect(block: () -> R): R = remember { derivedStateOf(neverEqualPolicy(), block) }.value

@@ -1,4 +1,3 @@
-import androidx.compose.runtime.getValue
 import app.cash.turbine.test
 import arrow.core.None
 import arrow.core.raise.option
@@ -71,9 +70,10 @@ class ComprehensionTest {
         effect {
           first
           second
+          println("received $first and $second")
           firstAndSecondCounter++
         }
-        val third = list3.bindHere()
+        val third by list3.bind()
         first to second
       }
     }
@@ -93,31 +93,6 @@ class ComprehensionTest {
   }
 
   @Test
-  fun `bind here`() = runTest {
-    val list1 = listOf(1, 2, 3)
-    val list2 = listOf(2, 3, 4)
-    val list3 = listOf(3, 4, 5)
-    val flow = listComprehension {
-      option {
-        val first = list1.bindHere()
-        val second = list2.bindHere()
-        val third = list3.bindHere()
-        first to second
-      }
-    }
-    flow.test(10.seconds) {
-      for (i in list1) {
-        for (j in list2) {
-          for (k in list3) {
-            awaitItem() shouldBe (i to j)
-          }
-        }
-      }
-      awaitComplete()
-    }
-  }
-
-  @Test
   fun nested() = runTest {
     val list = listOf(listOf(1, 2), listOf(3, 4), listOf(5, 6))
     var innerCount = 0
@@ -128,6 +103,7 @@ class ComprehensionTest {
         val item by inner.bind()
         effect {
           inner
+          println("received $inner")
           innerCount++
         }
         effect {
