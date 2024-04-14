@@ -60,17 +60,16 @@ class ComprehensionTest {
       option {
         val first by list1.bind()
         effect {
-          first
+          println("first: $first")
           firstCounter++
         }
         val second by list2.bind()
         effect {
-          second
+          println("second: $second")
           secondCounter++
         }
         effect {
-          first
-          second
+          println("first: $first, second: $second")
           firstAndSecondCounter++
         }
         val third = list3.bindHere()
