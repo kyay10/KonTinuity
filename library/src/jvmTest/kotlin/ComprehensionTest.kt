@@ -16,7 +16,7 @@ class ComprehensionTest {
       option {
         val item by list.bind()
         effect {
-          item
+          println("item: $item")
           counter++
         }
         item
@@ -37,6 +37,9 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val item by list.bind()
+        effect {
+          println("item: $item")
+        }
         if (item == 2) raise(None) else item
       }
     }
@@ -59,15 +62,18 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val first by list1.bind()
+        println("local first: $first")
         effect {
           println("first: $first")
           firstCounter++
         }
         val second by list2.bind()
+        println("local second: $second")
         effect {
           println("second: $second")
           secondCounter++
         }
+        println("local first: $first, second: $second")
         effect {
           println("first: $first, second: $second")
           firstAndSecondCounter++
@@ -126,11 +132,11 @@ class ComprehensionTest {
         val inner by list.bind()
         val item by inner.bind()
         effect {
-          inner
+          println("inner: $inner")
           innerCount++
         }
         effect {
-          item
+          println("item: $item")
           itemCount++
         }
         item

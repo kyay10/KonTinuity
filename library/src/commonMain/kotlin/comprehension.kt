@@ -1,5 +1,5 @@
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -9,10 +9,15 @@ import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.runtime.snapshots.StateObject
+import androidx.compose.runtime.snapshots.StateRecord
+import androidx.compose.runtime.snapshots.withCurrent
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
 import arrow.core.Option
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -22,16 +27,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
 internal sealed interface ComprehensionScope {
-  fun ComprehensionLock.register()
+  val isRunning: Boolean
+  fun <T> ComprehensionLock<T>.register(ts: List<T>): State<T>
 }
 
-internal class ComprehensionLock {
+internal class ComprehensionLock<T> {
   private val waitingMutex = Mutex()
 
   val done: Boolean
     get() = !waitingMutex.isLocked
 
-  var reset by mutableStateOf(false)
+  var list: List<T>? = null
+  var job: Job? = null
+  val stateOfState = mutableStateOf<MutableState<T>?>(null)
+  val state = derivedStateOf { stateOfState.value?.value ?: null as T }
 
   suspend fun awaitNextItem() {
     waitingMutex.lock()
@@ -44,30 +53,66 @@ internal class ComprehensionLock {
   fun signalFinished() {
     waitingMutex.unlock()
   }
+
+  fun CoroutineScope.configure(ts: List<T>) {
+    list = ts
+    stateOfState.value = mutableStateOf(ts.first(), neverEqualPolicy())
+    job = launch {
+      var first = true
+      for (element in list!!) {
+        awaitNextItem()
+        if (first) {
+          first = false
+        } else {
+          stateOfState.value!!.value = element
+        }
+      }
+      signalFinished()
+    }
+  }
+
+  fun dispose() {
+    job?.cancel()
+  }
 }
 
-internal class ComprehensionScopeImpl : ComprehensionScope {
-  private val stack = mutableListOf<ComprehensionLock>()
+internal class ComprehensionScopeImpl(
+  private val coroutineScope: CoroutineScope, private val clock: GatedFrameClock
+) : ComprehensionScope {
+  private val stack = mutableListOf<ComprehensionLock<*>>()
   val finished: Boolean
     get() = stack.all { it.done }
 
-  override fun ComprehensionLock.register() {
-    if (this !in stack) stack.add(this)
+  override val isRunning: Boolean
+    get() = clock.isRunning
+
+  override fun <T> ComprehensionLock<T>.register(ts: List<T>): State<T> {
+    if (this !in stack) {
+      coroutineScope.configure(ts)
+      stack.add(this)
+    }
+    return state
   }
 
   fun unlockNext(): Boolean = finished.also {
     val index = stack.indexOfLast { !it.done }
     if (index == -1) return@also
     val snapshot = Snapshot.takeMutableSnapshot()
-    snapshot.enter {
-      stack[index].unlock()
-      for (i in (index + 1)..<stack.size) {
-        stack.removeAt(index + 1).apply {
-          reset = !reset
+    try {
+      snapshot.enter {
+        stack[index].unlock()
+        for (i in (index + 1)..<stack.size) {
+          stack.removeAt(index + 1).reset()
         }
       }
+      snapshot.apply().check()
+    } finally {
+      snapshot.dispose()
     }
-    snapshot.apply().check()
+  }
+
+  private fun <T> ComprehensionLock<T>.reset() {
+    dispose()
   }
 
   override fun equals(other: Any?): Boolean {
@@ -89,8 +134,8 @@ internal inline fun <T> listComprehension(
   crossinline body: @Composable context(ComprehensionScope) () -> Option<T>
 ): Flow<T> = flow {
   coroutineScope {
-    val scope = ComprehensionScopeImpl()
     val clock = GatedFrameClock(this)
+    val scope = ComprehensionScopeImpl(this, clock)
     val outputBuffer = Channel<Option<T>>(1)
 
     launch(clock, start = CoroutineStart.UNDISPATCHED) {
@@ -121,25 +166,13 @@ internal inline fun <T> listComprehension(
 context(ComprehensionScope)
 @Composable
 internal fun <T> List<T>.bind(): State<T> {
-  val lock = remember { ComprehensionLock() }
-  val stateOfState = remember { mutableStateOf<MutableState<T>?>(null) }
-  remember(lock.reset) {
-    stateOfState.value = mutableStateOf(first(), neverEqualPolicy())
-  }
-  lock.register()
-  LaunchedEffect(lock.reset) {
-    var first = true
-    for (element in this@bind) {
-      lock.awaitNextItem()
-      if (first) {
-        first = false
-      } else {
-        stateOfState.value!!.value = element
-      }
+  val lock = remember { ComprehensionLock<T>() }
+  DisposableEffect(Unit) {
+    onDispose {
+      lock.dispose()
     }
-    lock.signalFinished()
   }
-  return remember { derivedStateOf { stateOfState.value!!.value } }
+  return lock.register(this@bind)
 }
 
 context(ComprehensionScope)
@@ -148,5 +181,24 @@ internal fun <T> List<T>.bindHere(): T = bind().value
 
 context(A) private fun <A> given(): A = this@A
 
+private val StateObject.currentRecord: StateRecord
+  get() = firstStateRecord.withCurrent { it }
+
 @Composable
-public fun <R> effect(block: () -> R): R = remember { derivedStateOf(block) }.value
+public fun <R> effect(block: () -> R): R {
+  var stateToRecord by remember { mutableStateOf<Map<StateObject, StateRecord>?>(null) }
+  var result by remember { mutableStateOf<R?>(null) }
+  if (stateToRecord?.any { (state, record) -> state.currentRecord != record } != false) {
+    stateToRecord = buildMap {
+      Snapshot.observe(readObserver = {
+        put(
+          it as StateObject,
+          it.currentRecord
+        )
+      }) {
+        result = block()
+      }
+    }
+  }
+  return result!!
+}
