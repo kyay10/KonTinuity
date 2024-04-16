@@ -53,38 +53,34 @@ class ComprehensionTest {
 
   @Test
   fun lists() = runTest {
-    val list1 = listOf(1, 2, 3)
-    val list2 = listOf(2, 3, 4)
+    val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3)
+    val list2 = listOf(2, 3, Int.MAX_VALUE, 4)
     val list3 = listOf(3, 4, 5)
     var firstCounter = 0
     var secondCounter = 0
-    var firstAndSecondCounter = 0
+    var thirdCounter = 0
     val flow = listComprehension {
       option {
-        val first by list1.bind()
-        println("local first: $first")
-        effect {
-          println("first: $first")
+        val first by (list1 + Int.MAX_VALUE).bind()
+        ensure(first != Int.MAX_VALUE)
+        effect("first") {
           firstCounter++
         }
-        val second by list2.bind()
-        println("local second: $second")
-        effect {
-          println("second: $second")
+        val second by (list2 + Int.MAX_VALUE).bind()
+        ensure(second != Int.MAX_VALUE)
+        effect("second") {
           secondCounter++
         }
-        println("local first: $first, second: $second")
-        effect {
-          println("first: $first, second: $second")
-          firstAndSecondCounter++
+        val third by list3.bind()
+        effect("third") {
+          thirdCounter++
         }
-        val third = list3.bindHere()
         first to second
       }
     }
     flow.test(10.seconds) {
-      for (i in list1) {
-        for (j in list2) {
+      for (i in list1.filter { it != Int.MAX_VALUE }) {
+        for (j in list2.filter { it != Int.MAX_VALUE }) {
           for (k in list3) {
             awaitItem() shouldBe (i to j)
           }
@@ -92,9 +88,9 @@ class ComprehensionTest {
       }
       awaitComplete()
     }
-    firstCounter shouldBe list1.size
-    secondCounter shouldBe list1.size * list2.size
-    firstAndSecondCounter shouldBe list1.size * list2.size
+    firstCounter shouldBe 3
+    secondCounter shouldBe 9
+    thirdCounter shouldBe 27
   }
 
   @Test
@@ -130,11 +126,11 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val inner by list.bind()
-        val item by inner.bind()
         effect {
           println("inner: $inner")
           innerCount++
         }
+        val item by inner.bind()
         effect {
           println("item: $item")
           itemCount++
