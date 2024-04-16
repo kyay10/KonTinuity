@@ -1,6 +1,6 @@
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -24,17 +24,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 
 public sealed interface ComprehensionScope {
-  public fun <T> ComprehensionLock<T>.register(ts: List<T>): State<T>
+  public fun <T> ComprehensionLock<T>.register(list: List<T>): State<T>
   public fun readAll()
 }
 
-public class ComprehensionLock<T> {
+public class ComprehensionLock<T> : RememberObserver {
   private val waitingMutex = Mutex()
 
   internal val done: Boolean
     get() = !waitingMutex.isLocked
 
-  private var list: List<T>? = null
   private var job: Job? = null
   private val stateOfState = mutableStateOf<MutableState<T>?>(null)
   internal val state get() = stateOfState.value!!
@@ -47,13 +46,12 @@ public class ComprehensionLock<T> {
     waitingMutex.unlock()
   }
 
-  internal fun CoroutineScope.configure(ts: List<T>) {
-    list = ts
-    stateOfState.value = mutableStateOf(ts.first(), neverEqualPolicy())
+  internal fun CoroutineScope.configure(list: List<T>) {
+    stateOfState.value = mutableStateOf(list.first(), neverEqualPolicy())
     job = launch {
       var first = true
       try {
-        for (element in list!!) {
+        for (element in list) {
           awaitNextItem()
           if (first) {
             first = false
@@ -71,6 +69,18 @@ public class ComprehensionLock<T> {
   internal fun dispose() {
     job?.cancel()
   }
+
+  override fun onAbandoned() {
+    // Nothing to do as [onRemembered] was not called.
+  }
+
+  override fun onForgotten() {
+    dispose()
+  }
+
+  override fun onRemembered() {
+    // Do nothing
+  }
 }
 
 internal class ComprehensionScopeImpl(
@@ -84,9 +94,9 @@ internal class ComprehensionScopeImpl(
   private val finished: Boolean
     get() = stack.all { it.done }
 
-  override fun <T> ComprehensionLock<T>.register(ts: List<T>): State<T> {
+  override fun <T> ComprehensionLock<T>.register(list: List<T>): State<T> {
     if (this !in stack) {
-      coroutineScope.configure(ts)
+      coroutineScope.configure(list)
       stack.add(this)
     }
     return state
@@ -114,8 +124,8 @@ public fun <T> listComprehension(
   body: @Composable context(ComprehensionScope) () -> Option<T>
 ): Flow<T> = flow {
   coroutineScope {
-    val clock = GatedFrameClock(this)
     val scope = ComprehensionScopeImpl(this)
+    val clock = GatedFrameClock(this)
     val outputBuffer = Channel<Option<T>>(1)
 
     launch(clock, start = CoroutineStart.UNDISPATCHED) {
@@ -126,7 +136,7 @@ public fun <T> listComprehension(
         outputBuffer.trySend(it).getOrThrow()
       })
     }
-    var finished: Boolean
+
     do {
       val result = outputBuffer.tryReceive()
       // Per `ReceiveChannel.tryReceive` documentation: isFailure means channel is empty.
@@ -137,42 +147,36 @@ public fun <T> listComprehension(
         result.getOrThrow()
       }
       value.onSome { emit(it) }
-      finished = scope.unlockNext()
-    } while (!finished)
+    } while (!scope.unlockNext())
     coroutineContext.cancelChildren()
   }
 }
 
 context(ComprehensionScope)
 @Composable
-public fun <T> List<T>.bind(): State<T> {
+public fun <T> List<T>.bindAsState(): State<T> {
   val lock = remember { ComprehensionLock<T>() }
-  DisposableEffect(Unit) {
-    onDispose {
-      lock.dispose()
-    }
-  }
-  return lock.register(this@bind).also { it.value }
+  return lock.register(this@bindAsState).also { it.value }
 }
 
 context(ComprehensionScope)
 @Composable
-public fun <T> List<T>.bindHere(): T = bind().value
+public fun <T> List<T>.bind(): T = bindAsState().value
 
 context(A) private fun <A> given(): A = this@A
 
 context(ComprehensionScope)
 @Composable
-public fun <R> effect(tag: String = "", block: () -> R): R {
+public fun <R> effect(block: () -> R): R {
   val scope by rememberUpdatedState(given<ComprehensionScope>())
-  return baseEffect(tag) {
+  return baseEffect {
     scope.readAll()
     block()
   }
 }
 
 @Composable
-private fun <R> baseEffect(tag: String = "", block: () -> R): R =
-  remember { derivedStateOf(block).also { println("$tag: $it") } }.let {
+private fun <R> baseEffect(block: () -> R): R =
+  remember { derivedStateOf(block) }.let {
     Snapshot.withoutReadObservation { it.value }
   }

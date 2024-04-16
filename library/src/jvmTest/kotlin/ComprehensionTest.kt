@@ -14,9 +14,8 @@ class ComprehensionTest {
     var counter = 0
     val flow = listComprehension {
       option {
-        val item by list.bind()
+        val item by list.bindAsState()
         effect {
-          println("item: $item")
           counter++
         }
         item
@@ -36,10 +35,7 @@ class ComprehensionTest {
     val list = listOf(1, 2, 3)
     val flow = listComprehension {
       option {
-        val item by list.bind()
-        effect {
-          println("item: $item")
-        }
+        val item by list.bindAsState()
         if (item == 2) raise(None) else item
       }
     }
@@ -61,18 +57,18 @@ class ComprehensionTest {
     var thirdCounter = 0
     val flow = listComprehension {
       option {
-        val first by (list1 + Int.MAX_VALUE).bind()
+        val first by (list1 + Int.MAX_VALUE).bindAsState()
         ensure(first != Int.MAX_VALUE)
-        effect("first") {
+        effect() {
           firstCounter++
         }
-        val second by (list2 + Int.MAX_VALUE).bind()
+        val second by (list2 + Int.MAX_VALUE).bindAsState()
         ensure(second != Int.MAX_VALUE)
-        effect("second") {
+        effect() {
           secondCounter++
         }
-        val third by list3.bind()
-        effect("third") {
+        val third by list3.bindAsState()
+        effect() {
           thirdCounter++
         }
         first to second
@@ -98,11 +94,23 @@ class ComprehensionTest {
     val list1 = listOf(1, 2, 3)
     val list2 = listOf(2, 3, 4)
     val list3 = listOf(3, 4, 5)
+    var firstCounter = 0
+    var secondCounter = 0
+    var thirdCounter = 0
     val flow = listComprehension {
       option {
-        val first = list1.bindHere()
-        val second = list2.bindHere()
-        val third = list3.bindHere()
+        val first = list1.bind()
+        effect {
+          firstCounter++
+        }
+        val second = list2.bind()
+        effect {
+          secondCounter++
+        }
+        val third = list3.bind()
+        effect {
+          thirdCounter++
+        }
         first to second
       }
     }
@@ -116,6 +124,9 @@ class ComprehensionTest {
       }
       awaitComplete()
     }
+    firstCounter shouldBe list1.size
+    secondCounter shouldBe list1.size * list2.size
+    thirdCounter shouldBe list1.size * list2.size * list3.size
   }
 
   @Test
@@ -125,14 +136,12 @@ class ComprehensionTest {
     var itemCount = 0
     val flow = listComprehension {
       option {
-        val inner by list.bind()
+        val inner by list.bindAsState()
         effect {
-          println("inner: $inner")
           innerCount++
         }
-        val item by inner.bind()
+        val item by inner.bindAsState()
         effect {
-          println("item: $item")
           itemCount++
         }
         item
