@@ -10,7 +10,9 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshots.Snapshot
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
+import arrow.core.None
 import arrow.core.Option
+import arrow.core.raise.OptionRaise
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -22,9 +24,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlin.jvm.JvmInline
 
 public sealed interface ComprehensionScope {
-  public fun <T> ComprehensionLock<T>.register(list: List<T>): State<T>
+  public fun <T> ComprehensionLock<T>.register(list: List<T>): OptionalState<T>
   public fun readAll()
 }
 
@@ -35,10 +38,9 @@ public class ComprehensionLock<T> : RememberObserver {
     get() = !waitingMutex.isLocked
 
   private var job: Job? = null
-  private val _state = mutableStateOf<T?>(null, neverEqualPolicy())
+  private val _state = mutableStateOf<Any?>(EmptyValue, neverEqualPolicy())
 
-  @Suppress("UNCHECKED_CAST")
-  internal val state get() = _state as State<T>
+  internal val state get() = OptionalState<T>(_state)
 
   private suspend fun awaitNextItem() {
     waitingMutex.lock()
@@ -49,17 +51,14 @@ public class ComprehensionLock<T> : RememberObserver {
   }
 
   internal fun CoroutineScope.configure(list: List<T>) {
-    _state.value = list.first()
     job = launch {
       try {
-        awaitNextItem()
-        for (element in list.subList(1, list.size)) {
+        for (element in list) {
           awaitNextItem()
           _state.value = element
         }
       } finally {
-        if (waitingMutex.isLocked)
-          waitingMutex.unlock()
+        if (waitingMutex.isLocked) waitingMutex.unlock()
       }
     }
   }
@@ -81,18 +80,35 @@ public class ComprehensionLock<T> : RememberObserver {
   }
 }
 
+@JvmInline
+public value class OptionalState<@Suppress("unused") T>(internal val state: State<Any?>) {
+  public fun read() {
+    state.value
+  }
+}
+
+internal object EmptyValue
+
+context(OptionRaise)
+public operator fun <T> OptionalState<T>.provideDelegate(
+  thisRef: Any?, property: Any?
+): State<T> {
+  if (state.value == EmptyValue) raise(None)
+  @Suppress("UNCHECKED_CAST") return state as State<T>
+}
+
 internal class ComprehensionScopeImpl(
   private val coroutineScope: CoroutineScope
 ) : ComprehensionScope {
   override fun readAll() {
-    locks.forEach { it.state.value }
+    locks.forEach { it.state.read() }
   }
 
   private val locks = mutableListOf<ComprehensionLock<*>>()
   private val finished: Boolean
     get() = locks.all { it.done }
 
-  override fun <T> ComprehensionLock<T>.register(list: List<T>): State<T> {
+  override fun <T> ComprehensionLock<T>.register(list: List<T>): OptionalState<T> {
     if (this !in locks) {
       coroutineScope.configure(list)
       locks.add(this)
@@ -149,14 +165,10 @@ public fun <T> listComprehension(
 
 context(ComprehensionScope)
 @Composable
-public fun <T> List<T>.bindAsState(): State<T> {
+public fun <T> List<T>.bindAsState(): OptionalState<T> {
   val lock = remember { ComprehensionLock<T>() }
-  return lock.register(this@bindAsState).also { it.value }
+  return lock.register(this@bindAsState)
 }
-
-context(ComprehensionScope)
-@Composable
-public fun <T> List<T>.bind(): T = bindAsState().value
 
 context(A) private fun <A> given(): A = this@A
 
@@ -171,7 +183,6 @@ public fun <R> effect(block: () -> R): R {
 }
 
 @Composable
-private fun <R> baseEffect(block: () -> R): R =
-  remember { derivedStateOf(block) }.let {
-    Snapshot.withoutReadObservation { it.value }
-  }
+private fun <R> baseEffect(block: () -> R): R = remember { derivedStateOf(block) }.let {
+  Snapshot.withoutReadObservation { it.value }
+}
