@@ -1,5 +1,4 @@
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -15,6 +14,7 @@ import arrow.core.Option
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -35,8 +35,10 @@ public class ComprehensionLock<T> : RememberObserver {
     get() = !waitingMutex.isLocked
 
   private var job: Job? = null
-  private val stateOfState = mutableStateOf<MutableState<T>?>(null)
-  internal val state get() = stateOfState.value!!
+  private val _state = mutableStateOf<T?>(null, neverEqualPolicy())
+
+  @Suppress("UNCHECKED_CAST")
+  internal val state get() = _state as State<T>
 
   private suspend fun awaitNextItem() {
     waitingMutex.lock()
@@ -47,17 +49,13 @@ public class ComprehensionLock<T> : RememberObserver {
   }
 
   internal fun CoroutineScope.configure(list: List<T>) {
-    stateOfState.value = mutableStateOf(list.first(), neverEqualPolicy())
+    _state.value = list.first()
     job = launch {
-      var first = true
       try {
-        for (element in list) {
+        awaitNextItem()
+        for (element in list.subList(1, list.size)) {
           awaitNextItem()
-          if (first) {
-            first = false
-          } else {
-            stateOfState.value!!.value = element
-          }
+          _state.value = element
         }
       } finally {
         if (waitingMutex.isLocked)
@@ -66,8 +64,8 @@ public class ComprehensionLock<T> : RememberObserver {
     }
   }
 
-  internal fun dispose() {
-    job?.cancel()
+  internal suspend fun dispose() {
+    job?.cancelAndJoin()
   }
 
   override fun onAbandoned() {
@@ -75,7 +73,7 @@ public class ComprehensionLock<T> : RememberObserver {
   }
 
   override fun onForgotten() {
-    dispose()
+    job?.cancel()
   }
 
   override fun onRemembered() {
@@ -87,35 +85,32 @@ internal class ComprehensionScopeImpl(
   private val coroutineScope: CoroutineScope
 ) : ComprehensionScope {
   override fun readAll() {
-    stack.forEach { it.state.value }
+    locks.forEach { it.state.value }
   }
 
-  private val stack = mutableListOf<ComprehensionLock<*>>()
+  private val locks = mutableListOf<ComprehensionLock<*>>()
   private val finished: Boolean
-    get() = stack.all { it.done }
+    get() = locks.all { it.done }
 
   override fun <T> ComprehensionLock<T>.register(list: List<T>): State<T> {
-    if (this !in stack) {
+    if (this !in locks) {
       coroutineScope.configure(list)
-      stack.add(this)
+      locks.add(this)
     }
     return state
   }
 
-  internal fun unlockNext(): Boolean = finished.also {
-    val index = stack.indexOfLast { !it.done }
+  /**
+   * Unlocks the next lock in the list
+   *
+   * @return `true` if the next lock was unlocked, `false` otherwise.
+   */
+  internal suspend fun unlockNext(): Boolean = finished.also {
+    val index = locks.indexOfLast { !it.done }
     if (index == -1) return@also
-    val snapshot = Snapshot.takeMutableSnapshot()
-    try {
-      snapshot.enter {
-        stack[index].unlock()
-        for (i in (index + 1)..<stack.size) {
-          stack.removeAt(index + 1).dispose()
-        }
-      }
-      snapshot.apply().check()
-    } finally {
-      snapshot.dispose()
+    locks[index].unlock()
+    for (i in (index + 1)..<locks.size) {
+      locks.removeAt(index + 1).dispose()
     }
   }
 }

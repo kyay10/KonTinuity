@@ -7,6 +7,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.seconds
 
+@Suppress("UNUSED_VARIABLE")
 class ComprehensionTest {
   @Test
   fun singleList() = runTest {
@@ -59,16 +60,16 @@ class ComprehensionTest {
       option {
         val first by (list1 + Int.MAX_VALUE).bindAsState()
         ensure(first != Int.MAX_VALUE)
-        effect() {
+        effect {
           firstCounter++
         }
         val second by (list2 + Int.MAX_VALUE).bindAsState()
         ensure(second != Int.MAX_VALUE)
-        effect() {
+        effect {
           secondCounter++
         }
         val third by list3.bindAsState()
-        effect() {
+        effect {
           thirdCounter++
         }
         first to second
