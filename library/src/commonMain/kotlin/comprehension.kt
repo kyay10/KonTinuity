@@ -15,81 +15,47 @@ import arrow.core.Option
 import arrow.core.raise.OptionRaise
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ProducerScope
+import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.channels.getOrElse
+import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlin.jvm.JvmInline
 
 public sealed interface ComprehensionScope {
   public fun readAll()
-  public fun <T> ComprehensionLock<T>.register(producer: suspend context(CoroutineScope) ComprehensionProducer<T>.() -> Unit): OptionalState<T>
+  public fun <T> ComprehensionState<T>.register(producer: suspend ProducerScope<T>.() -> Unit): OptionalState<T>
 }
 
-public sealed interface ComprehensionProducer<T> {
-  public suspend fun produce(value: T)
-}
+public class ComprehensionState<T> : RememberObserver {
+  private lateinit var channel: ReceiveChannel<T>
 
-public class ComprehensionLock<T> : RememberObserver, ComprehensionProducer<T> {
-  private val waitingMutex = Mutex()
-  private val workingMutex = Mutex()
-
-  internal val done: Boolean
-    get() = !waitingMutex.isLocked && !workingMutex.isLocked
-
-  private var job: Job? = null
   private val _state = mutableStateOf<Any?>(EmptyValue, neverEqualPolicy())
-
   internal val state get() = OptionalState<T>(_state)
 
-  private suspend fun awaitNextItem() {
-    waitingMutex.lock()
+  internal suspend fun advance(): Boolean {
+    val value = channel.receiveCatching()
+    _state.value = value.getOrElse { EmptyValue }
+    return value.isSuccess
   }
 
-  internal suspend fun unlock() = workingMutex.withLock {
-    waitingMutex.unlock()
+  internal fun configure(receiveChannel: ReceiveChannel<T>) {
+    channel = receiveChannel
   }
 
-  override suspend fun produce(value: T) {
-    workingMutex.unlock()
-    awaitNextItem()
-    _state.value = value
-    workingMutex.lock()
-  }
-
-  internal fun CoroutineScope.configure(producer: suspend context(CoroutineScope) ComprehensionProducer<T>.() -> Unit) {
-    job = launch {
-      try {
-        workingMutex.withLock {
-          producer(this, this@ComprehensionLock)
-        }
-      } finally {
-        if (waitingMutex.isLocked) waitingMutex.unlock()
-      }
-    }
-  }
-
-  internal suspend fun dispose() {
-    job?.cancelAndJoin()
-  }
-
-  override fun onAbandoned() {
-    // Nothing to do as [onRemembered] was not called.
-  }
+  override fun onAbandoned() {}
 
   override fun onForgotten() {
-    job?.cancel()
+    channel.cancel()
   }
 
-  override fun onRemembered() {
-    // Do nothing
-  }
+  override fun onRemembered() {}
 }
 
 @JvmInline
@@ -101,8 +67,8 @@ public value class OptionalState<@Suppress("unused") out T>(internal val state: 
 
 context(OptionRaise)
 @Suppress("UNCHECKED_CAST")
-public val <T> OptionalState<T>.value: T get() =
-  if (state.value == EmptyValue) raise(None) else state.value as T
+public val <T> OptionalState<T>.value: T
+  get() = if (state.value == EmptyValue) raise(None) else state.value as T
 
 internal object EmptyValue
 
@@ -118,17 +84,17 @@ internal class ComprehensionScopeImpl(
   private val coroutineScope: CoroutineScope
 ) : ComprehensionScope {
   override fun readAll() {
-    locks.forEach { it.state.read() }
+    stack.forEach { it.state.read() }
   }
 
-  private val locks = mutableListOf<ComprehensionLock<*>>()
-  private val finished: Boolean
-    get() = locks.all { it.done }
+  private val stack = mutableListOf<ComprehensionState<*>>()
+  val finished get() = stack.isEmpty()
 
-  override fun <T> ComprehensionLock<T>.register(producer: suspend context(CoroutineScope) ComprehensionProducer<T>.() -> Unit): OptionalState<T> {
-    if (this !in locks) {
-      coroutineScope.configure(producer)
-      locks.add(this)
+  @OptIn(ExperimentalCoroutinesApi::class)
+  override fun <T> ComprehensionState<T>.register(producer: suspend ProducerScope<T>.() -> Unit): OptionalState<T> {
+    if (this !in stack) {
+      configure(coroutineScope.produce(block = producer))
+      stack.add(this)
     }
     return state
   }
@@ -136,23 +102,20 @@ internal class ComprehensionScopeImpl(
   /**
    * Unlocks the next lock in the list
    *
-   * @return `true` if the next lock was unlocked, `false` otherwise.
+   * @return `true` if we're done, `false` otherwise
    */
-  internal suspend fun unlockNext(): Boolean = finished.also {
-    val index = locks.indexOfLast { !it.done }
-    if (index == -1) return@also
-    val snapshot = Snapshot.takeMutableSnapshot()
-    try {
-      snapshot.enter {
-        for (i in (index + 1)..<locks.size) {
-          locks.removeAt(index + 1).dispose()
-        }
-        locks[index].unlock()
-      }
-      snapshot.apply().check()
-    } finally {
-      snapshot.dispose()
+  internal suspend fun unlockNext() {
+    stack.removeLastWhile { !it.advance() }
+  }
+}
+
+public inline fun <T> MutableList<T>.removeLastWhile(predicate: (T) -> Boolean) {
+  val iterator = listIterator(size)
+  while (iterator.hasPrevious()) {
+    if (!predicate(iterator.previous())) {
+      return
     }
+    iterator.remove()
   }
 }
 
@@ -183,7 +146,8 @@ public fun <T> listComprehension(
         result.getOrThrow()
       }
       value.onSome { emit(it) }
-    } while (!scope.unlockNext())
+      scope.unlockNext()
+    } while (!scope.finished)
     coroutineContext.cancelChildren()
   }
 }
@@ -191,10 +155,10 @@ public fun <T> listComprehension(
 context(ComprehensionScope)
 @Composable
 public fun <T> List<T>.bind(): OptionalState<T> {
-  val lock = remember { ComprehensionLock<T>() }
+  val lock = remember { ComprehensionState<T>() }
   return lock.register {
     for (element in this@bind) {
-      produce(element)
+      send(element)
     }
   }
 }
@@ -202,20 +166,19 @@ public fun <T> List<T>.bind(): OptionalState<T> {
 context(ComprehensionScope)
 @Composable
 public fun <T> Flow<T>.bind(): OptionalState<T> {
-  val lock = remember { ComprehensionLock<T>() }
+  val lock = remember { ComprehensionState<T>() }
   return lock.register {
     collect { element ->
-      produce(element)
+      send(element)
     }
   }
 }
 
 context(A) private fun <A> given(): A = this@A
 
-context(ComprehensionScope)
 @Composable
-public fun <R> effect(block: () -> R): R {
-  val scope by rememberUpdatedState(given<ComprehensionScope>())
+public fun <R> ComprehensionScope.effect(block: () -> R): R {
+  val scope by rememberUpdatedState(this)
   return baseEffect {
     scope.readAll()
     block()

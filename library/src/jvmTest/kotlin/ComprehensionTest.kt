@@ -4,10 +4,12 @@ import arrow.core.None
 import arrow.core.raise.option
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.asFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
@@ -47,7 +49,6 @@ class ComprehensionTest {
         val item by flow1.bind()
         effect {
           counter++
-          println("item: $item")
         }
         item
       }
@@ -109,6 +110,54 @@ class ComprehensionTest {
       for (i in list1.filter { it != Int.MAX_VALUE }) {
         for (j in list2.filter { it != Int.MAX_VALUE }) {
           for (k in list3) {
+            awaitItem() shouldBe (i to j)
+          }
+        }
+      }
+      awaitComplete()
+    }
+    firstCounter shouldBe 3
+    secondCounter shouldBe 9
+    thirdCounter shouldBe 27
+  }
+
+  @Test
+  fun flows() = runTest {
+    val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3).asFlow().onEach {
+      delay(Random.nextLong(100, 500).milliseconds)
+    }
+    val list2 = listOf(2, 3, Int.MAX_VALUE, 4).asFlow().onEach {
+      delay(Random.nextLong(100, 500).milliseconds)
+    }
+    val list3 = listOf(3, 4, 5).asFlow().onEach {
+      delay(Random.nextLong(100, 500).milliseconds)
+    }
+    var firstCounter = 0
+    var secondCounter = 0
+    var thirdCounter = 0
+    val flow = listComprehension {
+      option {
+        val first by list1.bind()
+        ensure(first != Int.MAX_VALUE)
+        effect {
+          firstCounter++
+        }
+        val second by list2.bind()
+        ensure(second != Int.MAX_VALUE)
+        effect {
+          secondCounter++
+        }
+        val third by list3.bind()
+        effect {
+          thirdCounter++
+        }
+        first to second
+      }
+    }
+    flow.test(10.seconds) {
+      for (i in list1.toList().filter { it != Int.MAX_VALUE }) {
+        for (j in list2.toList().filter { it != Int.MAX_VALUE }) {
+          for (k in list3.toList()) {
             awaitItem() shouldBe (i to j)
           }
         }
