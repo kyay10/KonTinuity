@@ -46,7 +46,7 @@ public class ComprehensionState<T> : RememberObserver {
 
   internal suspend fun advance(): Boolean {
     val value = channel.receiveCatching()
-    _state.value = value.getOrElse { EmptyValue }
+    _state.value = value.getOrElse { if(it != null) throw it else EmptyValue }
     return value.isSuccess
   }
 
@@ -178,8 +178,6 @@ public fun <T> Flow<T>.bind(): OptionalState<T> {
     }
   }
 }
-
-context(A) private fun <A> given(): A = this@A
 
 @Composable
 public inline fun <R> ComprehensionScope.effect(block: () -> R): R {
