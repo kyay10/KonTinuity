@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
@@ -28,6 +29,10 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import kotlin.jvm.JvmInline
 
+@DslMarker
+public annotation class ComprehensionDsl
+
+@ComprehensionDsl
 public sealed interface ComprehensionScope {
   public fun readAll()
   public fun <T> ComprehensionState<T>.register(producer: suspend ProducerScope<T>.() -> Unit): OptionalState<T>
@@ -177,15 +182,29 @@ public fun <T> Flow<T>.bind(): OptionalState<T> {
 context(A) private fun <A> given(): A = this@A
 
 @Composable
-public fun <R> ComprehensionScope.effect(block: () -> R): R {
+public inline fun <R> ComprehensionScope.effect(block: () -> R): R {
   val scope by rememberUpdatedState(this)
-  return baseEffect {
-    scope.readAll()
-    block()
+  var lastRememberedValue by remember { mutableStateOf(false) }
+  var result by remember {
+    @Suppress("UNCHECKED_CAST")
+    // will get set immediately
+    mutableStateOf(null as R)
   }
+  val newestValue = baseEffect {
+    scope.readAll()
+    Snapshot.withoutReadObservation {
+      !lastRememberedValue
+    }
+  }
+  if (newestValue != lastRememberedValue) {
+    result = block()
+    lastRememberedValue = newestValue
+  }
+  return result
 }
 
 @Composable
-private fun <R> baseEffect(block: () -> R): R = remember { derivedStateOf(block) }.let {
+@PublishedApi
+internal fun <R> baseEffect(block: () -> R): R = remember { derivedStateOf(block) }.let {
   Snapshot.withoutReadObservation { it.value }
 }
