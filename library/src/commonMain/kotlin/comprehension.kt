@@ -6,13 +6,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
 import arrow.core.None
 import arrow.core.Option
+import arrow.core.nonFatalOrThrow
 import arrow.core.raise.OptionRaise
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -181,9 +181,10 @@ public fun <T> Flow<T>.bind(): OptionalState<T> {
 
 public class EffectState<R>(scope: ComprehensionScope) {
   private var lastRememberedValue by mutableStateOf(false)
-  private val _result = mutableStateOf(null as R)
+  @Suppress("UNCHECKED_CAST")
+  private val _result = mutableStateOf(Result.success(null as R))
   @PublishedApi
-  internal val result: R by _result
+  internal val result: Result<R> by _result
   private val newestValue by derivedStateOf {
     scope.readAll()
     Snapshot.withoutReadObservation {
@@ -191,11 +192,11 @@ public class EffectState<R>(scope: ComprehensionScope) {
     }
   }
   @PublishedApi
-  internal val shouldUpdate: Boolean get() = newestValue != lastRememberedValue
+  internal val shouldUpdate: Boolean get() = Snapshot.withoutReadObservation { newestValue } != lastRememberedValue
   @PublishedApi
-  internal fun update(result: R) {
+  internal fun update(result: Result<R>) {
     _result.value = result
-    lastRememberedValue = newestValue
+    lastRememberedValue = Snapshot.withoutReadObservation { newestValue }
   }
 }
 
@@ -205,17 +206,12 @@ public fun <R> ComprehensionScope.effectState(): EffectState<R> {
 }
 
 @Composable
-public inline fun <R> ComprehensionScope.effect(block: () -> R): R = effect(effectState(), block)
+public inline fun <R> ComprehensionScope.effect(crossinline block: () -> R): R = effect(effectState(), block)
 
-public inline fun <R> effect(state: EffectState<R>, block: () -> R): R = with(state) {
+public inline fun <R> effect(state: EffectState<R>, crossinline block: () -> R): R = with(state) {
   if (shouldUpdate) {
-    update(block())
+    // TODO explore if caching exceptions is a good idea
+    update(runCatching { block() }.onFailure { it.nonFatalOrThrow() })
   }
-  return result
-}
-
-@Composable
-@PublishedApi
-internal fun <R> baseEffect(block: () -> R): R = remember { derivedStateOf(block) }.let {
-  Snapshot.withoutReadObservation { it.value }
+  return result.getOrThrow()
 }

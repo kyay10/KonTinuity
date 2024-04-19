@@ -125,7 +125,7 @@ class ComprehensionTest {
 
   @Test
   fun flows() = runTest {
-    val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3).asFlow().onEach {
+    val list1 = listOf(1, Int.MAX_VALUE, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3).asFlow().onEach {
       delay(Random.nextLong(100, 500).milliseconds)
     }
     val list2 = listOf(2, 3, Int.MAX_VALUE, 4).asFlow().onEach {
@@ -142,6 +142,7 @@ class ComprehensionTest {
         val first by list1.bind()
         effect(effectState()) {
           ensure(first != Int.MAX_VALUE)
+          println(first)
           firstCounter++
         }
         val second by list2.bind()
