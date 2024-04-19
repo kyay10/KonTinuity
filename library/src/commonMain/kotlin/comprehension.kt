@@ -46,7 +46,7 @@ public class ComprehensionState<T> : RememberObserver {
 
   internal suspend fun advance(): Boolean {
     val value = channel.receiveCatching()
-    _state.value = value.getOrElse { if(it != null) throw it else EmptyValue }
+    _state.value = value.getOrElse { if (it != null) throw it else EmptyValue }
     return value.isSuccess
   }
 
@@ -179,24 +179,37 @@ public fun <T> Flow<T>.bind(): OptionalState<T> {
   }
 }
 
-@Composable
-public inline fun <R> ComprehensionScope.effect(block: () -> R): R {
-  val scope by rememberUpdatedState(this)
-  var lastRememberedValue by remember { mutableStateOf(false) }
-  var result by remember {
-    @Suppress("UNCHECKED_CAST")
-    // will get set immediately
-    mutableStateOf(null as R)
-  }
-  val newestValue = baseEffect {
+public class EffectState<R>(scope: ComprehensionScope) {
+  private var lastRememberedValue by mutableStateOf(false)
+  private val _result = mutableStateOf(null as R)
+  @PublishedApi
+  internal val result: R by _result
+  private val newestValue by derivedStateOf {
     scope.readAll()
     Snapshot.withoutReadObservation {
       !lastRememberedValue
     }
   }
-  if (newestValue != lastRememberedValue) {
-    result = block()
+  @PublishedApi
+  internal val shouldUpdate: Boolean get() = newestValue != lastRememberedValue
+  @PublishedApi
+  internal fun update(result: R) {
+    _result.value = result
     lastRememberedValue = newestValue
+  }
+}
+
+@Composable
+public fun <R> ComprehensionScope.effectState(): EffectState<R> {
+  return remember(this) { EffectState(this) }
+}
+
+@Composable
+public inline fun <R> ComprehensionScope.effect(block: () -> R): R = effect(effectState(), block)
+
+public inline fun <R> effect(state: EffectState<R>, block: () -> R): R = with(state) {
+  if (shouldUpdate) {
+    update(block())
   }
   return result
 }

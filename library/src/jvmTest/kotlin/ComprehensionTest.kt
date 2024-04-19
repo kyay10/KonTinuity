@@ -23,7 +23,7 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val item by list.bind()
-        effect {
+        effect(effectState()) {
           counter++
         }
         item
@@ -47,7 +47,7 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val item by flow1.bind()
-        effect {
+        effect(effectState()) {
           counter++
         }
         item
@@ -68,7 +68,9 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val item by list.bind()
-        if (item == 2) raise(None) else item
+        effect(effectState()) {
+          if (item == 2) raise(None) else item
+        }
       }
     }
     flow.test(10.seconds) {
@@ -90,17 +92,17 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val first by (list1 + Int.MAX_VALUE).bind()
-        ensure(first != Int.MAX_VALUE)
-        effect {
+        effect(effectState()) {
+          ensure(first != Int.MAX_VALUE)
           firstCounter++
         }
         val second by (list2 + Int.MAX_VALUE).bind()
-        ensure(second != Int.MAX_VALUE)
-        effect {
+        effect(effectState()) {
+          ensure(second != Int.MAX_VALUE)
           secondCounter++
         }
         val third by list3.bind()
-        effect {
+        effect(effectState()) {
           thirdCounter++
         }
         first to second
@@ -138,17 +140,17 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val first by list1.bind()
-        ensure(first != Int.MAX_VALUE)
-        effect {
+        effect(effectState()) {
+          ensure(first != Int.MAX_VALUE)
           firstCounter++
         }
         val second by list2.bind()
-        ensure(second != Int.MAX_VALUE)
-        effect {
+        effect(effectState()) {
+          ensure(second != Int.MAX_VALUE)
           secondCounter++
         }
         val third by list3.bind()
-        effect {
+        effect(effectState()) {
           thirdCounter++
         }
         first to second
@@ -180,15 +182,15 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val first = list1.bind().value
-        effect {
+        effect(effectState()) {
           firstCounter++
         }
         val second = list2.bind().value
-        effect {
+        effect(effectState()) {
           secondCounter++
         }
         val third = list3.bind().value
-        effect {
+        effect(effectState()) {
           thirdCounter++
         }
         first to second
@@ -218,11 +220,11 @@ class ComprehensionTest {
     val flow = listComprehension {
       option {
         val inner by list.bind()
-        effect {
+        effect(effectState()) {
           innerCount++
         }
         val item by inner.bind()
-        effect {
+        effect(effectState()) {
           itemCount++
         }
         item
