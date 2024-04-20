@@ -9,8 +9,6 @@ import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.Snapshot
-import app.cash.molecule.RecompositionMode
-import app.cash.molecule.launchMolecule
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.raise.OptionRaise
@@ -119,7 +117,7 @@ public fun <T> listComprehension(
     val clock = GatedFrameClock(this)
     val outputBuffer = Channel<Option<T>>(1)
 
-    launchMolecule(RecompositionMode.ContextClock, {
+    launchMolecule({
       clock.isRunning = false
       outputBuffer.trySend(it).getOrThrow()
     }, clock) {

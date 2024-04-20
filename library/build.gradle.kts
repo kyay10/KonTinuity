@@ -53,7 +53,6 @@ kotlin {
   sourceSets {
     val commonMain by getting {
       dependencies {
-        implementation(libs.molecule.runtime)
         implementation(libs.arrow.core)
         api(compose.runtime)
         api(libs.kotlinx.coroutines.core)
