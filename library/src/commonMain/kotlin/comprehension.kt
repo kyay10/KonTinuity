@@ -1,4 +1,5 @@
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -12,10 +13,8 @@ import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
 import arrow.core.None
 import arrow.core.Option
-import arrow.core.nonFatalOrThrow
 import arrow.core.raise.OptionRaise
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
@@ -26,17 +25,10 @@ import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.launch
 import kotlin.jvm.JvmInline
 
 @DslMarker
 public annotation class ComprehensionDsl
-
-@ComprehensionDsl
-public sealed interface ComprehensionScope {
-  public fun readAll()
-  public fun <T> ComprehensionState<T>.register(producer: suspend ProducerScope<T>.() -> Unit): OptionalState<T>
-}
 
 public class ComprehensionState<T> : RememberObserver {
   private lateinit var channel: ReceiveChannel<T>
@@ -54,49 +46,45 @@ public class ComprehensionState<T> : RememberObserver {
     channel = receiveChannel
   }
 
-  override fun onAbandoned() {}
-
   override fun onForgotten() {
     channel.cancel()
   }
 
+  override fun onAbandoned() {}
   override fun onRemembered() {}
 }
 
+internal object EmptyValue
+
 @JvmInline
-public value class OptionalState<@Suppress("unused") out T>(internal val state: State<Any?>) {
+public value class OptionalState<@Suppress("unused") out T>(@PublishedApi internal val state: State<Any?>) {
   public fun read() {
     state.value
   }
+
+  context(OptionRaise)
+  @Suppress("UNCHECKED_CAST")
+  public val value: T
+    get() = if (state.value == EmptyValue) raise(None) else state.value as T
 }
 
 context(OptionRaise)
-@Suppress("UNCHECKED_CAST")
-public val <T> OptionalState<T>.value: T
-  get() = if (state.value == EmptyValue) raise(None) else state.value as T
-
-internal object EmptyValue
-
-context(OptionRaise)
-public operator fun <T> OptionalState<T>.provideDelegate(
+public inline operator fun <T> OptionalState<T>.provideDelegate(
   thisRef: Any?, property: Any?
 ): State<T> {
   value
   @Suppress("UNCHECKED_CAST") return state as State<T>
 }
 
-internal class ComprehensionScopeImpl(
+@ComprehensionDsl
+public class ComprehensionScope internal constructor(
   private val coroutineScope: CoroutineScope
-) : ComprehensionScope {
-  override fun readAll() {
-    stack.forEach { it.state.read() }
-  }
-
+) {
   private val stack = mutableListOf<ComprehensionState<*>>()
-  val finished get() = stack.isEmpty()
+  internal val finished get() = stack.isEmpty()
 
   @OptIn(ExperimentalCoroutinesApi::class)
-  override fun <T> ComprehensionState<T>.register(producer: suspend ProducerScope<T>.() -> Unit): OptionalState<T> {
+  internal fun <T> ComprehensionState<T>.register(producer: suspend ProducerScope<T>.() -> Unit): OptionalState<T> {
     if (this !in stack) {
       configure(coroutineScope.produce(block = producer))
       stack.add(this)
@@ -104,13 +92,12 @@ internal class ComprehensionScopeImpl(
     return state
   }
 
-  /**
-   * Unlocks the next lock in the list
-   *
-   * @return `true` if we're done, `false` otherwise
-   */
   internal suspend fun unlockNext() {
     stack.removeLastWhile { !it.advance() }
+  }
+
+  internal fun readAll() {
+    stack.forEach { it.state.read() }
   }
 }
 
@@ -128,27 +115,23 @@ public fun <T> listComprehension(
   body: @Composable context(ComprehensionScope) () -> Option<T>
 ): Flow<T> = flow {
   coroutineScope {
-    val scope = ComprehensionScopeImpl(this)
+    val scope = ComprehensionScope(this)
     val clock = GatedFrameClock(this)
     val outputBuffer = Channel<Option<T>>(1)
 
-    launch(clock, start = CoroutineStart.UNDISPATCHED) {
-      launchMolecule(mode = RecompositionMode.ContextClock, body = {
-        body(scope)
-      }, emitter = {
-        clock.isRunning = false
-        outputBuffer.trySend(it).getOrThrow()
-      })
+    launchMolecule(RecompositionMode.ContextClock, {
+      clock.isRunning = false
+      outputBuffer.trySend(it).getOrThrow()
+    }, clock) {
+      body(scope)
     }
 
     do {
       val result = outputBuffer.tryReceive()
       // Per `ReceiveChannel.tryReceive` documentation: isFailure means channel is empty.
-      val value = if (result.isFailure) {
+      val value = result.getOrElse {
         clock.isRunning = true
         outputBuffer.receive()
-      } else {
-        result.getOrThrow()
       }
       value.onSome { emit(it) }
       scope.unlockNext()
@@ -159,59 +142,52 @@ public fun <T> listComprehension(
 
 context(ComprehensionScope)
 @Composable
-public fun <T> List<T>.bind(): OptionalState<T> {
-  val lock = remember { ComprehensionState<T>() }
-  return lock.register {
-    for (element in this@bind) {
-      send(element)
-    }
+public fun <T> List<T>.bind(): OptionalState<T> = remember { ComprehensionState<T>() }.register {
+  for (element in this@bind) {
+    send(element)
   }
 }
 
 context(ComprehensionScope)
 @Composable
-public fun <T> Flow<T>.bind(): OptionalState<T> {
-  val lock = remember { ComprehensionState<T>() }
-  return lock.register {
-    collect { element ->
-      send(element)
-    }
+public fun <T> Flow<T>.bind(): OptionalState<T> = remember { ComprehensionState<T>() }.register {
+  collect { element ->
+    send(element)
   }
 }
 
-public class EffectState<R>(scope: ComprehensionScope) {
+public class EffectState(scope: ComprehensionScope) {
   private var lastRememberedValue by mutableStateOf(false)
-  @Suppress("UNCHECKED_CAST")
-  private val _result = mutableStateOf(Result.success(null as R))
+
+  private val _result: MutableState<Any?> = mutableStateOf(null)
+
   @PublishedApi
-  internal val result: Result<R> by _result
+  internal val result: Any? by _result
+
   private val newestValue by derivedStateOf {
     scope.readAll()
     Snapshot.withoutReadObservation {
       !lastRememberedValue
     }
   }
+
   @PublishedApi
   internal val shouldUpdate: Boolean get() = Snapshot.withoutReadObservation { newestValue } != lastRememberedValue
+
   @PublishedApi
-  internal fun update(result: Result<R>) {
+  internal fun update(result: Any?) {
     _result.value = result
     lastRememberedValue = Snapshot.withoutReadObservation { newestValue }
   }
 }
 
-@Composable
-public fun <R> ComprehensionScope.effectState(): EffectState<R> {
-  return remember(this) { EffectState(this) }
-}
+public val ComprehensionScope.effect: EffectState
+  @Composable get(): EffectState = remember(this) { EffectState(this) }
 
-@Composable
-public inline fun <R> ComprehensionScope.effect(crossinline block: () -> R): R = effect(effectState(), block)
-
-public inline fun <R> effect(state: EffectState<R>, crossinline block: () -> R): R = with(state) {
+public inline operator fun <R> EffectState.invoke(block: () -> R): R = with(this) {
   if (shouldUpdate) {
     // TODO explore if caching exceptions is a good idea
-    update(runCatching { block() }.onFailure { it.nonFatalOrThrow() })
+    update(block())
   }
-  return result.getOrThrow()
+  @Suppress("UNCHECKED_CAST") return result as R
 }
