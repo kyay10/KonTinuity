@@ -1,11 +1,9 @@
 import androidx.compose.runtime.AbstractApplier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ComposeNode
-import androidx.compose.runtime.DisallowComposableCalls
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.State
-import androidx.compose.runtime.Updater
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -20,10 +18,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ChannelResult
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.channels.getOrElse
+import kotlinx.coroutines.channels.onClosed
 import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -35,37 +33,26 @@ public annotation class ComprehensionDsl
 public sealed interface ComprehensionTree
 
 public class ComprehensionState<T> : RememberObserver, ComprehensionTree {
+  internal var resetNeeded: Boolean = true
+    private set
+
   private var channel: ReceiveChannel<T>? = null
-    set(value) {
-      resetNeeded = false
-      field?.cancel()
-      field = value
-    }
 
   private val _state = mutableStateOf<Any?>(EmptyValue, neverEqualPolicy())
-  private lateinit var producer: suspend ProducerScope<T>.() -> Unit
   internal val state get() = OptionalState<T>(_state)
-  internal var resetNeeded = false
 
-  internal suspend fun advance(): ChannelResult<T> {
+  internal suspend fun advance(): Boolean {
     val value = channel!!.receiveCatching()
-    if(value.isClosed) resetNeeded = true
+    value.onClosed { resetNeeded = true }
     _state.value = value.getOrElse { if (it != null) throw it else EmptyValue }
-    return value
+    return value.isSuccess
   }
 
-  context(ComprehensionScope)
-  @OptIn(ExperimentalCoroutinesApi::class)
-  internal fun configure(producer: suspend ProducerScope<T>.() -> Unit) {
-    this@ComprehensionState.producer = producer
-    channel = coroutineScope.produce(block = producer)
-  }
-
-  context(ComprehensionScope)
-  internal fun resetIfNeeded() {
-    if (resetNeeded) {
-      configure(producer)
-    }
+  internal fun configure(channel: ReceiveChannel<T>) {
+    if (!resetNeeded) return
+    this.channel?.cancel()
+    this.channel = channel
+    resetNeeded = false
   }
 
   override fun onForgotten() {
@@ -100,17 +87,21 @@ public inline operator fun <T> OptionalState<T>.provideDelegate(
 
 @ComprehensionDsl
 public class ComprehensionScope internal constructor(
-  internal val coroutineScope: CoroutineScope
+  private val coroutineScope: CoroutineScope
 ) : ComprehensionTree {
   internal val stack = mutableListOf<ComprehensionState<*>>()
   internal val finished get() = stack.all { it.resetNeeded }
   internal var currentEndIndex = 0
 
+  @OptIn(ExperimentalCoroutinesApi::class)
+  internal fun <T> ComprehensionState<T>.configure(producer: suspend ProducerScope<T>.() -> Unit) {
+    configure(coroutineScope.produce(block = producer))
+  }
+
   internal suspend fun unlockNext() {
     currentEndIndex = 0
     for (state in stack.asReversed()) {
-      state.resetIfNeeded()
-      if (state.advance().isSuccess) break
+      if (state.advance()) break
     }
   }
 
@@ -183,36 +174,27 @@ internal class ComprehensionApplier(root: ComprehensionScope) :
 
 context(ComprehensionScope)
 @Composable
-internal fun <T, V> bind(
-  value: V,
-  block: ComprehensionState<T>.(value: V) -> Unit
-): OptionalState<T> {
+internal fun <T> bind(block: suspend ProducerScope<T>.() -> Unit): OptionalState<T> {
   val state = remember { ComprehensionState<T>() }
-  ComposeNode<_, ComprehensionApplier>(
-    factory = { state },
-    update = {
-      set(value, block)
-
+  ComposeNode<_, ComprehensionApplier>(factory = { state }, update = {
+    if (state.resetNeeded) reconcile {
+      configure(block)
     }
-  )
+  })
   currentEndIndex++
   return state.state
 }
 
 context(ComprehensionScope)
 @Composable
-public fun <T> List<T>.bind(): OptionalState<T> = bind(this) {
-  configure {
-    forEach { send(it) }
-  }
+public fun <T> List<T>.bind(): OptionalState<T> = bind {
+  forEach { send(it) }
 }
 
 context(ComprehensionScope)
 @Composable
-public fun <T> Flow<T>.bind(): OptionalState<T> = bind(this) {
-  configure {
-    collect { send(it) }
-  }
+public fun <T> Flow<T>.bind(): OptionalState<T> = bind {
+  collect { send(it) }
 }
 
 public class EffectState(scope: ComprehensionScope) {
