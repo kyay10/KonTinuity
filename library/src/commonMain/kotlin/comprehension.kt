@@ -4,13 +4,11 @@ import androidx.compose.runtime.ComposeNode
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.State
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.Snapshot
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.raise.OptionRaise
@@ -67,10 +65,6 @@ internal object EmptyValue
 
 @JvmInline
 public value class OptionalState<@Suppress("unused") out T>(@PublishedApi internal val state: State<Any?>) {
-  public fun read() {
-    state.value
-  }
-
   context(OptionRaise)
   @Suppress("UNCHECKED_CAST")
   public val value: T
@@ -90,7 +84,9 @@ public class ComprehensionScope internal constructor(
   private val coroutineScope: CoroutineScope
 ) : ComprehensionTree {
   internal val stack = mutableListOf<ComprehensionState<*>>()
+  private var changedSinceLastRun = setOf<ComprehensionState<*>>()
   internal var currentEndIndex = 0
+  @PublishedApi internal val shouldUpdateEffects: Boolean get() = stack.subList(0, currentEndIndex).any { it in changedSinceLastRun }
 
   @OptIn(ExperimentalCoroutinesApi::class)
   internal fun <T> ComprehensionState<T>.configure(producer: suspend ProducerScope<T>.() -> Unit) {
@@ -100,14 +96,13 @@ public class ComprehensionScope internal constructor(
   /** Returns true if all states are finished */
   internal suspend fun unlockNext(): Boolean {
     currentEndIndex = 0
-    for (state in stack.asReversed()) {
-      if (state.advance()) break
+    changedSinceLastRun = buildSet {
+      for (state in stack.asReversed()) {
+        add(state)
+        if (state.advance()) break
+      }
     }
     return stack.all { it.resetNeeded }
-  }
-
-  internal fun readAll() {
-    stack.subList(0, currentEndIndex).forEach { it.state.read() }
   }
 }
 
@@ -128,17 +123,20 @@ public fun <T> listComprehension(
     val scope = ComprehensionScope(this)
     val clock = GatedFrameClock(this)
     val outputBuffer = Channel<Option<T>>(1)
+    var runSignal by mutableStateOf(Unit, neverEqualPolicy())
 
     launchMolecule({
       clock.isRunning = false
       outputBuffer.trySend(it).getOrThrow()
     }, clock, ComprehensionApplier(scope)) {
+      runSignal
       body(scope)
     }
 
     outputBuffer.receive().onSome { emit(it) }
 
     while (!scope.unlockNext()) {
+      runSignal = Unit
       clock.isRunning = true
       outputBuffer.receive().onSome { emit(it) }
     }
@@ -194,38 +192,17 @@ public fun <T> Flow<T>.bind(): OptionalState<T> = bind {
   collect { send(it) }
 }
 
-public class EffectState(scope: ComprehensionScope) {
-  private var lastRememberedValue by mutableStateOf(false)
-
-  private val _result: MutableState<Any?> = mutableStateOf(null)
-
-  @PublishedApi
-  internal val result: Any? by _result
-
-  private val newestValue by derivedStateOf {
-    scope.readAll()
-    Snapshot.withoutReadObservation {
-      !lastRememberedValue
-    }
-  }
-
-  @PublishedApi
-  internal val shouldUpdate: Boolean get() = Snapshot.withoutReadObservation { newestValue } != lastRememberedValue
-
-  @PublishedApi
-  internal fun update(result: Any?) {
-    _result.value = result
-    lastRememberedValue = Snapshot.withoutReadObservation { newestValue }
-  }
-}
+@JvmInline public value class EffectState(@PublishedApi internal val state: MutableState<Any?>)
 
 public val ComprehensionScope.effect: EffectState
-  @Composable get(): EffectState = remember(this) { EffectState(this) }
+  @Composable get() = remember(this) { EffectState(mutableStateOf(null)) }
 
-public inline operator fun <R> EffectState.invoke(block: () -> R): R = with(this) {
-  if (shouldUpdate) {
+context(ComprehensionScope)
+public inline operator fun <R> EffectState.invoke(block: () -> R): R = with(state) {
+  if (shouldUpdateEffects) {
     // TODO explore if caching exceptions is a good idea
-    update(block())
+    value = block()
   }
-  @Suppress("UNCHECKED_CAST") return result as R
+  @Suppress("UNCHECKED_CAST")
+  value as R
 }
