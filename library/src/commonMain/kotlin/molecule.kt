@@ -1,4 +1,5 @@
 import androidx.compose.runtime.AbstractApplier
+import androidx.compose.runtime.Applier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Composition
 import androidx.compose.runtime.Recomposer
@@ -23,10 +24,11 @@ import kotlin.coroutines.cancellation.CancellationException
 internal fun <T> CoroutineScope.launchMolecule(
   emitter: (value: T) -> Unit,
   context: CoroutineContext = EmptyCoroutineContext,
+  applier: Applier<*> = UnitApplier,
   body: @Composable () -> T,
 ) {
   val recomposer = Recomposer(coroutineContext + context)
-  val composition = Composition(UnitApplier, recomposer)
+  val composition = Composition(applier, recomposer)
   var snapshotHandle: ObserverHandle? = null
   launch(context, start = UNDISPATCHED) {
     try {
