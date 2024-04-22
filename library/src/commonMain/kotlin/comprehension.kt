@@ -90,7 +90,6 @@ public class ComprehensionScope internal constructor(
   private val coroutineScope: CoroutineScope
 ) : ComprehensionTree {
   internal val stack = mutableListOf<ComprehensionState<*>>()
-  internal val finished get() = stack.all { it.resetNeeded }
   internal var currentEndIndex = 0
 
   @OptIn(ExperimentalCoroutinesApi::class)
@@ -98,11 +97,13 @@ public class ComprehensionScope internal constructor(
     configure(coroutineScope.produce(block = producer))
   }
 
-  internal suspend fun unlockNext() {
+  /** Returns true if all states are finished */
+  internal suspend fun unlockNext(): Boolean {
     currentEndIndex = 0
     for (state in stack.asReversed()) {
       if (state.advance()) break
     }
+    return stack.all { it.resetNeeded }
   }
 
   internal fun readAll() {
@@ -135,16 +136,12 @@ public fun <T> listComprehension(
       body(scope)
     }
 
-    do {
-      val result = outputBuffer.tryReceive()
-      // Per `ReceiveChannel.tryReceive` documentation: isFailure means channel is empty.
-      val value = result.getOrElse {
-        clock.isRunning = true
-        outputBuffer.receive()
-      }
-      value.onSome { emit(it) }
-      scope.unlockNext()
-    } while (!scope.finished)
+    outputBuffer.receive().onSome { emit(it) }
+
+    while (!scope.unlockNext()) {
+      clock.isRunning = true
+      outputBuffer.receive().onSome { emit(it) }
+    }
     coroutineContext.cancelChildren()
   }
 }
