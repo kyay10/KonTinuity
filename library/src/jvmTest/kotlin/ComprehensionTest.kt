@@ -1,4 +1,3 @@
-import androidx.compose.runtime.getValue
 import app.cash.turbine.test
 import arrow.core.None
 import arrow.core.raise.option
@@ -86,11 +85,15 @@ class ComprehensionTest {
     val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3)
     val list2 = listOf(2, 3, Int.MAX_VALUE, 4)
     val list3 = listOf(3, 4, 5)
+    var noObservedCounter = 0
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
     val flow = listComprehension {
       option {
+        effect {
+          noObservedCounter++
+        }
         val first by (list1 + Int.MAX_VALUE).bind()
         effect {
           ensure(first != Int.MAX_VALUE)
@@ -118,6 +121,7 @@ class ComprehensionTest {
       }
       awaitComplete()
     }
+    noObservedCounter shouldBe 1
     firstCounter shouldBe 3
     secondCounter shouldBe 9
     thirdCounter shouldBe 27

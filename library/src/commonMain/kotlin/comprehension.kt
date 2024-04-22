@@ -3,7 +3,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.ComposeNode
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.RememberObserver
-import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
@@ -36,13 +35,13 @@ public class ComprehensionState<T> : RememberObserver, ComprehensionTree {
 
   private var channel: ReceiveChannel<T>? = null
 
-  private val _state = mutableStateOf<Any?>(EmptyValue, neverEqualPolicy())
-  internal val state get() = OptionalState<T>(_state)
+  private var _state: Any? = EmptyValue
+  internal val state get() = Optional<T>(_state)
 
   internal suspend fun advance(): Boolean {
     val value = channel!!.receiveCatching()
     value.onClosed { resetNeeded = true }
-    _state.value = value.getOrElse { if (it != null) throw it else EmptyValue }
+    _state = value.getOrElse { if (it != null) throw it else EmptyValue }
     return value.isSuccess
   }
 
@@ -61,32 +60,41 @@ public class ComprehensionState<T> : RememberObserver, ComprehensionTree {
   override fun onRemembered() {}
 }
 
+@PublishedApi
 internal object EmptyValue
 
 @JvmInline
-public value class OptionalState<@Suppress("unused") out T>(@PublishedApi internal val state: State<Any?>) {
+public value class Optional<@Suppress("unused") out T>(@PublishedApi internal val underlying: Any?) {
   context(OptionRaise)
   @Suppress("UNCHECKED_CAST")
   public val value: T
-    get() = if (state.value == EmptyValue) raise(None) else state.value as T
+    get() = if (underlying == EmptyValue) raise(None) else underlying as T
 }
 
 context(OptionRaise)
-public inline operator fun <T> OptionalState<T>.provideDelegate(
+public inline operator fun <T> Optional<T>.provideDelegate(
   thisRef: Any?, property: Any?
-): State<T> {
-  value
-  @Suppress("UNCHECKED_CAST") return state as State<T>
-}
+): Optional<T> = this.also { value }
+
+@Suppress("UNCHECKED_CAST")
+public inline operator fun <T> Optional<T>.getValue(
+  thisRef: Any?, property: Any?
+): T = underlying as T
 
 @ComprehensionDsl
 public class ComprehensionScope internal constructor(
   private val coroutineScope: CoroutineScope
 ) : ComprehensionTree {
   internal val stack = mutableListOf<ComprehensionState<*>>()
-  private var changedSinceLastRun = setOf<ComprehensionState<*>>()
-  internal var currentEndIndex = 0
-  @PublishedApi internal val shouldUpdateEffects: Boolean get() = stack.subList(0, currentEndIndex).any { it in changedSinceLastRun }
+  private val changedSinceLastRun = mutableSetOf<ComprehensionState<*>>()
+
+  @PublishedApi
+  internal var shouldUpdateEffects: Boolean = false
+    private set
+
+  internal fun accessed(state: ComprehensionState<*>) {
+    if (state in changedSinceLastRun) shouldUpdateEffects = true
+  }
 
   @OptIn(ExperimentalCoroutinesApi::class)
   internal fun <T> ComprehensionState<T>.configure(producer: suspend ProducerScope<T>.() -> Unit) {
@@ -95,24 +103,15 @@ public class ComprehensionScope internal constructor(
 
   /** Returns true if all states are finished */
   internal suspend fun unlockNext(): Boolean {
-    currentEndIndex = 0
-    changedSinceLastRun = buildSet {
+    shouldUpdateEffects = false
+    changedSinceLastRun.apply {
+      clear()
       for (state in stack.asReversed()) {
         add(state)
         if (state.advance()) break
       }
     }
     return stack.all { it.resetNeeded }
-  }
-}
-
-public inline fun <T> MutableList<T>.removeLastWhile(predicate: (T) -> Boolean) {
-  val iterator = listIterator(size)
-  while (iterator.hasPrevious()) {
-    if (!predicate(iterator.previous())) {
-      return
-    }
-    iterator.remove()
   }
 }
 
@@ -134,7 +133,6 @@ public fun <T> listComprehension(
     }
 
     outputBuffer.receive().onSome { emit(it) }
-
     while (!scope.unlockNext()) {
       runSignal = Unit
       clock.isRunning = true
@@ -169,37 +167,38 @@ internal class ComprehensionApplier(root: ComprehensionScope) :
 
 context(ComprehensionScope)
 @Composable
-internal fun <T> bind(block: suspend ProducerScope<T>.() -> Unit): OptionalState<T> {
+internal fun <T> bind(block: suspend ProducerScope<T>.() -> Unit): Optional<T> {
   val state = remember { ComprehensionState<T>() }
   ComposeNode<_, ComprehensionApplier>(factory = { state }, update = {
     if (state.resetNeeded) reconcile {
       configure(block)
     }
   })
-  currentEndIndex++
+  accessed(state)
   return state.state
 }
 
 context(ComprehensionScope)
 @Composable
-public fun <T> List<T>.bind(): OptionalState<T> = bind {
+public fun <T> List<T>.bind(): Optional<T> = bind {
   forEach { send(it) }
 }
 
 context(ComprehensionScope)
 @Composable
-public fun <T> Flow<T>.bind(): OptionalState<T> = bind {
+public fun <T> Flow<T>.bind(): Optional<T> = bind {
   collect { send(it) }
 }
 
-@JvmInline public value class EffectState(@PublishedApi internal val state: MutableState<Any?>)
+@JvmInline
+public value class EffectState(@PublishedApi internal val state: MutableState<Any?>)
 
 public val ComprehensionScope.effect: EffectState
-  @Composable get() = remember(this) { EffectState(mutableStateOf(null)) }
+  @Composable get() = remember(this) { EffectState(mutableStateOf(EmptyValue)) }
 
 context(ComprehensionScope)
 public inline operator fun <R> EffectState.invoke(block: () -> R): R = with(state) {
-  if (shouldUpdateEffects) {
+  if (shouldUpdateEffects || value == EmptyValue) {
     // TODO explore if caching exceptions is a good idea
     value = block()
   }
