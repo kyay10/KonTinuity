@@ -185,15 +185,15 @@ class ComprehensionTest {
     var thirdCounter = 0
     val flow = listComprehension {
       option {
-        val first = list1.bind().value
+        val first = list1.bind().bind()
         effect {
           firstCounter++
         }
-        val second = list2.bind().value
+        val second = list2.bind().bind()
         effect {
           secondCounter++
         }
-        val third = list3.bind().value
+        val third = list3.bind().bind()
         effect {
           thirdCounter++
         }
