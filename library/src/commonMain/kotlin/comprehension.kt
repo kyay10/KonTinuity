@@ -103,27 +103,27 @@ public class ComprehensionScope internal constructor(
 }
 
 public fun <T> listComprehension(
-  body: @Composable context(ComprehensionScope) () -> Option<T>
+  body: @Composable context(ComprehensionScope) () -> Maybe<T>
 ): Flow<T> = flow {
   coroutineScope {
     val scope = ComprehensionScope(this)
     val clock = GatedFrameClock(this)
-    val outputBuffer = Channel<Option<T>>(1)
+    val outputBuffer = Channel<Any?>(1)
     lateinit var recomposeScope: RecomposeScope
 
     launchMolecule({
       clock.isRunning = false
-      outputBuffer.trySend(it).getOrThrow()
+      outputBuffer.trySend(it.rawValue).getOrThrow()
     }, clock, scope.ComprehensionApplier()) {
       recomposeScope = currentRecomposeScope
       body(scope)
     }
 
-    outputBuffer.receive().onSome { emit(it) }
+    rawMaybe<T>(outputBuffer.receive()).onJust { emit(it) }
     while (scope.unlockNext()) {
       recomposeScope.invalidate()
       clock.isRunning = true
-      outputBuffer.receive().onSome { emit(it) }
+      rawMaybe<T>(outputBuffer.receive()).onJust { emit(it) }
     }
     coroutineContext.cancelChildren()
   }

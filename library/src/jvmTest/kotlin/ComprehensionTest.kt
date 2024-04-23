@@ -1,6 +1,5 @@
 import app.cash.turbine.test
-import arrow.core.None
-import arrow.core.raise.option
+import arrow.core.raise.ensure
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.asFlow
@@ -20,7 +19,7 @@ class ComprehensionTest {
     val list = listOf(1, 2, 3)
     var counter = 0
     val flow = listComprehension {
-      option {
+      maybe {
         val item by list.bind()
         effect {
           counter++
@@ -44,7 +43,7 @@ class ComprehensionTest {
     }
     var counter = 0
     val flow = listComprehension {
-      option {
+      maybe {
         val item by flow1.bind()
         effect {
           counter++
@@ -65,10 +64,10 @@ class ComprehensionTest {
   fun filtering() = runTest {
     val list = listOf(1, 2, 3)
     val flow = listComprehension {
-      option {
+      maybe {
         val item by list.bind()
         effect {
-          if (item == 2) raise(None) else item
+          if (item == 2) raise(Unit) else item
         }
       }
     }
@@ -90,18 +89,18 @@ class ComprehensionTest {
     var secondCounter = 0
     var thirdCounter = 0
     val flow = listComprehension {
-      option {
+      maybe {
         effect {
           noObservedCounter++
         }
         val first by (list1 + Int.MAX_VALUE).bind()
         effect {
-          ensure(first != Int.MAX_VALUE)
+          ensure(first != Int.MAX_VALUE) { }
           firstCounter++
         }
         val second by (list2 + Int.MAX_VALUE).bind()
         effect {
-          ensure(second != Int.MAX_VALUE)
+          ensure(second != Int.MAX_VALUE) { }
           secondCounter++
         }
         val third by list3.bind()
@@ -142,15 +141,15 @@ class ComprehensionTest {
     var secondCounter = 0
     var thirdCounter = 0
     val flow = listComprehension {
-      option {
+      maybe {
         val first by list1.bind()
         effect {
-          ensure(first != Int.MAX_VALUE)
+          ensure(first != Int.MAX_VALUE) { }
           firstCounter++
         }
         val second by list2.bind()
         effect {
-          ensure(second != Int.MAX_VALUE)
+          ensure(second != Int.MAX_VALUE) { }
           secondCounter++
         }
         val third by list3.bind()
@@ -184,7 +183,7 @@ class ComprehensionTest {
     var secondCounter = 0
     var thirdCounter = 0
     val flow = listComprehension {
-      option {
+      maybe {
         val first = list1.bind().bind()
         effect {
           firstCounter++
@@ -222,7 +221,7 @@ class ComprehensionTest {
     var innerCount = 0
     var itemCount = 0
     val flow = listComprehension {
-      option {
+      maybe {
         val inner by list.bind()
         effect {
           innerCount++
