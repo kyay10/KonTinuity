@@ -5,8 +5,9 @@ public data class EffectState internal constructor(@PublishedApi internal var va
 
 context(Reset<*>)
 public val effect: EffectState
-  @Composable get() = remember(this@Reset) { EffectState(nothing()) }
+  @Composable get() = remember(given<Reset<*>>()) { EffectState(nothing()) }
 
+// If this could be Composable, we can use the same remember trick that Shift uses
 context(Reset<*>)
 @Suppress("UNCHECKED_CAST")
 public inline operator fun <R> EffectState.invoke(block: @ComprehensionDsl () -> R): R {

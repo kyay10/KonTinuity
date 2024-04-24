@@ -1,21 +1,13 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
 
 context(Reset<R>)
 @Composable
-public fun <T, R> shift(block: suspend (Shift<T, R>) -> R): Maybe<T> {
-  val coroutineScope = rememberCoroutineScope()
-  val state = remember { Shift<T, R>() }.apply {
-    if (state.isEmpty) shouldUpdateEffects = true
-    if (shouldUpdateEffects) coroutineScope.configure { block(this) }
-    if (this === currentShift) shouldUpdateEffects = true
-  }
-  return state.state
-}
+public fun <T, R> shift(block: suspend (Shift<T, R>) -> R): Maybe<T> =
+  remember { Shift<T, R>() }.configure(block)
 
 context(Reset<List<R>>)
 @Composable
