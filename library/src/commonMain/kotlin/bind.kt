@@ -1,27 +1,34 @@
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.ComposeNode
 import androidx.compose.runtime.remember
-import kotlinx.coroutines.channels.ProducerScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flatMapConcat
 
-context(ComprehensionScope)
+context(Reset<R>)
 @Composable
-public fun <T> bind(block: suspend ProducerScope<T>.() -> Unit): Maybe<T> {
-  val state = remember { ComprehensionState<T>() }.also { accessed(it) }
-  ComposeNode<_, ComprehensionScope.ComprehensionApplier>(factory = { state }, update = {
-    if (state.state.isEmpty) reconcile { configure(block) }
-  })
+public fun <T, R> shift(block: suspend (Shift<T, R>) -> R): Maybe<T> {
+  val state = remember { Shift<T, R>() }.apply {
+    if (state.isEmpty || shouldUpdateEffects) configure { block(this) }
+    if (this == currentShift || state.isEmpty) shouldUpdateEffects = true
+  }
   return state.state
 }
 
-context(ComprehensionScope)
+context(Reset<List<R>>)
 @Composable
-public fun <T> List<T>.bind(): Maybe<T> = bind {
-  forEach { send(it) }
+public fun <T, R> List<T>.bind(): Maybe<T> = shift { continuation ->
+  flatMap { value ->
+    println("gonna shift $value")
+    continuation(value).also { println("received $it")}
+  }
 }
 
-context(ComprehensionScope)
+context(Reset<Flow<R>>)
+@OptIn(ExperimentalCoroutinesApi::class)
 @Composable
-public fun <T> Flow<T>.bind(): Maybe<T> = bind {
-  collect { send(it) }
+public fun <T, R> Flow<T>.bind(): Maybe<T> = shift { continuation ->
+  flatMapConcat { value ->
+    println("gonna shift $value")
+    continuation(value).also { println("received $it")}
+  }
 }

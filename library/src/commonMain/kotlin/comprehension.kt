@@ -1,130 +1,94 @@
-import androidx.compose.runtime.AbstractApplier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.RecomposeScope
 import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.currentRecomposeScope
-import arrow.core.Option
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ChannelResult
-import kotlinx.coroutines.channels.ProducerScope
-import kotlinx.coroutines.channels.ReceiveChannel
-import kotlinx.coroutines.channels.getOrElse
-import kotlinx.coroutines.channels.produce
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 
 @DslMarker
 public annotation class ComprehensionDsl
 
 public sealed interface ComprehensionTree
 
-internal class ComprehensionState<T> : RememberObserver, ComprehensionTree {
-  private var channel: ReceiveChannel<T>? = null
+public class Shift<T, R> : RememberObserver, ComprehensionTree {
+  private var job: Job? = null
 
+  private val outputBuffer = Channel<Any?>(1)
   internal var state: Maybe<T> = nothing()
-  internal var changedSinceLastRun: Boolean = false
 
-  internal suspend fun advance() {
-    state = channel!!.receiveCatching().fold(::just) { e -> if (e != null) throw e else nothing() }
+  internal suspend fun receiveOutput(): Maybe<R> = rawMaybe(outputBuffer.receive())
+  internal fun trySendOutput(value: Maybe<R>) = outputBuffer.trySend(value.rawValue)
+  private suspend fun sendOutput(just: Maybe<R>) = outputBuffer.send(just.rawValue)
+
+  context(Reset<R>)
+  public suspend operator fun invoke(value: T): R {
+    currentShift = this
+    state = just(value)
+    recomposeScope.invalidate()
+    shouldUpdateEffects = false
+    clock.isRunning = true
+    return receiveOutput().getOrElse { error("Missing value") }
   }
 
-  internal fun configure(channel: ReceiveChannel<T>) {
-    if (state.isNotEmpty) return
-    this.channel?.cancel()
-    this.channel = channel
+  context(Reset<R>)
+  internal fun configure(producer: suspend () -> R) {
+    this.job?.cancel()
+    val previous = currentShift
+    currentShift = this
+    state = nothing()
+    job = coroutineScope.launch {
+      receiveOutput().onJust { error("Missing bind call on a `Maybe` value") }
+      val output = producer()
+      state = nothing()
+      currentShift = previous
+      previous.sendOutput(just(output))
+    }
   }
 
   override fun onForgotten() {
-    channel?.cancel()
+    job?.cancel()
   }
 
   override fun onAbandoned() {}
   override fun onRemembered() {}
 }
 
-private fun <T, R> ChannelResult<T>.fold(onSuccess: (T) -> R, onFailure: (Throwable?) -> R) =
-  onSuccess(getOrElse { return onFailure(it) })
-
 @ComprehensionDsl
-public class ComprehensionScope internal constructor(
-  private val coroutineScope: CoroutineScope
+public class Reset<R> internal constructor(
+  shift: Shift<*, R>, internal val coroutineScope: CoroutineScope
 ) : ComprehensionTree {
-  private val stack = mutableListOf<ComprehensionState<*>>()
+  internal val clock = GatedFrameClock(coroutineScope)
+  internal lateinit var recomposeScope: RecomposeScope
+  internal var currentShift: Shift<*, R> = shift
 
   @PublishedApi
   internal var shouldUpdateEffects: Boolean = false
-    private set
-
-  internal fun accessed(state: ComprehensionState<*>) {
-    if (state.changedSinceLastRun) shouldUpdateEffects = true
-  }
-
-  @OptIn(ExperimentalCoroutinesApi::class)
-  internal fun <T> ComprehensionState<T>.configure(producer: suspend ProducerScope<T>.() -> Unit) {
-    configure(coroutineScope.produce(block = producer))
-  }
-
-  /** Returns true if some states still aren't finished */
-  internal suspend fun unlockNext(): Boolean {
-    shouldUpdateEffects = false
-    var allFinishedSoFar = true
-    for (state in stack.asReversed()) {
-      state.changedSinceLastRun = allFinishedSoFar
-      if (allFinishedSoFar) {
-        state.changedSinceLastRun = true
-        state.advance()
-        if (!state.state.isEmpty) {
-          allFinishedSoFar = false
-        }
-      }
-    }
-    return !allFinishedSoFar
-  }
-
-  @Suppress("UNCHECKED_CAST")
-  internal inner class ComprehensionApplier : AbstractApplier<ComprehensionTree>(this) {
-    override fun insertBottomUp(index: Int, instance: ComprehensionTree) {}
-
-    override fun insertTopDown(index: Int, instance: ComprehensionTree) =
-      stack.add(index, instance as ComprehensionState<*>)
-
-    override fun move(from: Int, to: Int, count: Int) =
-      (stack as MutableList<ComprehensionTree>).move(from, to, count)
-
-    override fun remove(index: Int, count: Int) =
-      (stack as MutableList<ComprehensionTree>).remove(index, count)
-
-    override fun onClear() = stack.clear()
-  }
 }
 
-public fun <T> listComprehension(
-  body: @Composable context(ComprehensionScope) () -> Maybe<T>
-): Flow<T> = flow {
-  coroutineScope {
-    val scope = ComprehensionScope(this)
-    val clock = GatedFrameClock(this)
-    val outputBuffer = Channel<Any?>(1)
-    lateinit var recomposeScope: RecomposeScope
+public suspend fun <R> reset(
+  body: @Composable context(Reset<R>) () -> Maybe<R>
+): R = coroutineScope {
+  lazyComprehension(body).await().also { coroutineContext.cancelChildren() }
+}
 
+public fun <R> CoroutineScope.lazyComprehension(
+  body: @Composable context(Reset<R>) () -> Maybe<R>
+): Deferred<R> {
+  val shift = Shift<Nothing, R>()
+  return with(Reset<R>(shift, given<CoroutineScope>())) {
     launchMolecule({
       clock.isRunning = false
-      outputBuffer.trySend(it.rawValue).getOrThrow()
-    }, clock, scope.ComprehensionApplier()) {
+      currentShift.trySendOutput(it).getOrThrow()
+    }, clock) {
       recomposeScope = currentRecomposeScope
-      body(scope)
+      body(given<Reset<R>>())
     }
-
-    rawMaybe<T>(outputBuffer.receive()).onJust { emit(it) }
-    while (scope.unlockNext()) {
-      recomposeScope.invalidate()
-      clock.isRunning = true
-      rawMaybe<T>(outputBuffer.receive()).onJust { emit(it) }
-    }
-    coroutineContext.cancelChildren()
+    async { shift.receiveOutput().getOrElse { error("Missing value") } }
   }
 }

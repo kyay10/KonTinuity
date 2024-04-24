@@ -1,8 +1,11 @@
+import androidx.compose.runtime.Composable
 import app.cash.turbine.test
-import arrow.core.raise.ensure
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
@@ -14,25 +17,48 @@ import kotlin.time.Duration.Companion.seconds
 
 @Suppress("UNUSED_VARIABLE")
 class ComprehensionTest {
+  @Composable fun <T> Reset<List<T>>.yield(x: T) = shift { k -> listOf(x) + k(Unit) }
+
+  // Examples from https://en.wikipedia.org/wiki/Delimited_continuation
+  @Test
+  fun simpleContinuations() = runTest {
+    reset<Int> {
+      maybe {
+        val value by shift { k -> k(5) }
+        val value2 by shift { k -> k(value + 1) }
+        value2
+      }
+    } * 2 shouldBe 12
+    reset {
+      maybe {
+        val value by shift { k -> k(k(4)) }
+        value * 2
+      }
+    } + 1 shouldBe 17
+    reset {
+      maybe {
+        yield(1).bind()
+        yield(2).bind()
+        yield(3).bind()
+        emptyList()
+      }
+    } shouldBe listOf(1, 2, 3)
+  }
+
   @Test
   fun singleList() = runTest {
     val list = listOf(1, 2, 3)
     var counter = 0
-    val flow = listComprehension {
+    val result = reset<List<Int>> {
       maybe {
         val item by list.bind()
         effect {
           counter++
         }
-        item
+        listOf(item)
       }
     }
-    flow.test(10.seconds) {
-      for (i in list) {
-        awaitItem() shouldBe i
-      }
-      awaitComplete()
-    }
+    result shouldBe list
     counter shouldBe list.size
   }
 
@@ -42,41 +68,37 @@ class ComprehensionTest {
       delay(500.milliseconds)
     }
     var counter = 0
-    val flow = listComprehension {
+    val result = lazyComprehension<Flow<Int>> {
       maybe {
         val item by flow1.bind()
         effect {
           counter++
         }
-        item
+        flowOf(item)
       }
-    }
-    flow.test(10.seconds) {
+    }.await()
+    result.test(10.seconds) {
       for (i in flow1.toList()) {
         awaitItem() shouldBe i
       }
       awaitComplete()
     }
     counter shouldBe flow1.toList().size
+    coroutineContext.cancelChildren()
   }
 
   @Test
   fun filtering() = runTest {
     val list = listOf(1, 2, 3)
-    val flow = listComprehension {
+    val result = reset<List<Int>> {
       maybe {
         val item by list.bind()
         effect {
-          if (item == 2) raise(Unit) else item
+          if (item == 2) emptyList() else listOf(item)
         }
       }
     }
-    flow.test(10.seconds) {
-      for (i in list.filterNot { it == 2 }) {
-        awaitItem() shouldBe i
-      }
-      awaitComplete()
-    }
+    result shouldBe list.filter { it != 2 }
   }
 
   @Test
@@ -88,37 +110,34 @@ class ComprehensionTest {
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
-    val flow = listComprehension {
+    val result = reset<List<Pair<Int, Int>>> {
       maybe {
         effect {
           noObservedCounter++
         }
         val first by (list1 + Int.MAX_VALUE).bind()
         effect {
-          ensure(first != Int.MAX_VALUE) { }
+          if(first == Int.MAX_VALUE) return@maybe emptyList()
           firstCounter++
         }
         val second by (list2 + Int.MAX_VALUE).bind()
         effect {
-          ensure(second != Int.MAX_VALUE) { }
+          if(second == Int.MAX_VALUE) return@maybe emptyList()
           secondCounter++
         }
         val third by list3.bind()
         effect {
           thirdCounter++
         }
-        first to second
+        listOf(first to second)
       }
     }
-    flow.test(10.seconds) {
-      for (i in list1.filter { it != Int.MAX_VALUE }) {
-        for (j in list2.filter { it != Int.MAX_VALUE }) {
-          for (k in list3) {
-            awaitItem() shouldBe (i to j)
-          }
+    result shouldBe list1.filter { it != Int.MAX_VALUE }.flatMap { first ->
+      list2.filter { it != Int.MAX_VALUE }.flatMap { second ->
+        list3.map { _ ->
+          first to second
         }
       }
-      awaitComplete()
     }
     noObservedCounter shouldBe 1
     firstCounter shouldBe 3
@@ -140,26 +159,26 @@ class ComprehensionTest {
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
-    val flow = listComprehension {
+    val result = lazyComprehension<Flow<Pair<Int, Int>>> {
       maybe {
         val first by list1.bind()
         effect {
-          ensure(first != Int.MAX_VALUE) { }
+          if (first == Int.MAX_VALUE) return@maybe emptyFlow()
           firstCounter++
         }
         val second by list2.bind()
         effect {
-          ensure(second != Int.MAX_VALUE) { }
+          if (second == Int.MAX_VALUE) return@maybe emptyFlow()
           secondCounter++
         }
         val third by list3.bind()
         effect {
           thirdCounter++
         }
-        first to second
+        flowOf(first to second)
       }
-    }
-    flow.test(10.seconds) {
+    }.await()
+    result.test(10.seconds) {
       for (i in list1.toList().filter { it != Int.MAX_VALUE }) {
         for (j in list2.toList().filter { it != Int.MAX_VALUE }) {
           for (k in list3.toList()) {
@@ -172,6 +191,7 @@ class ComprehensionTest {
     firstCounter shouldBe 3
     secondCounter shouldBe 9
     thirdCounter shouldBe 27
+    coroutineContext.cancelChildren()
   }
 
   @Test
@@ -182,7 +202,7 @@ class ComprehensionTest {
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
-    val flow = listComprehension {
+    val result = reset<List<Pair<Int, Int>>> {
       maybe {
         val first = list1.bind().bind()
         effect {
@@ -196,18 +216,15 @@ class ComprehensionTest {
         effect {
           thirdCounter++
         }
-        first to second
+        listOf(first to second)
       }
     }
-    flow.test(10.seconds) {
-      for (i in list1) {
-        for (j in list2) {
-          for (k in list3) {
-            awaitItem() shouldBe (i to j)
-          }
+    result shouldBe list1.flatMap { first ->
+      list2.flatMap { second ->
+        list3.map { _ ->
+          first to second
         }
       }
-      awaitComplete()
     }
     firstCounter shouldBe list1.size
     secondCounter shouldBe list1.size * list2.size
@@ -220,7 +237,7 @@ class ComprehensionTest {
     val list = listOf(listOf(1, 2), listOf(3, 4), listOf(5, 6))
     var innerCount = 0
     var itemCount = 0
-    val flow = listComprehension {
+    val result = reset<List<Int>> {
       maybe {
         val inner by list.bind()
         effect {
@@ -230,15 +247,10 @@ class ComprehensionTest {
         effect {
           itemCount++
         }
-        item
+        listOf(item)
       }
     }
-    flow.test(10.seconds) {
-      for (i in 1..6) {
-        awaitItem() shouldBe i
-      }
-      awaitComplete()
-    }
+    result shouldBe list.flatten()
     innerCount shouldBe list.size
     itemCount shouldBe list.sumOf { it.size }
   }

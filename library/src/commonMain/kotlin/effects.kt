@@ -3,11 +3,11 @@ import androidx.compose.runtime.remember
 
 public data class EffectState internal constructor(@PublishedApi internal var value: Maybe<Any?>)
 
-context(ComprehensionScope)
+context(Reset<*>)
 public val effect: EffectState
-  @Composable get() = remember(this@ComprehensionScope) { EffectState(nothing()) }
+  @Composable get() = remember(this@Reset) { EffectState(nothing()) }
 
-context(ComprehensionScope)
+context(Reset<*>)
 @Suppress("UNCHECKED_CAST")
 public inline operator fun <R> EffectState.invoke(block: () -> R): R {
   if (shouldUpdateEffects) value = nothing()

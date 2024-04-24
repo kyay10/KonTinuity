@@ -1,8 +1,5 @@
-import arrow.core.None
 import arrow.core.identity
-import arrow.core.raise.OptionRaise
 import arrow.core.raise.Raise
-import arrow.core.raise.RaiseDSL
 import arrow.core.raise.fold
 import kotlin.jvm.JvmInline
 
@@ -27,6 +24,8 @@ public value class Maybe<@Suppress("unused") out T> internal constructor(@Publis
 public fun <T> just(value: T): Maybe<T> = Maybe(value)
 public fun <T> nothing(): Maybe<T> = Maybe(EmptyValue)
 public fun <T> rawMaybe(value: Any?): Maybe<T> = Maybe(value)
+
+public inline fun <T> Maybe<T>.getOrElse(onFailure: () -> T): T = fold(onFailure, ::identity)
 
 context(Raise<Unit>)
 public inline operator fun <T> Maybe<T>.provideDelegate(
