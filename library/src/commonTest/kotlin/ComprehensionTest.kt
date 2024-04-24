@@ -299,4 +299,45 @@ class ComprehensionTest {
     innerCount shouldBe list.size
     itemCount shouldBe list.sumOf { it.size }
   }
+
+  @Test
+  fun ifElse() = runTest {
+    val list = listOf(1, 2, 2, 3)
+    val twoElements = listOf(0, 0)
+    val result = reset<List<String>> {
+      maybe {
+        val x by listOf(1, 2, 2, 3).bind()
+        // Compose restriction: no throwing in if-else
+        ifSafe(x == 2) {
+          val y by twoElements.bind()
+          listOf("firstBranch")
+        }.elseSafe {
+          val y by twoElements.bind()
+          val z by twoElements.bind()
+          listOf("secondBranch")
+        }.getOrThrow()
+      }
+    }
+    result shouldBe list.flatMap {
+      if (it == 2) twoElements.map { "firstBranch" } else twoElements.flatMap {
+        twoElements.map { "secondBranch" }
+      }
+    }
+  }
+
+  @Test
+  fun forLoops() = runTest {
+    var counter = 0
+    val result = reset<List<Int>> {
+      maybe {
+        // Compose restriction: no throwing in for loops
+        // One can also do `val x = listOf(i, i).bind().getOrElse { return@reset nothing() }`
+        (1..10).forEachSafe { i ->
+          val x by listOf(i, i).bind()
+        }.getOrThrow()
+        listOf(0)
+      }
+    }
+    result shouldBe List(1024) { 0 }
+  }
 }

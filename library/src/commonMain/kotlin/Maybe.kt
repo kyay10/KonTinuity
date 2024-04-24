@@ -6,8 +6,8 @@ import kotlin.jvm.JvmInline
 private object EmptyValue
 
 @JvmInline
-public value class Maybe<@Suppress("unused") out T> internal constructor(@PublishedApi internal val underlying: Any?) {
-  public val isEmpty: Boolean get() = rawValue == EmptyValue
+public value class Maybe<@Suppress("unused") out T> internal constructor(private val underlying: Any?) {
+  public val isEmpty: Boolean get() = this == nothing<T>()
   public val isNotEmpty: Boolean get() = !isEmpty
   public val rawValue: Any? get() = underlying
 
@@ -20,6 +20,7 @@ public value class Maybe<@Suppress("unused") out T> internal constructor(@Publis
 
   public inline fun onJust(action: (T) -> Unit) { fold({}, action) }
   public inline fun <R> map(transform: (T) -> R): Maybe<R> = fold({ nothing() }, { just(transform(it)) })
+  public inline fun onNothing(action: () -> Unit) { fold(action) {} }
 }
 
 public fun <T> just(value: T): Maybe<T> = Maybe(value)
