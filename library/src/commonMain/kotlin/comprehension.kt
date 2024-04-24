@@ -1,6 +1,5 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.RecomposeScope
-import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.currentRecomposeScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -11,20 +10,25 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
+@Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE)
 @DslMarker
 public annotation class ComprehensionDsl
 
 public sealed interface ComprehensionTree
 
-public class Shift<T, R> : RememberObserver, ComprehensionTree {
+public class Shift<T, R> : ComprehensionTree {
   private var job: Job? = null
+    set(value) {
+      field?.cancel()
+      field = value
+    }
 
   private val outputBuffer = Channel<Any?>(1)
   internal var state: Maybe<T> = nothing()
 
   internal suspend fun receiveOutput(): Maybe<R> = rawMaybe(outputBuffer.receive())
   internal fun trySendOutput(value: Maybe<R>) = outputBuffer.trySend(value.rawValue)
-  private suspend fun sendOutput(just: Maybe<R>) = outputBuffer.send(just.rawValue)
+  private suspend fun sendOutput(value: R) = outputBuffer.send(value)
 
   context(Reset<R>)
   public suspend operator fun invoke(value: T): R {
@@ -37,31 +41,23 @@ public class Shift<T, R> : RememberObserver, ComprehensionTree {
   }
 
   context(Reset<R>)
-  internal fun configure(producer: suspend () -> R) {
-    this.job?.cancel()
+  internal fun CoroutineScope.configure(producer: suspend () -> R) {
     val previous = currentShift
-    currentShift = this
+    currentShift = this@Shift
     state = nothing()
-    job = coroutineScope.launch {
+    job = launch {
       receiveOutput().onJust { error("Missing bind call on a `Maybe` value") }
       val output = producer()
       state = nothing()
       currentShift = previous
-      previous.sendOutput(just(output))
+      previous.sendOutput(output)
     }
   }
-
-  override fun onForgotten() {
-    job?.cancel()
-  }
-
-  override fun onAbandoned() {}
-  override fun onRemembered() {}
 }
 
 @ComprehensionDsl
 public class Reset<R> internal constructor(
-  shift: Shift<*, R>, internal val coroutineScope: CoroutineScope
+  shift: Shift<*, R>, coroutineScope: CoroutineScope
 ) : ComprehensionTree {
   internal val clock = GatedFrameClock(coroutineScope)
   internal lateinit var recomposeScope: RecomposeScope
@@ -71,23 +67,26 @@ public class Reset<R> internal constructor(
   internal var shouldUpdateEffects: Boolean = false
 }
 
+internal fun <R> CoroutineScope.Reset(shift: Shift<*, R>): Reset<R> =
+  Reset(shift, given<CoroutineScope>())
+
 public suspend fun <R> reset(
-  body: @Composable context(Reset<R>) () -> Maybe<R>
+  body: @Composable Reset<R>.() -> Maybe<R>
 ): R = coroutineScope {
-  lazyComprehension(body).await().also { coroutineContext.cancelChildren() }
+  lazyReset(body).await().also { coroutineContext.cancelChildren() }
 }
 
-public fun <R> CoroutineScope.lazyComprehension(
-  body: @Composable context(Reset<R>) () -> Maybe<R>
+public fun <R> CoroutineScope.lazyReset(
+  body: @Composable Reset<R>.() -> Maybe<R>
 ): Deferred<R> {
   val shift = Shift<Nothing, R>()
-  return with(Reset<R>(shift, given<CoroutineScope>())) {
-    launchMolecule({
+  return with(Reset(shift)) {
+    launchMolecule(clock, {
       clock.isRunning = false
       currentShift.trySendOutput(it).getOrThrow()
-    }, clock) {
+    }) {
       recomposeScope = currentRecomposeScope
-      body(given<Reset<R>>())
+      body()
     }
     async { shift.receiveOutput().getOrElse { error("Missing value") } }
   }

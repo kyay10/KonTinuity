@@ -19,6 +19,7 @@ public value class Maybe<@Suppress("unused") out T> internal constructor(@Publis
   public fun bind(): T = fold({ raise(Unit) }, ::identity)
 
   public inline fun onJust(action: (T) -> Unit) { fold({}, action) }
+  public inline fun <R> map(transform: (T) -> R): Maybe<R> = fold({ nothing() }, { just(transform(it)) })
 }
 
 public fun <T> just(value: T): Maybe<T> = Maybe(value)

@@ -1,6 +1,8 @@
 import androidx.compose.runtime.Composable
 import app.cash.turbine.test
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -10,18 +12,21 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.testTimeSource
 import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
+import kotlin.time.ExperimentalTime
 
 @Suppress("UNUSED_VARIABLE")
 class ComprehensionTest {
-  @Composable fun <T> Reset<List<T>>.yield(x: T) = shift { k -> listOf(x) + k(Unit) }
+  @Composable
+  fun <T> Reset<List<T>>.yield(x: T) = shift { k -> listOf(x) + k(Unit) }
 
-  // Examples from https://en.wikipedia.org/wiki/Delimited_continuation
   @Test
   fun simpleContinuations() = runTest {
+    // Examples from https://en.wikipedia.org/wiki/Delimited_continuation
     reset<Int> {
       maybe {
         val value by shift { k -> k(5) }
@@ -43,6 +48,46 @@ class ComprehensionTest {
         emptyList()
       }
     } shouldBe listOf(1, 2, 3)
+    // Example from https://www.scala-lang.org/old/node/2096
+    @Composable
+    fun Reset<Int>.foo(): Maybe<Int> = maybe {
+      1 + shift { k -> k(k(k(7))) }.bind()
+    }
+
+    @Composable
+    fun Reset<Int>.bar(): Maybe<Int> = maybe {
+      2 * foo().bind()
+    }
+
+    suspend fun baz(): Int = reset {
+      bar()
+    }
+    baz() shouldBe 70
+  }
+
+  @Test
+  fun nestedContinuations() = runTest {}
+
+  @OptIn(ExperimentalTime::class, ExperimentalCoroutinesApi::class)
+  @Test
+  fun await() = runTest {
+    val mark = testTimeSource.markNow()
+    val a = async {
+      delay(500.milliseconds)
+      5
+    }
+    val result = reset {
+      maybe {
+        val value by await {
+          delay(200.milliseconds)
+          a.await()
+        }
+        val value2 by await { value + 1 }
+        value2
+      }
+    }
+    mark.elapsedNow() shouldBe 500.milliseconds
+    result shouldBe 6
   }
 
   @Test
@@ -68,7 +113,7 @@ class ComprehensionTest {
       delay(500.milliseconds)
     }
     var counter = 0
-    val result = lazyComprehension<Flow<Int>> {
+    val result = lazyReset<Flow<Int>> {
       maybe {
         val item by flow1.bind()
         effect {
@@ -117,12 +162,12 @@ class ComprehensionTest {
         }
         val first by (list1 + Int.MAX_VALUE).bind()
         effect {
-          if(first == Int.MAX_VALUE) return@maybe emptyList()
+          if (first == Int.MAX_VALUE) return@maybe emptyList()
           firstCounter++
         }
         val second by (list2 + Int.MAX_VALUE).bind()
         effect {
-          if(second == Int.MAX_VALUE) return@maybe emptyList()
+          if (second == Int.MAX_VALUE) return@maybe emptyList()
           secondCounter++
         }
         val third by list3.bind()
@@ -159,7 +204,7 @@ class ComprehensionTest {
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
-    val result = lazyComprehension<Flow<Pair<Int, Int>>> {
+    val result = lazyReset<Flow<Pair<Int, Int>>> {
       maybe {
         val first by list1.bind()
         effect {
@@ -195,7 +240,7 @@ class ComprehensionTest {
   }
 
   @Test
-  fun `bind here`() = runTest {
+  fun bindHere() = runTest {
     val list1 = listOf(1, 2, 3)
     val list2 = listOf(2, 3, 4)
     val list3 = listOf(3, 4, 5)

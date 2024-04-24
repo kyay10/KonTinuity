@@ -9,7 +9,7 @@ public val effect: EffectState
 
 context(Reset<*>)
 @Suppress("UNCHECKED_CAST")
-public inline operator fun <R> EffectState.invoke(block: () -> R): R {
+public inline operator fun <R> EffectState.invoke(block: @ComprehensionDsl () -> R): R {
   if (shouldUpdateEffects) value = nothing()
   return value.fold(block) { it as R }.also { value = just(it) }
 }
