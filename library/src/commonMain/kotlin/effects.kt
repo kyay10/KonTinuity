@@ -1,16 +1,13 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 
-public data class EffectState internal constructor(@PublishedApi internal var value: Maybe<Any?>)
+@PublishedApi
+internal data class EffectState<R> @PublishedApi internal constructor(var value: Maybe<R> = nothing())
 
 context(Reset<*>)
-public val effect: EffectState
-  @Composable get() = remember(given<Reset<*>>()) { EffectState(nothing()) }
-
-// If this could be Composable, we can use the same remember trick that Shift uses
-context(Reset<*>)
-@Suppress("UNCHECKED_CAST")
-public inline operator fun <R> EffectState.invoke(block: @ComprehensionDsl () -> R): R {
-  if (shouldUpdateEffects) value = nothing()
-  return value.fold(block) { it as R }.also { value = just(it) }
+@Composable
+public inline fun <R> effect(block: @ComprehensionDsl () -> R): R {
+  val state = remember { EffectState<R>() }
+  if (shouldUpdateEffects) state.value = nothing()
+  return state.value.getOrElse(block).also { state.value = just(it) }
 }

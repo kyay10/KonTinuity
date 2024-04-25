@@ -22,13 +22,11 @@ class FlowTest {
     }
     var counter = 0
     val result = lazyReset<Flow<Int>> {
-      maybe {
-        val item by flow1.bind()
-        effect {
-          counter++
-        }
-        flowOf(item)
+      val item = flow1.bind()
+      effect {
+        counter++
       }
+      flowOf(item)
     }.await()
     result.test(10.seconds) {
       for (i in flow1.toList()) {
@@ -55,23 +53,21 @@ class FlowTest {
     var secondCounter = 0
     var thirdCounter = 0
     val result = lazyReset<Flow<Pair<Int, Int>>> {
-      maybe {
-        val first by list1.bind()
-        effect {
-          if (first == Int.MAX_VALUE) return@maybe emptyFlow()
-          firstCounter++
-        }
-        val second by list2.bind()
-        effect {
-          if (second == Int.MAX_VALUE) return@maybe emptyFlow()
-          secondCounter++
-        }
-        val third by list3.bind()
-        effect {
-          thirdCounter++
-        }
-        flowOf(first to second)
+      val first = list1.bind()
+      effect {
+        if (first == Int.MAX_VALUE) return@lazyReset emptyFlow()
+        firstCounter++
       }
+      val second = list2.bind()
+      effect {
+        if (second == Int.MAX_VALUE) return@lazyReset emptyFlow()
+        secondCounter++
+      }
+      list3.bind()
+      effect {
+        thirdCounter++
+      }
+      flowOf(first to second)
     }.await()
     result.test(10.seconds) {
       for (i in list1.toList().filter { it != Int.MAX_VALUE }) {

@@ -8,13 +8,11 @@ class ListTest {
     val list = emptyList<Int>()
     var counter = 0
     val result = reset<List<Int>> {
-      maybe {
-        val item by list.bind()
-        effect {
-          counter++
-        }
-        listOf(item)
+      val item = list.bind()
+      effect {
+        counter++
       }
+      listOf(item)
     }
     result shouldBe list
     counter shouldBe list.size
@@ -25,13 +23,11 @@ class ListTest {
     val list = listOf(1, 2, 3)
     var counter = 0
     val result = reset<List<Int>> {
-      maybe {
-        val item by list.bind()
-        effect {
-          counter++
-        }
-        listOf(item)
+      val item = list.bind()
+      effect {
+        counter++
       }
+      listOf(item)
     }
     result shouldBe list
     counter shouldBe list.size
@@ -41,11 +37,9 @@ class ListTest {
   fun filtering() = runTest {
     val list = listOf(1, 2, 3)
     val result = reset<List<Int>> {
-      maybe {
-        val item by list.bind()
-        effect {
-          if (item == 2) emptyList() else listOf(item)
-        }
+      val item = list.bind()
+      effect {
+        if (item == 2) emptyList() else listOf(item)
       }
     }
     result shouldBe list.filter { it != 2 }
@@ -53,34 +47,32 @@ class ListTest {
 
   @Test
   fun multiple() = runTest {
-    val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3)
-    val list2 = listOf(2, 3, Int.MAX_VALUE, 4)
+    val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3, Int.MAX_VALUE)
+    val list2 = listOf(2, 3, Int.MAX_VALUE, 4, Int.MAX_VALUE)
     val list3 = listOf(3, 4, 5)
     var noObservedCounter = 0
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
     val result = reset<List<Pair<Int, Int>>> {
-      maybe {
-        effect {
-          noObservedCounter++
-        }
-        val first by (list1 + Int.MAX_VALUE).bind()
-        effect {
-          if (first == Int.MAX_VALUE) return@maybe emptyList()
-          firstCounter++
-        }
-        val second by (list2 + Int.MAX_VALUE).bind()
-        effect {
-          if (second == Int.MAX_VALUE) return@maybe emptyList()
-          secondCounter++
-        }
-        val third by list3.bind()
-        effect {
-          thirdCounter++
-        }
-        listOf(first to second)
+      effect {
+        noObservedCounter++
       }
+      val first = list1.bind()
+      effect {
+        if (first == Int.MAX_VALUE) return@reset emptyList()
+        firstCounter++
+      }
+      val second = list2.bind()
+      effect {
+        if (second == Int.MAX_VALUE) return@reset emptyList()
+        secondCounter++
+      }
+      list3.bind()
+      effect {
+        thirdCounter++
+      }
+      listOf(first to second)
     }
     result shouldBe list1.filter { it != Int.MAX_VALUE }.flatMap { first ->
       list2.filter { it != Int.MAX_VALUE }.flatMap { second ->
@@ -101,17 +93,15 @@ class ListTest {
     var innerCount = 0
     var itemCount = 0
     val result = reset<List<Int>> {
-      maybe {
-        val inner by list.bind()
-        effect {
-          innerCount++
-        }
-        val item by inner.bind()
-        effect {
-          itemCount++
-        }
-        listOf(item)
+      val inner = list.bind()
+      effect {
+        innerCount++
       }
+      val item = inner.bind()
+      effect {
+        itemCount++
+      }
+      listOf(item)
     }
     result shouldBe list.flatten()
     innerCount shouldBe list.size
@@ -123,17 +113,15 @@ class ListTest {
     val list = listOf(1, 2, 2, 3)
     val twoElements = listOf(0, 0)
     val result = reset<List<String>> {
-      maybe {
-        val x by listOf(1, 2, 2, 3).bind()
-        // Compose restriction: no throwing in if-else
-        ifSafe(x == 2) {
-          val y by twoElements.bind()
-          listOf("firstBranch")
-        }.elseSafe {
-          val y by twoElements.bind()
-          val z by twoElements.bind()
-          listOf("secondBranch")
-        }.getOrThrow()
+      val x = listOf(1, 2, 2, 3).bind()
+      if (x == 2) {
+        twoElements.bind()
+        listOf("firstBranch")
+      } else {
+        repeat(2) {
+          twoElements.bind()
+        }
+        listOf("secondBranch")
       }
     }
     result shouldBe list.flatMap {
@@ -146,14 +134,10 @@ class ListTest {
   @Test
   fun forLoops() = runTest {
     val result = reset<List<Int>> {
-      maybe {
-        // Compose restriction: no throwing in for loops
-        // One can also do `val x = listOf(i, i).bind().getOrElse { return@reset nothing() }`
-        (1..10).forEachSafe { i ->
-          val x by listOf(i, i).bind()
-        }.getOrThrow()
-        listOf(0)
+      for (i in 1..10) {
+        listOf(i, i).bind()
       }
+      listOf(0)
     }
     result shouldBe List(1024) { 0 }
   }

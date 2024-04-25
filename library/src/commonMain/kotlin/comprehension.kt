@@ -1,22 +1,15 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.RecomposeScope
+import androidx.compose.runtime.currentComposer
 import androidx.compose.runtime.currentRecomposeScope
+import arrow.core.raise.Raise
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
-@Suppress("EqualsOrHashCode")
-private object Flip {
-  override fun equals(other: Any?): Boolean {
-    // Not equal to itself
-    return Keep == other
-  }
-}
-
-private data object Keep
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE)
 @DslMarker
@@ -40,26 +33,27 @@ public class Shift<T, R> {
     return receiveOutput().getOrElse { error("Missing value") }
   }
 
-  context(Reset<R>)
+  context(Reset<R>, Raise<Unit>)
   @Composable
-  internal fun configure(producer: suspend Shift<T, R>.() -> R): Maybe<T> {
+  internal fun configure(producer: suspend Shift<T, R>.() -> R): T {
     val previousShift = currentShift
-    if (state.isEmpty) shouldUpdateEffects = true
-    val key: Any = if (shouldUpdateEffects) {
+    if (state.isNothing) shouldUpdateEffects = true
+    if (shouldUpdateEffects) {
       currentShift = this
       state = nothing()
-      Flip
-    } else Keep
-    if (this === currentShift) shouldUpdateEffects = true
-
-    LaunchedEffect(key) {
-      receiveOutput().onJust { error("Missing bind call on a `Maybe` value") }
+    }
+    LaunchedEffect(updatingKey(shouldUpdateEffects)) {
+      check(receiveOutput().isNothing) { "Missing bind call on a `Maybe` value" }
       val output = producer()
       state = nothing()
       currentShift = previousShift
       previousShift.sendOutput(output)
     }
-    return state
+    if (this === currentShift) shouldUpdateEffects = true
+    return state.getOrElse {
+      currentComposer.endToMarker(marker)
+      raise(Unit)
+    }
   }
 }
 
@@ -69,6 +63,7 @@ public class Reset<R> internal constructor(
 ) {
   internal val clock = GatedFrameClock(coroutineScope)
   internal lateinit var recomposeScope: RecomposeScope
+  public var marker: Int = 0
   internal var currentShift: Shift<*, R> = shift
 
   @PublishedApi
@@ -79,13 +74,13 @@ internal fun <R> CoroutineScope.Reset(shift: Shift<*, R>): Reset<R> =
   Reset(shift, given<CoroutineScope>())
 
 public suspend fun <R> reset(
-  body: @Composable Reset<R>.() -> Maybe<R>
+  body: @Composable context(Raise<Unit>) Reset<R>.() -> R
 ): R = coroutineScope {
   lazyReset(body).await().also { coroutineContext.cancelChildren() }
 }
 
 public fun <R> CoroutineScope.lazyReset(
-  body: @Composable Reset<R>.() -> Maybe<R>
+  body: @Composable context(Raise<Unit>) Reset<R>.() -> R
 ): Deferred<R> {
   val shift = Shift<Nothing, R>()
   return with(Reset(shift)) {
@@ -94,7 +89,10 @@ public fun <R> CoroutineScope.lazyReset(
       currentShift.trySendOutput(it).getOrThrow()
     }) {
       recomposeScope = currentRecomposeScope
-      body()
+      maybe {
+        marker = currentComposer.currentMarker
+        body(this, this@with)
+      }
     }
     async { shift.receiveOutput().getOrElse { error("Missing value") } }
   }

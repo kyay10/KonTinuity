@@ -6,37 +6,24 @@ import kotlin.jvm.JvmInline
 private object EmptyValue
 
 @JvmInline
-public value class Maybe<@Suppress("unused") out T> internal constructor(private val underlying: Any?) {
-  public val isEmpty: Boolean get() = this == nothing<T>()
-  public val isNotEmpty: Boolean get() = !isEmpty
-  public val rawValue: Any? get() = underlying
+@PublishedApi
+internal value class Maybe<@Suppress("unused") out T> internal constructor(private val underlying: Any?) {
+  val isNothing: Boolean get() = this == nothing<T>()
+  val rawValue: Any? get() = underlying
 
   @Suppress("UNCHECKED_CAST")
-  public inline fun <R> fold(ifEmpty: () -> R, ifNotEmpty: (T) -> R): R =
-    if (isEmpty) ifEmpty() else ifNotEmpty(rawValue as T)
-
-  context(Raise<Unit>)
-  public fun bind(): T = fold({ raise(Unit) }, ::identity)
-
-  public inline fun onJust(action: (T) -> Unit) { fold({}, action) }
-  public inline fun <R> map(transform: (T) -> R): Maybe<R> = fold({ nothing() }, { just(transform(it)) })
-  public inline fun onNothing(action: () -> Unit) { fold(action) {} }
+  inline fun <R> fold(ifEmpty: () -> R, ifNotEmpty: (T) -> R): R =
+    if (isNothing) ifEmpty() else ifNotEmpty(rawValue as T)
 }
 
-public fun <T> just(value: T): Maybe<T> = Maybe(value)
-public fun <T> nothing(): Maybe<T> = Maybe(EmptyValue)
-public fun <T> rawMaybe(value: Any?): Maybe<T> = Maybe(value)
+@PublishedApi
+internal fun <T> just(value: T): Maybe<T> = Maybe(value)
+@PublishedApi
+internal fun <T> nothing(): Maybe<T> = Maybe(EmptyValue)
+internal fun <T> rawMaybe(value: Any?): Maybe<T> = Maybe(value)
 
-public inline fun <T> Maybe<T>.getOrElse(onFailure: () -> T): T = fold(onFailure, ::identity)
+@PublishedApi
+internal inline fun <T> Maybe<T>.getOrElse(onFailure: () -> T): T = fold(onFailure, ::identity)
 
-context(Raise<Unit>)
-public inline operator fun <T> Maybe<T>.provideDelegate(
-  thisRef: Any?, property: Any?
-): Maybe<T> = this.also { bind() }
-
-public inline operator fun <T> Maybe<T>.getValue(
-  thisRef: Any?, property: Any?
-): T = fold({ throw IllegalStateException("Value is empty") }, ::identity)
-
-public inline fun <T> maybe(block: Raise<Unit>.() -> T): Maybe<T> =
+internal inline fun <T> maybe(block: Raise<Unit>.() -> T): Maybe<T> =
   fold(block, { nothing() }, ::just)
