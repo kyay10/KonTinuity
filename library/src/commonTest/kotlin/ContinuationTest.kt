@@ -1,4 +1,5 @@
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.NonRestartableComposable
 import arrow.core.raise.Raise
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -10,9 +11,16 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.ExperimentalTime
 
-context(Raise<Unit>)
+// Minor issue: if your function returns Unit, it *must* be marked with @NonRestartableComposable
+// Or it can return a different value
+context(Reset<List<T>>, Raise<Unit>)
+@NonRestartableComposable
 @Composable
-fun <T> Reset<List<T>>.yield(x: T) { shift { k -> listOf(x) + k(Unit) } }
+fun <T> yield(x: T) { shift { k -> listOf(x) + k(Unit) } }
+context(Reset<List<T>>, Raise<Unit>)
+@NonRestartableComposable
+@Composable
+fun <T> yieldAll(xs: List<T>) { shift { k -> xs + k(Unit) } }
 
 class ContinuationTest {
   context(Raise<Unit>)
@@ -24,6 +32,13 @@ class ContinuationTest {
   fun Reset<Int>.bar(): Int = 2 * foo()
 
   @Test
+  fun noContinuation() = runTest {
+    reset<Int> {
+      42
+    } shouldBe 42
+  }
+
+  @Test
   fun simpleContinuations() = runTest {
     // Examples from https://en.wikipedia.org/wiki/Delimited_continuation
     reset<Int> {
@@ -33,13 +48,12 @@ class ContinuationTest {
     reset {
       shift { k -> k(k(4)) } * 2
     } + 1 shouldBe 17
-    // TODO: This hangs. Investigate
-/*    reset {
+    reset<List<Int>> {
       yield(1)
       yield(2)
       yield(3)
       emptyList()
-    } shouldBe listOf(1, 2, 3)*/
+    } shouldBe listOf(1, 2, 3)
     // Example from https://www.scala-lang.org/old/node/2096
     reset {
       bar()
@@ -47,7 +61,20 @@ class ContinuationTest {
   }
 
   @Test
-  fun nestedContinuations() = runTest {}
+  fun nestedContinuations() = runTest {
+    reset<List<Int>> {
+      yield(1)
+      yieldAll(reset<List<Int>, _> {
+        yield(4)
+        yield(5)
+        yield(6)
+        emptyList()
+      })
+      yield(2)
+      yield(3)
+      emptyList()
+    } shouldBe listOf(1, 4, 5, 6, 2, 3)
+  }
 
   @OptIn(ExperimentalTime::class, ExperimentalCoroutinesApi::class)
   @Test

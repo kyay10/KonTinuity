@@ -50,10 +50,7 @@ public class Shift<T, R> {
       previousShift.sendOutput(output)
     }
     if (this === currentShift) shouldUpdateEffects = true
-    return state.getOrElse {
-      currentComposer.endToMarker(marker)
-      raise(Unit)
-    }
+    return state.bind()
   }
 }
 
@@ -63,7 +60,6 @@ public class Reset<R> internal constructor(
 ) {
   internal val clock = GatedFrameClock(coroutineScope)
   internal lateinit var recomposeScope: RecomposeScope
-  public var marker: Int = 0
   internal var currentShift: Shift<*, R> = shift
 
   @PublishedApi
@@ -90,8 +86,7 @@ public fun <R> CoroutineScope.lazyReset(
     }) {
       recomposeScope = currentRecomposeScope
       maybe {
-        marker = currentComposer.currentMarker
-        body(this, this@with)
+        runCatchingComposable { body(this, this@with) }.getOrThrow()
       }
     }
     async { shift.receiveOutput().getOrElse { error("Missing value") } }

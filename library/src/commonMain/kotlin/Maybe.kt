@@ -14,6 +14,9 @@ internal value class Maybe<@Suppress("unused") out T> internal constructor(priva
   @Suppress("UNCHECKED_CAST")
   inline fun <R> fold(ifEmpty: () -> R, ifNotEmpty: (T) -> R): R =
     if (isNothing) ifEmpty() else ifNotEmpty(rawValue as T)
+
+  context(Raise<Unit>)
+  fun bind() = getOrElse { raise(Unit) }
 }
 
 @PublishedApi
