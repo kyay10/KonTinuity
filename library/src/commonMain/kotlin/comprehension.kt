@@ -1,15 +1,15 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.RecomposeScope
-import androidx.compose.runtime.currentComposer
 import androidx.compose.runtime.currentRecomposeScope
 import arrow.core.raise.Raise
+import arrow.fx.coroutines.Resource
+import arrow.fx.coroutines.resource
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE)
 @DslMarker
@@ -56,9 +56,9 @@ public class Shift<T, R> {
 
 @ComprehensionDsl
 public class Reset<R> internal constructor(
-  shift: Shift<*, R>, coroutineScope: CoroutineScope
+  shift: Shift<*, R>
 ) {
-  internal val clock = GatedFrameClock(coroutineScope)
+  internal lateinit var clock: GatedFrameClock
   internal lateinit var recomposeScope: RecomposeScope
   internal var currentShift: Shift<*, R> = shift
 
@@ -66,29 +66,31 @@ public class Reset<R> internal constructor(
   internal var shouldUpdateEffects: Boolean = false
 }
 
-internal fun <R> CoroutineScope.Reset(shift: Shift<*, R>): Reset<R> =
-  Reset(shift, given<CoroutineScope>())
-
 public suspend fun <R> reset(
   body: @Composable context(Raise<Unit>) Reset<R>.() -> R
-): R = coroutineScope {
-  lazyReset(body).await().also { coroutineContext.cancelChildren() }
-}
+): R = coroutineScope { lazyReset(body).use { it } }
 
 public fun <R> CoroutineScope.lazyReset(
   body: @Composable context(Raise<Unit>) Reset<R>.() -> R
-): Deferred<R> {
+): Resource<R> {
   val shift = Shift<Nothing, R>()
   return with(Reset(shift)) {
-    launchMolecule(clock, {
-      clock.isRunning = false
-      currentShift.trySendOutput(it).getOrThrow()
-    }) {
-      recomposeScope = currentRecomposeScope
-      maybe {
-        runCatchingComposable { body(this, this@with) }.getOrThrow()
+    val job = launch {
+      clock = GatedFrameClock(this)
+      launchMolecule(clock, {
+        clock.isRunning = false
+        currentShift.trySendOutput(it).getOrThrow()
+      }) {
+        recomposeScope = currentRecomposeScope
+        maybe {
+          runCatchingComposable { body(this, this@with) }.getOrThrow()
+        }
       }
     }
-    async { shift.receiveOutput().getOrElse { error("Missing value") } }
+    resource({
+      shift.receiveOutput().getOrElse { error("Missing value") }
+    }) { _, _ ->
+      job.cancelAndJoin()
+    }
   }
 }

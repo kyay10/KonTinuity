@@ -21,6 +21,7 @@ internal value class Maybe<@Suppress("unused") out T> internal constructor(priva
 
 @PublishedApi
 internal fun <T> just(value: T): Maybe<T> = Maybe(value)
+
 @PublishedApi
 internal fun <T> nothing(): Maybe<T> = Maybe(EmptyValue)
 internal fun <T> rawMaybe(value: Any?): Maybe<T> = Maybe(value)

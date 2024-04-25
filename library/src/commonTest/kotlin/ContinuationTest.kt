@@ -16,11 +16,16 @@ import kotlin.time.ExperimentalTime
 context(Reset<List<T>>, Raise<Unit>)
 @NonRestartableComposable
 @Composable
-fun <T> yield(x: T) { shift { k -> listOf(x) + k(Unit) } }
+fun <T> yield(x: T) {
+  shift { k -> listOf(x) + k(Unit) }
+}
+
 context(Reset<List<T>>, Raise<Unit>)
 @NonRestartableComposable
 @Composable
-fun <T> yieldAll(xs: List<T>) { shift { k -> xs + k(Unit) } }
+fun <T> yieldAll(xs: List<T>) {
+  shift { k -> xs + k(Unit) }
+}
 
 class ContinuationTest {
   context(Raise<Unit>)

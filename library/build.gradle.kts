@@ -54,6 +54,7 @@ kotlin {
     val commonMain by getting {
       dependencies {
         implementation(libs.arrow.core)
+        implementation(libs.arrow.fx.coroutines)
         api(compose.runtime)
         api(libs.kotlinx.coroutines.core)
       }

@@ -1,7 +1,7 @@
 import androidx.compose.runtime.Composable
 import arrow.core.raise.Raise
+import arrow.fx.coroutines.resourceScope
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
@@ -22,27 +22,27 @@ class MonadTest {
 
   @Test
   fun suspendStateMonad() = runTest {
-    // Usage example
-    data class CounterState(val count: Int)
+    resourceScope {
+      // Usage example
+      data class CounterState(val count: Int)
 
-    fun incrementCounter(): SuspendState<CounterState, Unit> = SuspendState { state ->
-      Pair(Unit, state.copy(count = state.count + 1))
+      fun incrementCounter(): SuspendState<CounterState, Unit> = SuspendState { state ->
+        Pair(Unit, state.copy(count = state.count + 1))
+      }
+
+      fun doubleCounter(): SuspendState<CounterState, Unit> = SuspendState { state ->
+        Pair(Unit, state.copy(count = state.count * 2))
+      }
+
+      val result = lazyReset<SuspendState<CounterState, Unit>> {
+        incrementCounter().bind()
+        doubleCounter().bind()
+        doubleCounter()
+      }.bind()
+
+      result.run(CounterState(0)) shouldBe incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }
+        .run(CounterState(0))
     }
-
-    fun doubleCounter(): SuspendState<CounterState, Unit> = SuspendState { state ->
-      Pair(Unit, state.copy(count = state.count * 2))
-    }
-
-    val result = lazyReset<SuspendState<CounterState, Unit>> {
-      incrementCounter().bind()
-      doubleCounter().bind()
-      doubleCounter()
-    }
-
-    result.await()
-      .run(CounterState(0)) shouldBe incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }
-      .run(CounterState(0))
-    coroutineContext.cancelChildren()
   }
 
   data class State<S>(var state: S)
@@ -97,15 +97,15 @@ class MonadTest {
 
   @Test
   fun suspendReaderMonad() = runTest {
-
-    val one: SuspendReader<String, Int> = SuspendReader { input -> input.toInt() }
-    val sum = lazyReset<SuspendReader<String, Int>> {
-      val a = bind(one)
-      val b = bind(one)
-      SuspendReader { _: String -> a + b }
-    }.await()
-    sum.reader("1") shouldBe 2
-    coroutineContext.cancelChildren()
+    resourceScope {
+      val one: SuspendReader<String, Int> = SuspendReader { input -> input.toInt() }
+      val sum = lazyReset<SuspendReader<String, Int>> {
+        val a = bind(one)
+        val b = bind(one)
+        SuspendReader { _: String -> a + b }
+      }.bind()
+      sum.reader("1") shouldBe 2
+    }
   }
 
   @Test
