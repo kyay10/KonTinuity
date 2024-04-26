@@ -52,6 +52,11 @@ kotlin {
 
   sourceSets {
     val commonMain by getting {
+      repositories {
+        google()
+        mavenCentral()
+        maven("https://oss.sonatype.org/content/repositories/snapshots")
+      }
       dependencies {
         implementation(libs.arrow.core)
         implementation(libs.arrow.fx.coroutines)

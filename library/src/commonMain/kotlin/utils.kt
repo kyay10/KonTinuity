@@ -1,6 +1,8 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.currentComposer
 
+context(A) internal fun <A> given(): A = this@A
+
 @Composable
 internal inline fun <R> runCatchingComposable(block: @Composable () -> R): Result<R> {
   val marker = currentComposer.currentMarker

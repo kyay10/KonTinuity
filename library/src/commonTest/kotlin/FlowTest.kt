@@ -1,10 +1,9 @@
 import app.cash.turbine.test
+import arrow.core.raise.ensure
 import arrow.fx.coroutines.resourceScope
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
@@ -22,12 +21,12 @@ class FlowTest {
         delay(500.milliseconds)
       }
       var counter = 0
-      val result = lazyReset<Flow<Int>> {
+      val result = flowReset {
         val item = flow1.bind()
         effect {
           counter++
         }
-        flowOf(item)
+        item
       }.bind()
       result.test(10.seconds) {
         for (i in flow1.toList()) {
@@ -42,39 +41,39 @@ class FlowTest {
   @Test
   fun flows() = runTest {
     resourceScope {
-      val list1 = listOf(1, Int.MAX_VALUE, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3).asFlow().onEach {
+      val flow1 = listOf(1, Int.MAX_VALUE, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3).asFlow().onEach {
         delay(Random.nextLong(100, 500).milliseconds)
       }
-      val list2 = listOf(2, 3, Int.MAX_VALUE, 4).asFlow().onEach {
+      val flow2 = listOf(2, 3, Int.MAX_VALUE, 4).asFlow().onEach {
         delay(Random.nextLong(100, 500).milliseconds)
       }
-      val list3 = listOf(3, 4, 5).asFlow().onEach {
+      val flow3 = listOf(3, 4, 5).asFlow().onEach {
         delay(Random.nextLong(100, 500).milliseconds)
       }
       var firstCounter = 0
       var secondCounter = 0
       var thirdCounter = 0
-      val result = lazyReset<Flow<Pair<Int, Int>>> {
-        val first = list1.bind()
+      val result = flowReset {
+        val first = flow1.bind()
         effect {
-          if (first == Int.MAX_VALUE) return@lazyReset emptyFlow()
+          ensure(first != Int.MAX_VALUE) { }
           firstCounter++
         }
-        val second = list2.bind()
+        val second = flow2.bind()
         effect {
-          if (second == Int.MAX_VALUE) return@lazyReset emptyFlow()
+          ensure(second != Int.MAX_VALUE) { }
           secondCounter++
         }
-        list3.bind()
+        flow3.bind()
         effect {
           thirdCounter++
         }
-        flowOf(first to second)
+        first to second
       }.bind()
       result.test(10.seconds) {
-        for (i in list1.toList().filter { it != Int.MAX_VALUE }) {
-          for (j in list2.toList().filter { it != Int.MAX_VALUE }) {
-            for (k in list3.toList()) {
+        for (i in flow1.toList().filter { it != Int.MAX_VALUE }) {
+          for (j in flow2.toList().filter { it != Int.MAX_VALUE }) {
+            for (k in flow3.toList()) {
               awaitItem() shouldBe (i to j)
             }
           }
