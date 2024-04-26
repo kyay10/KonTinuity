@@ -1,13 +1,18 @@
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.RecomposeScope
+import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.currentRecomposeScope
+import app.cash.molecule.RecompositionMode
+import app.cash.molecule.launchMolecule
 import arrow.core.raise.Raise
+import arrow.core.raise.recover
 import arrow.fx.coroutines.Resource
 import arrow.fx.coroutines.resource
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
@@ -15,82 +20,84 @@ import kotlinx.coroutines.launch
 @DslMarker
 public annotation class ComprehensionDsl
 
-public class Shift<T, R> {
-  private val outputBuffer = Channel<Any?>(1)
-  private var state: Maybe<T> = nothing()
+public class Shift<T, R> internal constructor(private val reset: Reset<R>) : RememberObserver {
+  private val output = Channel<R>(1)
 
-  internal suspend fun receiveOutput(): Maybe<R> = rawMaybe(outputBuffer.receive())
-  internal fun trySendOutput(value: Maybe<R>) = outputBuffer.trySend(value.rawValue)
-  private suspend fun sendOutput(value: R) = outputBuffer.send(value)
+  @Suppress("UNCHECKED_CAST")
+  private var state: T = null as T
 
-  context(Reset<R>)
-  public suspend operator fun invoke(value: T): R {
-    currentShift = this
-    state = just(value)
+  private var job: Job? = null
+
+  public suspend operator fun invoke(value: T): R = with(reset) {
+    state = value
     recomposeScope.invalidate()
-    shouldUpdateEffects = false
+    reachedResumePoint = false
+    currentOutput = output
     clock.isRunning = true
-    return receiveOutput().getOrElse { error("Missing value") }
+    return output.receive()
   }
 
-  context(Reset<R>, Raise<Unit>)
-  @Composable
-  internal fun configure(producer: suspend Shift<T, R>.() -> R): T {
-    val previousShift = currentShift
-    if (state.isNothing) shouldUpdateEffects = true
-    if (shouldUpdateEffects) {
-      currentShift = this
-      state = nothing()
+  internal fun configure(producer: suspend Shift<T, R>.() -> R): T = with(reset) {
+    if (reachedResumePoint) {
+      val previousOutputBuffer = currentOutput
+      job?.cancel()
+      job = coroutineScope.launch {
+        suspensions.receive()
+        previousOutputBuffer.send(producer())
+      }
+      raise.raise(Unit)
     }
-    LaunchedEffect(updatingKey(shouldUpdateEffects)) {
-      check(receiveOutput().isNothing) { "Missing bind call on a `Maybe` value" }
-      val output = producer()
-      state = nothing()
-      currentShift = previousShift
-      previousShift.sendOutput(output)
-    }
-    if (this === currentShift) shouldUpdateEffects = true
-    return state.bind()
+    if (currentOutput == output) reachedResumePoint = true
+    state
+  }
+
+  override fun onAbandoned() {
+    job?.cancel()
+  }
+
+  override fun onForgotten() {
+    job?.cancel()
+  }
+
+  override fun onRemembered() {
   }
 }
 
 @ComprehensionDsl
 public class Reset<R> internal constructor(
-  shift: Shift<*, R>
+  internal var currentOutput: SendChannel<R>, internal val coroutineScope: CoroutineScope
 ) {
-  internal lateinit var clock: GatedFrameClock
+  internal val clock: GatedFrameClock = GatedFrameClock(coroutineScope)
   internal lateinit var recomposeScope: RecomposeScope
-  internal var currentShift: Shift<*, R> = shift
+  internal lateinit var raise: Raise<Unit>
+  internal val suspensions: Channel<Unit> = Channel(1)
 
   @PublishedApi
-  internal var shouldUpdateEffects: Boolean = false
+  internal var reachedResumePoint: Boolean = true
 }
 
 public suspend fun <R> reset(
-  body: @Composable context(Raise<Unit>) Reset<R>.() -> R
+  body: @Composable Reset<R>.() -> R
 ): R = coroutineScope { lazyReset(body).use { it } }
 
 public fun <R> CoroutineScope.lazyReset(
-  body: @Composable context(Raise<Unit>) Reset<R>.() -> R
+  body: @Composable Reset<R>.() -> R
 ): Resource<R> {
-  val shift = Shift<Nothing, R>()
-  return with(Reset(shift)) {
-    val job = launch {
-      clock = GatedFrameClock(this)
-      launchMolecule(clock, {
-        clock.isRunning = false
-        currentShift.trySendOutput(it).getOrThrow()
-      }) {
+  val output = Channel<R>(1)
+  val job = launch {
+    with(Reset(output, this)) {
+      launchMolecule(RecompositionMode.ContextClock, {}, clock) {
         recomposeScope = currentRecomposeScope
-        maybe {
-          runCatchingComposable { body(this, this@with) }.getOrThrow()
+        recover({
+          raise = this
+          val res = runCatchingComposable { body() }
+          clock.isRunning = false
+          currentOutput.trySend(res.getOrThrow()).getOrThrow()
+        }) {
+          suspensions.trySend(Unit).getOrThrow()
         }
       }
     }
-    resource({
-      shift.receiveOutput().getOrElse { error("Missing value") }
-    }) { _, _ ->
-      job.cancelAndJoin()
-    }
   }
+  return resource({ output.receive() }) { _, _ -> job.cancelAndJoin() }
 }

@@ -1,5 +1,4 @@
 import androidx.compose.runtime.Composable
-import arrow.core.raise.Raise
 import arrow.fx.coroutines.resourceScope
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
@@ -14,7 +13,7 @@ class MonadTest {
       }
   }
 
-  context(Reset<SuspendState<S, A>>, Raise<Unit>)
+  context(Reset<SuspendState<S, A>>)
   @Composable
   fun <S, A, B> SuspendState<S, B>.bind(): B = shift { continuation ->
     flatMap { value -> continuation(value) }
@@ -88,7 +87,6 @@ class MonadTest {
       }
   }
 
-  context(Raise<Unit>)
   @Composable
   fun <R, A, B> Reset<SuspendReader<R, A>>.bind(reader: SuspendReader<R, B>): B =
     shift { continuation ->

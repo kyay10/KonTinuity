@@ -1,6 +1,5 @@
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.NonRestartableComposable
-import arrow.core.raise.Raise
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -13,14 +12,14 @@ import kotlin.time.ExperimentalTime
 
 // Minor issue: if your function returns Unit, it *must* be marked with @NonRestartableComposable
 // Or it can return a different value
-context(Reset<List<T>>, Raise<Unit>)
+context(Reset<List<T>>)
 @NonRestartableComposable
 @Composable
 fun <T> yield(x: T) {
   shift { k -> listOf(x) + k(Unit) }
 }
 
-context(Reset<List<T>>, Raise<Unit>)
+context(Reset<List<T>>)
 @NonRestartableComposable
 @Composable
 fun <T> yieldAll(xs: List<T>) {
@@ -28,11 +27,9 @@ fun <T> yieldAll(xs: List<T>) {
 }
 
 class ContinuationTest {
-  context(Raise<Unit>)
   @Composable
   fun Reset<Int>.foo(): Int = shift { k -> k(k(k(7))) } + 1
 
-  context(Raise<Unit>)
   @Composable
   fun Reset<Int>.bar(): Int = 2 * foo()
 

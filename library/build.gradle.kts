@@ -55,6 +55,7 @@ kotlin {
       dependencies {
         implementation(libs.arrow.core)
         implementation(libs.arrow.fx.coroutines)
+        implementation(libs.molecule.runtime)
         api(compose.runtime)
         api(libs.kotlinx.coroutines.core)
       }

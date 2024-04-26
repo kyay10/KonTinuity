@@ -4,6 +4,7 @@ arrow = "1.2.4"
 kotestAssertionsCore = "5.8.1"
 kotlin = "2.0.0-RC1"
 kotlinxCoroutinesCore = "1.8.0"
+moleculeRuntime = "1.4.1"
 nexus-publish = "2.0.0-rc-1"
 compose-plugin = "1.6.2"
 android-minSdk = "24"
@@ -17,6 +18,7 @@ kotest-assertions-core = { module = "io.kotest:kotest-assertions-core", version.
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinxCoroutinesCore" }
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutinesCore" }
+molecule-runtime = { module = "app.cash.molecule:molecule-runtime", version.ref = "moleculeRuntime" }
 nexus-publish = { module = "io.github.gradle-nexus.publish-plugin:io.github.gradle-nexus.publish-plugin.gradle.plugin", version.ref = "nexus-publish" }
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 
