@@ -13,11 +13,11 @@ class MonadTest {
       }
   }
 
-  context(Reset<SuspendState<S, A>>)
   @Composable
-  fun <S, A, B> SuspendState<S, B>.bind(): B = shift { continuation ->
-    flatMap { value -> continuation(value) }
-  }
+  fun <S, A, B> Reset<SuspendState<S, A>>.bind(state: SuspendState<S, B>): B =
+    shift { continuation ->
+      state.flatMap { value -> continuation(value) }
+    }
 
   @Test
   fun suspendStateMonad() = runTest {
@@ -34,8 +34,8 @@ class MonadTest {
       }
 
       val result = lazyReset<SuspendState<CounterState, Unit>> {
-        incrementCounter().bind()
-        doubleCounter().bind()
+        bind(incrementCounter())
+        bind(doubleCounter())
         doubleCounter()
       }.bind()
 
@@ -46,20 +46,18 @@ class MonadTest {
 
   data class State<S>(var state: S)
 
-  inline fun <S, R> state(initial: S, block: State<S>.() -> R): Pair<R, S> = State(initial).run {
+  private inline fun <S, R> state(initial: S, block: State<S>.() -> R): Pair<R, S> = State(initial).run {
     block() to state
   }
 
   // Usage example
   data class Counter(val count: Int)
 
-  context(State<Counter>)
-  private fun incrementCounter() {
+  private fun State<Counter>.incrementCounter() {
     state = state.copy(count = state.count + 1)
   }
 
-  context(State<Counter>)
-  private fun doubleCounter() {
+  private fun State<Counter>.doubleCounter() {
     state = state.copy(count = state.count * 2)
   }
 

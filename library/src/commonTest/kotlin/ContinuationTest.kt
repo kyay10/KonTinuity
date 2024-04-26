@@ -12,17 +12,15 @@ import kotlin.time.ExperimentalTime
 
 // Minor issue: if your function returns Unit, it *must* be marked with @NonRestartableComposable
 // Or it can return a different value
-context(Reset<List<T>>)
 @NonRestartableComposable
 @Composable
-fun <T> yield(x: T) {
+fun <T> Reset<List<T>>.yield(x: T) {
   shift { k -> listOf(x) + k(Unit) }
 }
 
-context(Reset<List<T>>)
 @NonRestartableComposable
 @Composable
-fun <T> yieldAll(xs: List<T>) {
+fun <T> Reset<List<T>>.yieldAll(xs: List<T>) {
   shift { k -> xs + k(Unit) }
 }
 

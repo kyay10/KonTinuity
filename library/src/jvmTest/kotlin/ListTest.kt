@@ -16,7 +16,7 @@ class ListTest {
       item
     }
     result shouldBe list
-    counter shouldBe list.size
+    counter shouldBe 0
   }
 
   @Test

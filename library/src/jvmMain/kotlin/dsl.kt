@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapConcat
 import kotlinx.coroutines.flow.flowOf
 
+context(A) internal fun <A> given(): A = this@A
+
 /** MonadFail-style errors */
 public suspend fun <R> reset(
   failValue: R,
