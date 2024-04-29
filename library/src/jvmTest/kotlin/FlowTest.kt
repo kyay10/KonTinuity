@@ -27,7 +27,7 @@ class FlowTest {
           counter++
         }
         item
-      }.bind()
+      }
       result.test(10.seconds) {
         for (i in flow1.toList()) {
           awaitItem() shouldBe i
@@ -69,7 +69,7 @@ class FlowTest {
           thirdCounter++
         }
         first to second
-      }.bind()
+      }
       result.test(10.seconds) {
         for (i in flow1.toList().filter { it != Int.MAX_VALUE }) {
           for (j in flow2.toList().filter { it != Int.MAX_VALUE }) {

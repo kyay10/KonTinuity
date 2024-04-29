@@ -6,7 +6,16 @@ plugins {
   alias(libs.plugins.kotlinMultiplatform)
   alias(libs.plugins.androidLibrary)
   alias(libs.plugins.jetbrainsCompose)
+  alias(libs.plugins.compose.compiler)
   id("module.publication")
+}
+
+compose {
+  kotlinCompilerPlugin = "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.0.0-RC2"
+}
+
+composeCompiler {
+  includeSourceInformation = true
 }
 
 @OptIn(ExperimentalWasmDsl::class, ExperimentalKotlinGradlePluginApi::class)
@@ -70,6 +79,7 @@ kotlin {
         implementation(libs.kotlin.test)
         implementation(libs.kotlinx.coroutines.test)
         implementation(libs.kotest.assertions.core)
+        implementation(libs.kotest.property)
         implementation(libs.turbine)
       }
     }

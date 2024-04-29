@@ -37,7 +37,7 @@ class MonadTest {
         bind(incrementCounter())
         bind(doubleCounter())
         doubleCounter()
-      }.bind()
+      }
 
       result.run(CounterState(0)) shouldBe incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }
         .run(CounterState(0))
@@ -99,7 +99,7 @@ class MonadTest {
         val a = bind(one)
         val b = bind(one)
         SuspendReader { _: String -> a + b }
-      }.bind()
+      }
       sum.reader("1") shouldBe 2
     }
   }

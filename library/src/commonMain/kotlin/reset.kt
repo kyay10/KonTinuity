@@ -1,19 +1,9 @@
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.RecomposeScope
-import androidx.compose.runtime.currentRecomposeScope
+import androidx.compose.runtime.*
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.launchMolecule
-import arrow.core.raise.Raise
-import arrow.core.raise.recover
-import arrow.fx.coroutines.Resource
-import arrow.fx.coroutines.resource
-import arrow.fx.coroutines.use
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.SendChannel
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import arrow.fx.coroutines.*
+import kotlinx.coroutines.*
+import kotlin.coroutines.*
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE)
 @DslMarker
@@ -21,39 +11,69 @@ public annotation class ResetDsl
 
 @ResetDsl
 public class Reset<R> internal constructor(
-  internal var currentOutput: SendChannel<R>, internal val coroutineScope: CoroutineScope
+  output: Continuation<R>, internal val coroutineScope: CoroutineScope, body: @Composable Reset<R>.() -> R
 ) {
-  internal val clock: GatedFrameClock = GatedFrameClock(coroutineScope)
-  internal lateinit var recomposeScope: RecomposeScope
-  internal lateinit var raise: Raise<Unit>
-  internal val suspensions: Channel<Unit> = Channel(1)
+  private var resumeJob: Job? = null
+  internal var currentContinuation: Continuation<R> = output
+    private set
+  private var resumeToken: Any? = null
+
+  private val clock: GatedFrameClock = GatedFrameClock(coroutineScope)
+  private lateinit var recomposeScope: RecomposeScope
 
   @PublishedApi
   internal var reachedResumePoint: Boolean = true
+    private set
+
+  init {
+    coroutineScope.launchMolecule(RecompositionMode.ContextClock, { res ->
+      clock.isRunning = false
+      res.fold(currentContinuation::resume) {
+        if (it is Suspended && it.reset == this@Reset) {
+          resumeJob!!.start()
+        } else {
+          currentContinuation.resumeWithException(it)
+        }
+      }
+    }, clock) {
+      recomposeScope = currentRecomposeScope
+      runCatchingComposable { body() }
+    }
+  }
+
+  internal suspend fun resumeAt(token: Any) = suspendCoroutine { continuation ->
+    recomposeScope.invalidate()
+    reachedResumePoint = false
+    currentContinuation = continuation
+    resumeToken = token
+    clock.isRunning = true
+  }
+
+  internal fun suspendComposition(job: Job): Nothing {
+    resumeJob = job
+    throw Suspended(this)
+  }
+
+  internal fun reachedResumeToken(token: Any) {
+    if (resumeToken == token) {
+      reachedResumePoint = true
+    }
+  }
 }
 
 public suspend fun <R> reset(
   body: @Composable Reset<R>.() -> R
-): R = coroutineScope { lazyReset(body).use { it } }
+): R = resourceScope { lazyReset(body) }
 
-public fun <R> CoroutineScope.lazyReset(
+public suspend fun <R> ResourceScope.lazyReset(
   body: @Composable Reset<R>.() -> R
-): Resource<R> {
-  val output = Channel<R>(1)
-  val job = launch {
-    with(Reset(output, this)) {
-      launchMolecule(RecompositionMode.ContextClock, {}, clock) {
-        recomposeScope = currentRecomposeScope
-        recover({
-          raise = this
-          val res = runCatchingComposable { body() }
-          clock.isRunning = false
-          currentOutput.trySend(res.getOrThrow()).getOrThrow()
-        }) {
-          suspensions.trySend(Unit).getOrThrow()
-        }
-      }
-    }
+): R {
+  val job = Job(coroutineContext[Job])
+  val scope = CoroutineScope(coroutineContext + job)
+  onRelease { job.cancelAndJoin() }
+  return suspendCoroutine { cont ->
+    Reset(cont, scope, body)
   }
-  return resource({ output.receive() }) { _, _ -> job.cancelAndJoin() }
 }
+
+private class Suspended(val reset: Reset<*>) : CancellationException("Composable was suspended")

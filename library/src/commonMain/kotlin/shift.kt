@@ -1,40 +1,33 @@
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.NonRestartableComposable
-import androidx.compose.runtime.RememberObserver
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlin.coroutines.resume
 
 public class Shift<T, R> internal constructor(private val reset: Reset<R>) : RememberObserver {
-  private val output = Channel<R>(1)
-
   @Suppress("UNCHECKED_CAST")
   private var state: T = null as T
 
   private var job: Job? = null
 
-  public suspend operator fun invoke(value: T): R = with(reset) {
+  public suspend operator fun invoke(value: T): R {
     state = value
-    recomposeScope.invalidate()
-    reachedResumePoint = false
-    currentOutput = output
-    clock.isRunning = true
-    return output.receive()
+    return reset.resumeAt(this)
   }
 
-  internal fun configure(producer: suspend Shift<T, R>.() -> R): T = with(reset) {
+  internal fun configure(producer: suspend (Shift<T, R>) -> R): T = with(reset) {
     if (reachedResumePoint) {
-      val previousOutputBuffer = currentOutput
+      val previousContinuation = currentContinuation
       job?.cancel()
-      job = coroutineScope.launch {
-        suspensions.receive()
-        previousOutputBuffer.send(producer())
+      val job = coroutineScope.launch(start = CoroutineStart.LAZY) {
+        previousContinuation.resume(producer(this@Shift))
       }
-      raise.raise(Unit)
+      this@Shift.job = job
+      suspendComposition(job)
+    } else {
+      reachedResumeToken(this@Shift)
+      state
     }
-    if (currentOutput == output) reachedResumePoint = true
-    state
   }
 
   override fun onAbandoned() {
@@ -45,18 +38,15 @@ public class Shift<T, R> internal constructor(private val reset: Reset<R>) : Rem
     job?.cancel()
   }
 
-  override fun onRemembered() {
-  }
+  override fun onRemembered() {}
 }
 
 @NonRestartableComposable
 @Composable
-public fun <T, R> Reset<R>.shift(block: suspend (Shift<T, R>) -> R): T =
-  remember { Shift<T, R>(this) }.configure(block)
+public fun <T, R> Reset<R>.shift(block: suspend (Shift<T, R>) -> R): T = remember { Shift<T, R>(this) }.configure(block)
 
 @Composable
-public fun <R> Reset<R>.shiftWith(value: R): Nothing =
-  shift { value }
+public fun <R> Reset<R>.shiftWith(value: R): Nothing = shift { value }
 
 // TODO: investigate if we can reuse Recomposer and GatedFrameClock here
 @Composable

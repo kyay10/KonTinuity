@@ -1,11 +1,9 @@
 import androidx.compose.runtime.Composable
 import arrow.core.raise.Raise
 import arrow.core.raise.recover
-import arrow.fx.coroutines.Resource
-import arrow.fx.coroutines.use
-import kotlinx.coroutines.CoroutineScope
+import arrow.fx.coroutines.ResourceScope
+import arrow.fx.coroutines.resourceScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flatMapConcat
@@ -17,12 +15,12 @@ context(A) internal fun <A> given(): A = this@A
 public suspend fun <R> reset(
   failValue: R,
   body: @Composable context(Raise<Unit>) Reset<R>.() -> R
-): R = coroutineScope { lazyReset(failValue, body).use { it } }
+): R = resourceScope { lazyReset(failValue, body) }
 
-public fun <R> CoroutineScope.lazyReset(
+public suspend fun <R> ResourceScope.lazyReset(
   failValue: R,
   body: @Composable context(Raise<Unit>) Reset<R>.() -> R
-): Resource<R> = lazyReset reset@{
+): R = lazyReset reset@{
   recover({
     runCatchingComposable { body(this, this@reset) }.getOrThrow()
   }) { failValue }
@@ -40,9 +38,9 @@ public fun <T, R> List<T>.bind(): T = shift { continuation ->
   flatMap { value -> continuation(value) }
 }
 
-public fun <R> CoroutineScope.flowReset(
+public suspend fun <R> ResourceScope.flowReset(
   body: @Composable context(Raise<Unit>) Reset<Flow<R>>.() -> R
-): Resource<Flow<R>> = lazyReset(emptyFlow()) {
+): Flow<R> = lazyReset(emptyFlow()) {
   flowOf(body(given<Raise<Unit>>(), this@lazyReset))
 }
 
