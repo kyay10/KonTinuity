@@ -1,4 +1,5 @@
 import androidx.compose.runtime.*
+import kotlin.coroutines.suspendCoroutine
 
 public fun interface Shift<T, R> {
   public suspend operator fun invoke(value: T): R
@@ -22,15 +23,29 @@ public fun <T, R> Reset<R>.shift(block: suspend (Shift<T, R>) -> R): T =
 @Composable
 public fun <R> Reset<R>.shiftWith(value: R): Nothing = shift { value }
 
-// TODO: investigate if we can reuse Recomposer here
 @Composable
 public fun <T, R> Reset<R>.reset(
   body: @Composable Reset<T>.() -> T
-): T = await { resetAliased(body) }
+): T {
+  val compositionContext = rememberCompositionContext()
+  return await {
+    suspendCoroutine {
+      val reset = Reset(it, clock)
+      Composition(UnitApplier, compositionContext).setContent {
+        reset.emitter(reset.runReset(body))
+      }
+    }
+  }
+}
 
-private suspend fun <R> resetAliased(
-  body: @Composable Reset<R>.() -> R
-): R = reset(body)
+private object UnitApplier : AbstractApplier<Unit>(Unit) {
+  override fun insertBottomUp(index: Int, instance: Unit) {}
+  override fun insertTopDown(index: Int, instance: Unit) {}
+  override fun move(from: Int, to: Int, count: Int) {}
+  override fun remove(index: Int, count: Int) {}
+  override fun onClear() {}
+}
+
 
 @Composable
 public inline fun <T, R> Reset<R>.await(crossinline block: suspend () -> T): T = shift { continuation ->

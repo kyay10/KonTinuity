@@ -10,34 +10,32 @@ import kotlin.coroutines.*
 public annotation class ResetDsl
 
 @ResetDsl
-public class Reset<R> internal constructor(
-  output: Continuation<R>, coroutineScope: CoroutineScope, body: @Composable Reset<R>.() -> R
-) {
+public class Reset<R> internal constructor(output: Continuation<R>, internal val clock: GatedFrameClock) {
   private var resumeCoroutine: Continuation<Unit>? = null
   private var currentContinuation: Continuation<R> = output
   private var resumeToken: Any? = null
 
-  private val clock = GatedFrameClock()
   private lateinit var recomposeScope: RecomposeScope
 
   @PublishedApi
   internal var reachedResumePoint: Boolean = true
     private set
 
-  init {
-    (coroutineScope + clock).launchMolecule(RecompositionMode.ContextClock, { res ->
-      clock.isRunning = false
-      res.fold(currentContinuation::resume) {
-        if (it is Suspended && it.reset == this@Reset) {
-          resumeCoroutine!!.resume(Unit)
-        } else {
-          currentContinuation.resumeWithException(it)
-        }
+  internal fun emitter(res: Result<R>) {
+    clock.isRunning = false
+    res.fold(currentContinuation::resume) {
+      if (it is Suspended && it.reset == this@Reset) {
+        resumeCoroutine!!.resume(Unit)
+      } else {
+        currentContinuation.resumeWithException(it)
       }
-    }) {
-      recomposeScope = currentRecomposeScope
-      runCatchingComposable { body() }
     }
+  }
+
+  @Composable
+  internal fun runReset(body: @Composable Reset<R>.() -> R): Result<R> {
+    recomposeScope = currentRecomposeScope
+    return runCatchingComposable { body() }
   }
 
   internal suspend fun resumeAt(token: Any) = suspendCoroutine { continuation ->
@@ -68,10 +66,14 @@ public suspend fun <R> ResourceScope.lazyReset(
   body: @Composable Reset<R>.() -> R
 ): R {
   val job = Job(coroutineContext[Job])
-  val scope = CoroutineScope(coroutineContext + job)
   onRelease { job.cancelAndJoin() }
   return suspendCoroutine { cont ->
-    Reset(cont, scope, body)
+    val clock = GatedFrameClock()
+    val reset = Reset(cont, clock)
+    val scope = CoroutineScope(cont.context + job + clock)
+    scope.launchMolecule(RecompositionMode.ContextClock, reset::emitter) {
+      reset.runReset(body)
+    }
   }
 }
 
