@@ -1,10 +1,14 @@
 import androidx.compose.runtime.*
 
-public class Shift<T, R> internal constructor(private val reset: Reset<R>) {
+public fun interface Shift<T, R> {
+  public suspend operator fun invoke(value: T): R
+}
+
+public class ShiftState<T, R> internal constructor(private val reset: Reset<R>) : Shift<T, R> {
   @Suppress("UNCHECKED_CAST")
   internal var state: T = null as T
 
-  public suspend operator fun invoke(value: T): R {
+  override suspend operator fun invoke(value: T): R {
     state = value
     return reset.resumeAt(this)
   }
@@ -12,12 +16,13 @@ public class Shift<T, R> internal constructor(private val reset: Reset<R>) {
 
 @NonRestartableComposable
 @Composable
-public fun <T, R> Reset<R>.shift(block: suspend (Shift<T, R>) -> R): T = remember { Shift<T, R>(this) }.configure(block)
+public fun <T, R> Reset<R>.shift(block: suspend (Shift<T, R>) -> R): T =
+  remember { ShiftState<T, R>(this) }.configure(block)
 
 @Composable
 public fun <R> Reset<R>.shiftWith(value: R): Nothing = shift { value }
 
-// TODO: investigate if we can reuse Recomposer and GatedFrameClock here
+// TODO: investigate if we can reuse Recomposer here
 @Composable
 public fun <T, R> Reset<R>.reset(
   body: @Composable Reset<T>.() -> T

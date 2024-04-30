@@ -48,9 +48,9 @@ public class Reset<R> internal constructor(
     clock.isRunning = true
   }
 
-  internal fun <T> Shift<T, R>.configure(producer: suspend (Shift<T, R>) -> R): T =
+  internal fun <T> ShiftState<T, R>.configure(producer: suspend (Shift<T, R>) -> R): T =
     if (reachedResumePoint) {
-      resumeCoroutine = producer.createCoroutine(this@Shift, currentContinuation)
+      resumeCoroutine = producer.createCoroutine(this@ShiftState, currentContinuation)
       throw Suspended(this@Reset)
     } else {
       if (resumeToken == this) {
