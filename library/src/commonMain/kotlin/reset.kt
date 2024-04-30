@@ -34,7 +34,6 @@ public class Reset<R> internal constructor(output: Continuation<R>, internal val
 
   @Composable
   internal fun runReset(body: @Composable Reset<R>.() -> R): Result<R> {
-    recomposeScope = currentRecomposeScope
     return runCatchingComposable { body() }
   }
 
@@ -46,8 +45,9 @@ public class Reset<R> internal constructor(output: Continuation<R>, internal val
     clock.isRunning = true
   }
 
-  internal fun <T> ShiftState<T, R>.configure(producer: suspend (Shift<T, R>) -> R): T =
-    if (reachedResumePoint) {
+  internal fun <T> ShiftState<T, R>.configure(recomposeScope: RecomposeScope, producer: suspend (Shift<T, R>) -> R): T {
+    this@Reset.recomposeScope = recomposeScope
+    return if (reachedResumePoint) {
       resumeCoroutine = producer.createCoroutine(this@ShiftState, currentContinuation)
       throw Suspended(this@Reset)
     } else {
@@ -56,6 +56,7 @@ public class Reset<R> internal constructor(output: Continuation<R>, internal val
       }
       state
     }
+  }
 }
 
 public suspend fun <R> reset(

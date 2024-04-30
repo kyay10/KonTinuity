@@ -1,5 +1,4 @@
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.NonRestartableComposable
 import io.kotest.common.Platform
 import io.kotest.common.platform
 import io.kotest.matchers.shouldBe
@@ -12,15 +11,11 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.ExperimentalTime
 
-// Minor issue: if your function returns Unit, it *must* be marked with @NonRestartableComposable
-// Or it can return a different value
-@NonRestartableComposable
 @Composable
 fun <T> Reset<List<T>>.yield(x: T) {
   shift { k -> listOf(x) + k(Unit) }
 }
 
-@NonRestartableComposable
 @Composable
 fun <T> Reset<List<T>>.yieldAll(xs: List<T>) {
   shift { k -> xs + k(Unit) }

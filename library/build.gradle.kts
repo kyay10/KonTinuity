@@ -1,6 +1,5 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.targets.js.dsl.ExperimentalWasmDsl
 
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
@@ -10,15 +9,11 @@ plugins {
   id("module.publication")
 }
 
-compose {
-  kotlinCompilerPlugin = "org.jetbrains.kotlin:kotlin-compose-compiler-plugin-embeddable:2.0.0-RC2"
-}
-
 composeCompiler {
   includeSourceInformation = true
 }
 
-@OptIn(ExperimentalWasmDsl::class, ExperimentalKotlinGradlePluginApi::class)
+@OptIn(ExperimentalKotlinGradlePluginApi::class)
 kotlin {
   compilerOptions {
     freeCompilerArgs.add("-Xcontext-receivers")
@@ -49,10 +44,6 @@ kotlin {
   tvosArm64()
   tvosSimulatorArm64()
   tvosX64()
-
-//  wasmJs {
-//    browser()
-//  }
 
   watchosArm32()
   watchosArm64()

@@ -15,10 +15,9 @@ public class ShiftState<T, R> internal constructor(private val reset: Reset<R>) 
   }
 }
 
-@NonRestartableComposable
 @Composable
 public fun <T, R> Reset<R>.shift(block: suspend (Shift<T, R>) -> R): T =
-  remember { ShiftState<T, R>(this) }.configure(block)
+  remember { ShiftState<T, R>(this) }.configure(currentRecomposeScope, block)
 
 @Composable
 public fun <R> Reset<R>.shiftWith(value: R): Nothing = shift { value }
