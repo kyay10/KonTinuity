@@ -65,7 +65,7 @@ internal class GatedFrameClock(scope: CoroutineScope) : MonotonicFrameClock {
   }
 
   private val clock = BroadcastFrameClock {
-    if (isRunning) frameSends.trySend(Unit).getOrThrow()
+    if (isRunning) sendFrame()
   }
 
   override suspend fun <R> withFrameNanos(onFrame: (frameTimeNanos: Long) -> R): R {

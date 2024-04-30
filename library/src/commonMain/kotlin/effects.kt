@@ -2,9 +2,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.NonRestartableComposable
 import androidx.compose.runtime.remember
 
-@Suppress("UNCHECKED_CAST")
 @PublishedApi
-internal data class EffectState<R> @PublishedApi internal constructor(var value: R = null as R)
+internal class EffectState<R> {
+  @Suppress("UNCHECKED_CAST")
+  var value: R = null as R
+}
 
 // TODO: marking this with @DisallowComposableCalls causes some crashes when early-returning. Might be Compose bug.
 @Composable

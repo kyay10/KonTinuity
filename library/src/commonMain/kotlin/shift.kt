@@ -1,44 +1,13 @@
 import androidx.compose.runtime.*
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-import kotlin.coroutines.resume
 
-public class Shift<T, R> internal constructor(private val reset: Reset<R>) : RememberObserver {
+public class Shift<T, R> internal constructor(private val reset: Reset<R>) {
   @Suppress("UNCHECKED_CAST")
-  private var state: T = null as T
-
-  private var job: Job? = null
+  internal var state: T = null as T
 
   public suspend operator fun invoke(value: T): R {
     state = value
     return reset.resumeAt(this)
   }
-
-  internal fun configure(producer: suspend (Shift<T, R>) -> R): T = with(reset) {
-    if (reachedResumePoint) {
-      val previousContinuation = currentContinuation
-      job?.cancel()
-      val job = coroutineScope.launch(start = CoroutineStart.LAZY) {
-        previousContinuation.resume(producer(this@Shift))
-      }
-      this@Shift.job = job
-      suspendComposition(job)
-    } else {
-      reachedResumeToken(this@Shift)
-      state
-    }
-  }
-
-  override fun onAbandoned() {
-    job?.cancel()
-  }
-
-  override fun onForgotten() {
-    job?.cancel()
-  }
-
-  override fun onRemembered() {}
 }
 
 @NonRestartableComposable

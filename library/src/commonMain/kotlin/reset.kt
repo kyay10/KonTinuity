@@ -11,11 +11,10 @@ public annotation class ResetDsl
 
 @ResetDsl
 public class Reset<R> internal constructor(
-  output: Continuation<R>, internal val coroutineScope: CoroutineScope, body: @Composable Reset<R>.() -> R
+  output: Continuation<R>, coroutineScope: CoroutineScope, body: @Composable Reset<R>.() -> R
 ) {
-  private var resumeJob: Job? = null
-  internal var currentContinuation: Continuation<R> = output
-    private set
+  private var resumeCoroutine: Continuation<Unit>? = null
+  private var currentContinuation: Continuation<R> = output
   private var resumeToken: Any? = null
 
   private val clock: GatedFrameClock = GatedFrameClock(coroutineScope)
@@ -30,7 +29,7 @@ public class Reset<R> internal constructor(
       clock.isRunning = false
       res.fold(currentContinuation::resume) {
         if (it is Suspended && it.reset == this@Reset) {
-          resumeJob!!.start()
+          resumeCoroutine!!.resume(Unit)
         } else {
           currentContinuation.resumeWithException(it)
         }
@@ -49,16 +48,16 @@ public class Reset<R> internal constructor(
     clock.isRunning = true
   }
 
-  internal fun suspendComposition(job: Job): Nothing {
-    resumeJob = job
-    throw Suspended(this)
-  }
-
-  internal fun reachedResumeToken(token: Any) {
-    if (resumeToken == token) {
-      reachedResumePoint = true
+  internal fun <T> Shift<T, R>.configure(producer: suspend (Shift<T, R>) -> R): T =
+    if (reachedResumePoint) {
+      resumeCoroutine = producer.createCoroutine(this@Shift, currentContinuation)
+      throw Suspended(this@Reset)
+    } else {
+      if (resumeToken == this) {
+        reachedResumePoint = true
+      }
+      state
     }
-  }
 }
 
 public suspend fun <R> reset(
