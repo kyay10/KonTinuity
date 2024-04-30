@@ -17,7 +17,7 @@ public class Reset<R> internal constructor(
   private var currentContinuation: Continuation<R> = output
   private var resumeToken: Any? = null
 
-  private val clock: GatedFrameClock = GatedFrameClock(coroutineScope)
+  private val clock = GatedFrameClock()
   private lateinit var recomposeScope: RecomposeScope
 
   @PublishedApi
@@ -25,7 +25,7 @@ public class Reset<R> internal constructor(
     private set
 
   init {
-    coroutineScope.launchMolecule(RecompositionMode.ContextClock, { res ->
+    (coroutineScope + clock).launchMolecule(RecompositionMode.ContextClock, { res ->
       clock.isRunning = false
       res.fold(currentContinuation::resume) {
         if (it is Suspended && it.reset == this@Reset) {
@@ -34,7 +34,7 @@ public class Reset<R> internal constructor(
           currentContinuation.resumeWithException(it)
         }
       }
-    }, clock) {
+    }) {
       recomposeScope = currentRecomposeScope
       runCatchingComposable { body() }
     }
