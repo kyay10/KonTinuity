@@ -95,9 +95,6 @@ class ContinuationTest {
   @Test
   fun stackSafety() = runTest {
     val n = stackSafeIteration()
-    // This is quadratic, so it's a little slow
-    // On my machine, it takes roughly 10s for n = 20_000
-    // Which is about 20M ops/sec. Not bad, Compose!
     val result = reset<Int> {
       for (i in 0 until n) {
         shift { k -> k(Unit) + i }

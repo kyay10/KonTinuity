@@ -25,7 +25,7 @@ public class Reset<R> internal constructor(output: Continuation<R>, internal val
     clock.isRunning = false
     res.fold(currentContinuation::resume) {
       if (it is Suspended && it.reset == this@Reset) {
-        resumeCoroutine!!.resume(Unit)
+        resumeCoroutine?.resume(Unit)
       } else {
         currentContinuation.resumeWithException(it)
       }
@@ -47,15 +47,19 @@ public class Reset<R> internal constructor(output: Continuation<R>, internal val
 
   internal fun <T> ShiftState<T, R>.configure(recomposeScope: RecomposeScope, producer: suspend (Shift<T, R>) -> R): T {
     this@Reset.recomposeScope = recomposeScope
-    return if (reachedResumePoint) {
-      resumeCoroutine = producer.createCoroutine(this@ShiftState, currentContinuation)
-      throw Suspended(this@Reset)
-    } else {
-      if (resumeToken == this) {
-        reachedResumePoint = true
+    if (reachedResumePoint) {
+      val cont = currentContinuation
+      CoroutineScope(currentContinuation.context).launch(start = CoroutineStart.UNDISPATCHED) {
+        cont.resumeWith(runCatching { producer(this@configure) })
       }
-      state
+      if (resumeToken != this) {
+        throw Suspended(this@Reset)
+      }
     }
+    if (resumeToken == this) {
+      reachedResumePoint = true
+    }
+    return state
   }
 }
 
