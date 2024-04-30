@@ -1,13 +1,10 @@
 import androidx.compose.runtime.Composable
 import arrow.core.raise.Raise
 import arrow.core.raise.recover
-import arrow.fx.coroutines.ResourceScope
-import arrow.fx.coroutines.resourceScope
+import arrow.fx.coroutines.*
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.flatMapConcat
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.*
 
 context(A) internal fun <A> given(): A = this@A
 
@@ -38,10 +35,16 @@ public fun <T, R> List<T>.bind(): T = shift { continuation ->
   flatMap { value -> continuation(value) }
 }
 
-public suspend fun <R> ResourceScope.flowReset(
+@OptIn(DelicateCoroutinesApi::class)
+public suspend fun <R> flowReset(
   body: @Composable context(Raise<Unit>) Reset<Flow<R>>.() -> R
-): Flow<R> = lazyReset(emptyFlow()) {
-  flowOf(body(given<Raise<Unit>>(), this@lazyReset))
+): Flow<R> {
+  val (flow, release) = resource {
+    lazyReset(emptyFlow()) {
+      flowOf(body(given<Raise<Unit>>(), this@lazyReset))
+    }
+  }.allocated()
+  return flow.onCompletion { release(it?.let(ExitCase::ExitCase) ?: ExitCase.Completed) }
 }
 
 context(Reset<Flow<R>>)
