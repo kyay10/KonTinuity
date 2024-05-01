@@ -11,6 +11,7 @@ plugins {
 
 composeCompiler {
   includeSourceInformation = true
+  enableStrongSkippingMode = true
 }
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class)

@@ -1,6 +1,4 @@
 import androidx.compose.runtime.*
-import app.cash.molecule.RecompositionMode
-import app.cash.molecule.launchMolecule
 import arrow.fx.coroutines.*
 import kotlinx.coroutines.*
 import kotlin.coroutines.*
@@ -9,13 +7,17 @@ import kotlin.coroutines.*
 @DslMarker
 public annotation class ResetDsl
 
+@Suppress("EqualsOrHashCode")
 @ResetDsl
-public class Reset<R> internal constructor(output: Continuation<R>, internal val clock: GatedFrameClock) {
-  private var resumeCoroutine: Continuation<Unit>? = null
+@Stable
+public class Reset<R> internal constructor(
+  output: Continuation<R>,
+  internal val clock: GatedFrameClock,
+  private val composition: ControlledComposition,
+  internal val recomposer: Recomposer
+) {
   private var currentContinuation: Continuation<R> = output
   private var resumeToken: Any? = null
-
-  private lateinit var recomposeScope: RecomposeScope
 
   @PublishedApi
   internal var reachedResumePoint: Boolean = true
@@ -24,9 +26,7 @@ public class Reset<R> internal constructor(output: Continuation<R>, internal val
   internal fun emitter(res: Result<R>) {
     clock.isRunning = false
     res.fold(currentContinuation::resume) {
-      if (it is Suspended && it.reset == this@Reset) {
-        resumeCoroutine?.resume(Unit)
-      } else {
+      if (it !is Suspended || it.reset !== this@Reset) {
         currentContinuation.resumeWithException(it)
       }
     }
@@ -38,15 +38,14 @@ public class Reset<R> internal constructor(output: Continuation<R>, internal val
   }
 
   internal suspend fun resumeAt(token: Any) = suspendCoroutine { continuation ->
-    recomposeScope.invalidate()
+    composition.invalidateAll()
     reachedResumePoint = false
     currentContinuation = continuation
     resumeToken = token
     clock.isRunning = true
   }
 
-  internal fun <T> ShiftState<T, R>.configure(recomposeScope: RecomposeScope, producer: suspend (Shift<T, R>) -> R): T {
-    this@Reset.recomposeScope = recomposeScope
+  internal fun <T> ShiftState<T, R>.configure(producer: suspend (Shift<T, R>) -> R): T {
     if (reachedResumePoint) {
       val cont = currentContinuation
       CoroutineScope(currentContinuation.context).launch(start = CoroutineStart.UNDISPATCHED) {
@@ -61,6 +60,10 @@ public class Reset<R> internal constructor(output: Continuation<R>, internal val
     }
     return state
   }
+
+  override fun equals(other: Any?): Boolean {
+    return false
+  }
 }
 
 public suspend fun <R> reset(
@@ -74,10 +77,11 @@ public suspend fun <R> ResourceScope.lazyReset(
   onRelease { job.cancelAndJoin() }
   return suspendCoroutine { cont ->
     val clock = GatedFrameClock()
-    val reset = Reset(cont, clock)
     val scope = CoroutineScope(cont.context + job + clock)
-    scope.launchMolecule(RecompositionMode.ContextClock, reset::emitter) {
-      reset.runReset(body)
+    val (composition, recomposer) = scope.launchMolecule()
+    val reset = Reset(cont, clock, composition, recomposer)
+    composition.setContent {
+      reset.emitter(reset.runReset(body))
     }
   }
 }

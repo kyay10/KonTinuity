@@ -17,7 +17,7 @@ public class ShiftState<T, R> internal constructor(private val reset: Reset<R>) 
 
 @Composable
 public fun <T, R> Reset<R>.shift(block: suspend (Shift<T, R>) -> R): T =
-  remember { ShiftState<T, R>(this) }.configure(currentRecomposeScope, block)
+  remember { ShiftState<T, R>(this) }.configure(block)
 
 @Composable
 public fun <R> Reset<R>.shiftWith(value: R): Nothing = shift { value }
@@ -29,24 +29,17 @@ public fun <T, R> Reset<R>.reset(
   val compositionContext = rememberCompositionContext()
   return await {
     suspendCoroutine {
-      val reset = Reset(it, clock)
-      Composition(UnitApplier, compositionContext).setContent {
+      val composition = ControlledComposition(UnitApplier, compositionContext)
+      val reset = Reset(it, clock, composition, recomposer)
+      composition.setContent {
         reset.emitter(reset.runReset(body))
       }
     }
   }
 }
 
-private object UnitApplier : AbstractApplier<Unit>(Unit) {
-  override fun insertBottomUp(index: Int, instance: Unit) {}
-  override fun insertTopDown(index: Int, instance: Unit) {}
-  override fun move(from: Int, to: Int, count: Int) {}
-  override fun remove(index: Int, count: Int) {}
-  override fun onClear() {}
-}
-
 
 @Composable
-public inline fun <T, R> Reset<R>.await(crossinline block: suspend () -> T): T = shift { continuation ->
+public fun <T, R> Reset<R>.await(block: suspend () -> T): T = shift { continuation ->
   continuation(block())
 }
