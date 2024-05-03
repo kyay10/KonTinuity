@@ -61,7 +61,7 @@ class ContinuationTest {
   fun nestedContinuations() = runTest {
     reset<List<Int>> {
       yield(1)
-      yieldAll(reset<List<Int>, _> {
+      yieldAll(reset<List<Int>> {
         yield(4)
         yield(5)
         yield(6)
