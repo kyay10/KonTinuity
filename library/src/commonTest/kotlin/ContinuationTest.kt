@@ -1,4 +1,6 @@
+import Reset.Companion.lazyReset
 import androidx.compose.runtime.Composable
+import arrow.fx.coroutines.resourceScope
 import io.kotest.common.Platform
 import io.kotest.common.platform
 import io.kotest.matchers.shouldBe
@@ -55,6 +57,134 @@ class ContinuationTest {
     reset {
       bar()
     } shouldBe 70
+  }
+
+  @Test
+  fun controlVsShift() = runTest {
+    var shiftPostActCount = 0
+    var shiftDiscardCount = 0
+    val shiftResult = reset<Int> {
+      val act = shift<@Composable () -> Unit, _> { k ->
+        k { }
+        k {
+          shift { _ ->
+            shiftDiscardCount++ // Capturing and discarding the continuation...
+            42
+          }
+        }
+        k { }
+      }
+      act()
+      effect {
+        shiftPostActCount++ // Doing Stuff
+      }
+      0
+    }
+    shiftResult shouldBe 0
+    shiftPostActCount shouldBe 2
+    shiftDiscardCount shouldBe 1
+    var controlPostActCount = 0
+    var controlDiscardCount = 0
+    val controlResult = reset<Int> {
+      val act = control<@Composable () -> Unit, _> { k ->
+        k { }
+        k {
+          control { _ ->
+            controlDiscardCount++ // Capturing and discarding the continuation...
+            42
+          }
+        }
+        k { }
+      }
+      act()
+      effect {
+        controlPostActCount++ // Doing Stuff
+      }
+      0
+    }
+    controlResult shouldBe 42
+    controlPostActCount shouldBe 1
+    controlDiscardCount shouldBe 1
+  }
+
+  @Test
+  fun typeChanging() = runTest {
+    // From https://web.archive.org/web/20200713053410/http://lambda-the-ultimate.org/node/606
+    resourceScope {
+      val f = lazyReset<Cont<@Composable () -> Nothing, Nothing>> {
+        controlAndChangeType({ k -> k }) { it() }
+      }
+      reset {
+        await {
+          f { control { false } }
+        }
+        // The compiler knows that this will never run!
+        true
+      } shouldBe false
+    }
+    reset {
+      val f: @Composable () -> Nothing = control { k ->
+        k { control { false } }
+        true
+      }
+      f()
+    } shouldBe false
+    reset {
+      val f: @Composable () -> Nothing = shift { k ->
+        k {
+          shift { false }
+        }
+        true
+      }
+      f()
+    } shouldBe true
+
+    resourceScope {
+      val cont: Cont<@Composable Reset<Boolean>.() -> Boolean, Boolean> = lazyReset {
+        shiftAndChangeType<_, _, Boolean>({ k -> k }) { it() }
+      }
+      reset {
+        shift { k ->
+          cont { shift { false } }
+          k(Unit)
+        }
+        true
+      } shouldBe true
+      reset {
+        shift { k ->
+          k(Unit)
+          cont { this@reset.shift { false } }
+          k(Unit)
+        }
+        true
+      } shouldBe false
+    }
+
+    resourceScope {
+      reset {
+        reset { shiftWith(false) }
+        true
+      } shouldBe true
+      reset outer@{
+        reset<Nothing> { this@outer.shiftWith(false) }
+        true
+      } shouldBe false
+    }
+
+    resourceScope {
+      val f = lazyReset<Cont<@Composable () -> Nothing, Nothing>> {
+        controlAndChangeType({ k -> k }) { it() }
+      }
+      try {
+        reset {
+          await {
+            f { throw RuntimeException("Hello") }
+          }
+        }
+      } catch (e: RuntimeException) {
+        e.message shouldBe "Hello"
+      }
+    }
   }
 
   @Test
@@ -115,6 +245,30 @@ class ContinuationTest {
       1
     }
     result shouldBe n
+  }
+
+  @Test
+  fun generalisedTests() = runTest {
+    10 + reset<Int> {
+      2 + shift<Int, _> { k -> 100 + k(k(3)) }
+    } shouldBe 117
+    10 * reset<Int> {
+      shiftWith(reset<Int> {
+        5 * shift<Int, _> { f -> f(1) + 1 }
+      })
+    } shouldBe 60
+    run {
+      @Composable
+      fun <R> Reset<R>.f(x: R) = shift<R, R> { k -> k(k(x)) }
+      1 + reset<Int> { 10 + f(100) }
+    } shouldBe 121
+    run {
+      @Composable
+    fun Reset<String>.x() = shift { f -> "a" + f("") }
+      reset<String> {
+        shiftWith(x())
+      }
+    } shouldBe "a"
   }
 }
 

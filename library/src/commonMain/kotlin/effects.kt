@@ -9,6 +9,7 @@ internal class EffectState<R> {
 
 // TODO: marking this with @DisallowComposableCalls causes some crashes when early-returning. Might be Compose bug.
 @Composable
+@ResetDsl
 public inline fun <R> Reset<*>.effect(block: () -> R): R = with(remember { EffectState<R>() }) {
   if (reachedResumePoint) value = block()
   value

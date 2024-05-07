@@ -12,7 +12,6 @@ plugins {
 composeCompiler {
   includeSourceInformation = true
   enableStrongSkippingMode = true
-  enableNonSkippingGroupOptimization = true
 }
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class)
