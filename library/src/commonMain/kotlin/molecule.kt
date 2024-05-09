@@ -21,21 +21,18 @@ import kotlinx.coroutines.CoroutineStart.UNDISPATCHED
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
-
 /**
  * Launch a coroutine into this [CoroutineScope] which will continually recompose the return `Composition`
  *
  * The coroutine context is inherited from the [CoroutineScope].
  */
-public fun CoroutineScope.launchMolecule(): Pair<ControlledComposition, Recomposer> {
+public fun CoroutineScope.launchMolecule(): Recomposer {
   val recomposer = Recomposer(coroutineContext)
-  val composition = ControlledComposition(UnitApplier, recomposer)
   var snapshotHandle: ObserverHandle? = null
   launch(start = UNDISPATCHED) {
     try {
       recomposer.runRecomposeAndApplyChanges()
-    } catch (e: CancellationException) {
-      composition.dispose()
+    } catch (_: CancellationException) {
       snapshotHandle?.dispose()
     }
   }
@@ -50,13 +47,5 @@ public fun CoroutineScope.launchMolecule(): Pair<ControlledComposition, Recompos
       }
     }
   }
-  return composition to recomposer
-}
-
-internal object UnitApplier : AbstractApplier<Unit>(Unit) {
-  override fun insertBottomUp(index: Int, instance: Unit) {}
-  override fun insertTopDown(index: Int, instance: Unit) {}
-  override fun move(from: Int, to: Int, count: Int) {}
-  override fun remove(index: Int, count: Int) {}
-  override fun onClear() {}
+  return recomposer
 }

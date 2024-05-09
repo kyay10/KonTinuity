@@ -1,4 +1,5 @@
 import Reset.Companion.lazyReset
+import Suspender.Companion.startSuspendingComposition
 import androidx.compose.runtime.*
 import arrow.fx.coroutines.*
 import kotlinx.coroutines.*
@@ -18,119 +19,91 @@ internal val currentReset: Reset<*>
 @Stable
 public class Reset<R> internal constructor(
   output: Continuation<R>,
-  private val clock: GatedFrameClock,
-  private val composition: ControlledComposition,
-  private val recomposer: Recomposer,
-  private val parent: Pair<Reset<*>, EffectState<R>>?,
+  private var parent: Pair<Reset<*>, Continuation<R>>?,
 ) {
   private var normalContinuation: Continuation<R> = output
   private var normalContinuationAbortToken: Any? = null
   private var controlContinuation: Continuation<R> = output
 
-  private lateinit var recomposeScope: RecomposeScope
-  private lateinit var bodyRecomposeScope: RecomposeScope
-  private var resumeToken: Any? = null
-
   @PublishedApi
-  internal var reachedResumePoint: Boolean = true
-    private set
+  internal fun emitter(value: Result<R>) {
+    normalContinuation.resumeWith(value)
+  }
 
   @Composable
   @PublishedApi
-  internal fun runReset(body: @Composable Reset<R>.() -> R): Unit =
+  internal fun runReset(body: @Composable Reset<R>.() -> Unit): Unit =
     CompositionLocalProvider(resetCompositionLocal provides this) {
-      bodyRecomposeScope = currentRecomposeScope
-      val res = runCatchingComposable { body(this) }
-      clock.isRunning = false
-      CoroutineScope(recomposer.effectCoroutineContext).launch {
-        recomposer.awaitIdle()
-        val exception = res.exceptionOrNull()
-        if (exception is Suspended) {
-          return@launch
-        }
-        normalContinuation.resumeWith(res)
-      }
+      body()
     }
 
-  internal suspend fun <T, R2> EffectState<T>.resume(value: T, target: Reset<R2>, isShift: Boolean): R2 {
-    this.value = value
-    resumeToken = this
-    // If composition is composing, we're likely on the fast path, so no need for invalidations
-    if (!composition.isComposing) {
-      // TODO do we need both scope invalidations?
-      recomposeScope.invalidate()
-      bodyRecomposeScope.invalidate()
-      reachedResumePoint = false
-      clock.isRunning = true
-    }
-    return if (target === this@Reset) {
-      receiveResult(isShift, this)
-    } else {
-      if (parent != null) {
-        val result = receiveResult(isShift, this)
-        val (parentReset, parentEffect) = parent
-        with(parentReset) {
-          parentEffect.resume(result, target, isShift)
-        }
+  internal fun <R2> awaitResult(
+    target: Reset<R2>, isShift: Boolean, token: Any, cont: Continuation<R2>, overrideParent: Reset<*>?
+  ) {
+    if (target === this@Reset) {
+      if (overrideParent == null || overrideParent === this@Reset) {
+        receiveResult(isShift, token, cont)
       } else {
-        with(target) {
-          println("Warning: no parent reset found, resuming directly, which may lead to unexpected behavior")
-          resume(value, target, isShift)
-          throw Suspended(this@Reset)
-        }
+        val oldParent = parent
+        parent = overrideParent to cont
+        receiveResult(isShift, token, Continuation(EmptyCoroutineContext) {
+          parent = oldParent
+          cont.resumeWith(it)
+        })
       }
+    } else {
+      val (parentReset, parentCont) = requireNotNull(parent) {
+        "No parent reset found"
+      }
+      receiveResult(isShift, token, Continuation(EmptyCoroutineContext) {
+        parentCont.resumeWith(it)
+        parentReset.awaitResult(target, isShift, token, cont, overrideParent)
+      })
     }
   }
 
-  private suspend fun receiveResult(isShift: Boolean, token: Any): R {
+  private fun receiveResult(isShift: Boolean, token: Any, continuation: Continuation<R>) {
     val previousControlContinuation = controlContinuation
-    return try {
-      suspendCoroutine {
-        normalContinuation = it
-        if (isShift) {
-          // Replaces the control continuation with this handler's continuation
-          // This ensures that the next continuation reifier will resume this handler instead of any previous one
-          // or the original output continuation. This is equivalent to wrapping the continuation in a reset
-          controlContinuation = it
-        } else {
-          normalContinuationAbortToken = token
-        }
-      }
-    } finally {
+    val continuation = Continuation(continuation.context) {
       controlContinuation = previousControlContinuation
+      continuation.resumeWith(it)
+    }
+    normalContinuation = continuation
+    if (isShift) {
+      // Replaces the control continuation with this handler's continuation
+      // This ensures that the next continuation reifier will resume this handler instead of any previous one
+      // or the original output continuation. This is equivalent to wrapping the continuation in a reset
+      controlContinuation = continuation
+    } else {
+      normalContinuationAbortToken = token
     }
   }
 
   @OptIn(InternalCoroutinesApi::class)
   @PublishedApi
-  internal fun <T, R2> EffectState<T>.configure(
-    recomposeScope: RecomposeScope, target: Reset<R2>, producer: suspend EffectState<T>.() -> R2
-  ): T {
-    this@Reset.recomposeScope = recomposeScope
-    if (reachedResumePoint) {
-      // Trying not to rely on Continuation equality, but it could've been used here
-      target.normalContinuationAbortToken?.let { target.normalContinuation.resumeWithException(Suspended(it)) }
-      target.normalContinuationAbortToken = null
-      CoroutineStart.UNDISPATCHED(producer, this, target.controlContinuation)
-      // Fast path: if the first call in `producer` is `resumeAt`, we can use the value immediately
-      if (resumeToken != this) throw Suspended(this@Reset)
-    }
-    if (resumeToken == this) {
-      reachedResumePoint = true
-    }
-    return value
+  internal fun <T> Continuation<T>.configure(producer: suspend (Continuation<T>) -> R) {
+    // Trying not to rely on Continuation equality, but it could've been used here
+    normalContinuationAbortToken?.let { normalContinuation.resumeWithException(Suspended(it)) }
+    normalContinuationAbortToken = null
+    CoroutineStart.UNDISPATCHED(producer, this, controlContinuation)
   }
 
-  @Composable
-  @ResetDsl
-  public fun <T> reset(
-    body: @Composable Reset<T>.() -> T
-  ): T = gimmeAllControl { k ->
-    k.resume(suspendCoroutine {
-      val composition = ControlledComposition(UnitApplier, recomposer)
-      val reset = Reset(it, clock, composition, recomposer, this@Reset to k)
-      composition.setContent { reset.runReset(body) }
-    }, this@Reset, true)
+  @OptIn(InternalCoroutinesApi::class)
+  @PublishedApi
+  internal fun <T> Continuation<T>.configureC(
+    suspender: Suspender, producer: @Composable (Continuation<T>) -> R
+  ) {
+    val composition = ControlledComposition(UnitApplier, suspender.compositionContext)
+    // Trying not to rely on Continuation equality, but it could've been used here
+    normalContinuationAbortToken?.let { normalContinuation.resumeWithException(Suspended(it)) }
+    normalContinuationAbortToken = null
+    composition.setContent {
+      runReset {
+        with(suspender) {
+          startSuspendingComposition(composition, controlContinuation::resumeWith) { producer(this@configureC) }
+        }
+      }
+    }
   }
 
   override fun equals(other: Any?): Boolean {
@@ -147,15 +120,31 @@ public class Reset<R> internal constructor(
 
       val clock = GatedFrameClock()
       val scope = CoroutineScope(coroutineContext + job + clock)
-      val (composition, recomposer) = scope.launchMolecule()
-      lateinit var reset: Reset<R>
-      val result = runCatching {
-        suspendCoroutine {
-          reset = Reset(it, clock, composition, recomposer, null)
-          composition.setContent { reset.runReset(body) }
+      val recomposer = scope.launchMolecule()
+      val composition = ControlledComposition(UnitApplier, recomposer)
+      return suspendCoroutine {
+        val reset = Reset(it, null)
+        composition.setContent {
+          reset.runReset {
+            recomposer.startSuspendingComposition(composition, clock, reset::emitter) { body() }
+          }
         }
       }
-      return result.getOrThrow()
+    }
+
+
+    // the receiver is unused. It's there to force it to be called when nested
+    @Composable
+    @ResetDsl
+    public fun <T> Reset<*>.reset(
+      body: @Composable Reset<T>.() -> T
+    ): T = suspendComposition { k ->
+      val suspender = currentSuspender
+      val composition = ControlledComposition(UnitApplier, suspender.compositionContext)
+      val reset = Reset(k, currentReset to k)
+      composition.setContent {
+        reset.runReset { suspender.startSuspendingComposition(composition, reset::emitter) { body() } }
+      }
     }
   }
 }

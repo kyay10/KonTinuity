@@ -1,4 +1,5 @@
 import Reset.Companion.lazyReset
+import Reset.Companion.reset
 import androidx.compose.runtime.Composable
 import arrow.fx.coroutines.resourceScope
 import io.kotest.common.Platform
@@ -115,9 +116,7 @@ class ContinuationTest {
         controlAndChangeType({ k -> k }) { it() }
       }
       reset {
-        await {
-          f { control { false } }
-        }
+        f.invokeC { control { false } }
         // The compiler knows that this will never run!
         true
       } shouldBe false
@@ -151,25 +150,23 @@ class ContinuationTest {
         true
       } shouldBe true
       reset {
-        shift { k ->
-          k(Unit)
-          cont { this@reset.shift { false } }
-          k(Unit)
+        shiftC { k ->
+          k.invokeC(Unit)
+          cont.invokeC { this@reset.shift { false } }
+          k.invokeC(Unit)
         }
         true
       } shouldBe false
     }
 
-    resourceScope {
-      reset {
-        reset { shiftWith(false) }
-        true
-      } shouldBe true
-      reset outer@{
-        reset<Nothing> { this@outer.shiftWith(false) }
-        true
-      } shouldBe false
-    }
+    reset {
+      reset { shiftWith(false) }
+      true
+    } shouldBe true
+    reset outer@{
+      reset<Nothing> { this@outer.shiftWith(false) }
+      true
+    } shouldBe false
 
     resourceScope {
       val f = lazyReset<Cont<@Composable () -> Nothing, Nothing>> {
@@ -177,9 +174,7 @@ class ContinuationTest {
       }
       try {
         reset {
-          await {
-            f { throw RuntimeException("Hello") }
-          }
+          f.invokeC { throw RuntimeException("Hello") }
         }
       } catch (e: RuntimeException) {
         e.message shouldBe "Hello"
@@ -264,11 +259,12 @@ class ContinuationTest {
     } shouldBe 121
     run {
       @Composable
-    fun Reset<String>.x() = shift { f -> "a" + f("") }
+      fun Reset<String>.x() = shift { f -> "a" + f("") }
       reset<String> {
         shiftWith(x())
       }
     } shouldBe "a"
+
   }
 }
 
