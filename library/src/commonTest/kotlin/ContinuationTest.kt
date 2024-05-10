@@ -243,14 +243,14 @@ class ContinuationTest {
   }
 
   @Test
-  fun generalisedTests() = runTest {
+  fun shiftTests() = runTest {
     10 + reset<Int> {
       2 + shift<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
     10 * reset<Int> {
-      shiftWith(reset<Int> {
+      shiftC {
         5 * shift<Int, _> { f -> f(1) + 1 }
-      })
+      }
     } shouldBe 60
     run {
       @Composable
@@ -261,10 +261,68 @@ class ContinuationTest {
       @Composable
       fun Reset<String>.x() = shift { f -> "a" + f("") }
       reset<String> {
-        shiftWith(x())
+        shiftC { x() }
       }
     } shouldBe "a"
+    reset<String> {
+      shiftC { g ->
+        shiftC { f -> "a" + f.invokeC("") }
+        "b"
+      }
+    } shouldBe "ab"
+    reset<String> {
+      shiftC { g ->
+        shiftC { f -> "a" + f.invokeC("") }
+        g.invokeC("b")
+      }
+    } shouldBe "ab"
+  }
 
+  @Test
+  fun controlTests() = runTest {
+    10 + reset<Int> {
+      2 + control<Int, _> { k -> 100 + k(k(3)) }
+    } shouldBe 117
+    run {
+      @Composable
+      fun Reset<String>.x() = control { f -> "a" + f("") }
+      reset<String> {
+        controlC { x() }
+      }
+    } shouldBe ""
+    reset<Int> {
+      control { l ->
+        1 + l(0)
+      }
+      control { 2 }
+    } shouldBe 2
+    reset<String> {
+      control { f -> "a" + f("") }
+    } shouldBe "a"
+    // Failing. Perhaps I need that idea of setting a normal continuation upon control being called, instead of that being done for every call to the Cont
+    reset<String> {
+      controlC { g -> g.invokeC(controlC { f -> "a" + f.invokeC("") }) }
+    } shouldBe "a"
+    reset<String> {
+      controlC { g ->
+        control { f -> "a" + f("") }
+        "b"
+      }
+    } shouldBe "ab"
+    reset<String> {
+      control { f -> "a" + f("") }
+      control { g -> "b" }
+    } shouldBe "b"
+    reset<String> {
+      control { f -> "a" + f("") }
+      control { g -> g("b") }
+    } shouldBe "ab"
+    reset<String> {
+      controlC { g ->
+        controlC { f -> "a" + f.invokeC("") }
+        "b"
+      }
+    } shouldBe "b"
   }
 }
 

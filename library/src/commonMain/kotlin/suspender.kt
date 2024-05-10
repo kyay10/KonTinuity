@@ -9,6 +9,8 @@ import androidx.compose.runtime.currentRecomposeScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.launch
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
@@ -120,6 +122,13 @@ internal class Suspender(
       }
     }
   }
+}
+
+@OptIn(InternalCoroutinesApi::class)
+@Composable
+@ResetDsl
+public fun <T> await(block: suspend () -> T): T = suspendComposition { cont ->
+  CoroutineStart.UNDISPATCHED({ block() }, Unit, cont)
 }
 
 @Composable

@@ -1,32 +1,30 @@
 import androidx.compose.runtime.*
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.InternalCoroutinesApi
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
-public typealias Cont<T, R> = (T, Continuation<R>, Reset<*>?) -> Unit
+public typealias Cont<T, R> = (T, Continuation<R>) -> Unit
 
 public suspend operator fun <T, R> Cont<T, R>.invoke(value: T): R = suspendCoroutine { cont ->
-  this(value, cont, null)
+  this(value, cont)
 }
 
 @Composable
 public fun <T, R> Cont<T, R>.invokeC(value: T): R = suspendComposition { cont ->
-  this(value, cont, currentReset)
+  this(value, cont)
 }
 
 public class ControlOrShiftCont<T, R> @PublishedApi internal constructor(
-  private val continuation: Continuation<T>, private val reset: Reset<*>, private val target: Reset<R>
+  private val continuation: Continuation<T>, private val target: Reset<R>
 ) {
-  public fun shift(value: T, cont: Continuation<R>, parent: Reset<*>?) {
+  public fun shift(value: T, cont: Continuation<R>) {
     continuation.resume(value)
-    reset.awaitResult(target, true, continuation, cont, parent)
+    target.receiveResult(true, continuation, cont)
   }
 
-  public fun control(value: T, cont: Continuation<R>, parent: Reset<*>?) {
+  public fun control(value: T, cont: Continuation<R>) {
     continuation.resume(value)
-    reset.awaitResult(target, false, continuation, cont, parent)
+    target.receiveResult(false, continuation, cont)
   }
 }
 
@@ -34,13 +32,13 @@ public class ControlOrShiftCont<T, R> @PublishedApi internal constructor(
 
 @PublishedApi
 @Composable
-internal inline fun <T, R> Reset<R>.gimmeAllControl(crossinline block: suspend (Continuation<T>) -> R): T =
-  suspendComposition { it.configure @DontMemoize { block(it) } }
+internal inline fun <T, R> Reset<R>.controlOrShift(crossinline block: suspend (ControlOrShiftCont<T, R>) -> R): T =
+  suspendComposition { it.configure @DontMemoize { block(ControlOrShiftCont(it, this@controlOrShift)) } }
 
 @PublishedApi
 @Composable
-internal inline fun <T, R> Reset<R>.gimmeAllControlC(crossinline block: @Composable (Continuation<T>) -> R): T =
-  suspendComposition { it.configureC(currentSuspender) @DontMemoize { block(it) } }
+internal inline fun <T, R> Reset<R>.controlOrShiftC(crossinline block: @Composable (ControlOrShiftCont<T, R>) -> R): T =
+  suspendComposition { it.configureC(currentSuspender) @DontMemoize { block(ControlOrShiftCont(it, this@controlOrShiftC)) } }
 
 @Composable
 @ResetDsl
@@ -82,38 +80,4 @@ public inline fun <T, R> Reset<R>.controlC(crossinline block: @Composable (Cont<
 
 @Composable
 @ResetDsl
-public inline fun <T, R> Reset<R>.controlOrShift(crossinline block: suspend (ControlOrShiftCont<T, R>) -> R): T {
-  val reset = currentReset
-  return gimmeAllControl {
-    try {
-      block(ControlOrShiftCont(it, reset, this@controlOrShift))
-    } catch (e: Suspended) {
-      if (e.token === it) {
-        suspendCoroutine<Nothing> { }
-      } else throw e
-    }
-  }
-}
-
-@Composable
-@ResetDsl
-public fun <T, R> Reset<R>.controlOrShiftC(block: @Composable (ControlOrShiftCont<T, R>) -> R): T {
-  val reset = currentReset
-  return gimmeAllControlC {
-    val result = runCatching { block(ControlOrShiftCont(it, reset, this@controlOrShiftC)) }
-    if ((result.exceptionOrNull() as? Suspended)?.token === it) {
-      suspendComposition<Nothing> { }
-    } else result.getOrThrow()
-  }
-}
-
-@Composable
-@ResetDsl
 public fun <R> Reset<R>.shiftWith(value: R): Nothing = shift { value }
-
-@OptIn(InternalCoroutinesApi::class)
-@Composable
-@ResetDsl
-public fun <T> await(block: suspend () -> T): T = suspendComposition { cont ->
-  CoroutineStart.UNDISPATCHED({ block() }, Unit, cont)
-}
