@@ -62,7 +62,9 @@ internal class Suspender(
   ): T {
     this@Suspender.recomposeScope = recomposeScope
     if (reachedResumePoint) {
-      block(CompositionContinuation(this, this@Suspender))
+      val continuation = CompositionContinuation(this, this@Suspender)
+      block(continuation)
+      continuation.inFastPath = false
       // Fast path: if the first call in `block` is `resumeWith`, we can use the value immediately
       if (resumeToken != this) throw Suspended(this@Suspender)
     }
@@ -81,19 +83,22 @@ internal class Suspender(
   internal class CompositionContinuation<T>(
     private val state: EffectState<T>, private val suspender: Suspender
   ) : Continuation<T> {
+    @PublishedApi
+    internal var inFastPath: Boolean = true
     override val context: CoroutineContext = suspender.recomposer.effectCoroutineContext
 
     override fun resumeWith(result: Result<T>) {
       state.value = result
       suspender.resumeToken = state
-      // If composition is composing, we're likely on the fast path, so no need for invalidations
-      if (!suspender.composition.isComposing) {
-        // TODO do we need both scope invalidations?
-        suspender.recomposeScope.invalidate()
-        suspender.bodyRecomposeScope.invalidate()
-        suspender.reachedResumePoint = false
-        suspender.clock.isRunning = true
-      }
+      if (!inFastPath)
+        CoroutineScope(context).launch {
+          suspender.recomposer.awaitIdle()
+          // TODO do we need both scope invalidations?
+          suspender.recomposeScope.invalidate()
+          suspender.bodyRecomposeScope.invalidate()
+          suspender.reachedResumePoint = false
+          suspender.clock.isRunning = true
+        }
     }
   }
 

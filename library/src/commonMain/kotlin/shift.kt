@@ -19,12 +19,12 @@ public class ControlOrShiftCont<T, R> @PublishedApi internal constructor(
 ) {
   public fun shift(value: T, cont: Continuation<R>) {
     continuation.resume(value)
-    target.receiveResult(true, continuation, cont)
+    target.receiveResult(true, cont)
   }
 
   public fun control(value: T, cont: Continuation<R>) {
     continuation.resume(value)
-    target.receiveResult(false, continuation, cont)
+    target.receiveResult(false, cont)
   }
 }
 

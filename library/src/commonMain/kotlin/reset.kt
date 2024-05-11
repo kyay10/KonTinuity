@@ -15,10 +15,9 @@ public class Reset<R> internal constructor(
   output: Continuation<R>,
 ) {
   private var normalContinuation: Continuation<R> = output
-  private var normalContinuationAbortToken: Any? = null
   private var controlContinuation: Continuation<R> = output
 
-  internal fun receiveResult(isShift: Boolean, token: Any, continuation: Continuation<R>) {
+  internal fun receiveResult(isShift: Boolean, continuation: Continuation<R>) {
     if (isShift) {
       val previousControlContinuation = controlContinuation
       val continuation = continuation.onResume {
@@ -31,18 +30,14 @@ public class Reset<R> internal constructor(
       controlContinuation = continuation
     } else {
       normalContinuation = continuation
-      normalContinuationAbortToken = token
     }
   }
 
   @OptIn(InternalCoroutinesApi::class)
   @PublishedApi
   internal fun <T> Continuation<T>.configure(producer: suspend (Continuation<T>) -> R) {
-    // Trying not to rely on Continuation equality, but it could've been used here
-    normalContinuationAbortToken?.let { normalContinuation.resumeWithException(Suspended(it)) }
-    normalContinuationAbortToken = null
-    CoroutineStart.UNDISPATCHED(producer, this, controlContinuation.filterNot {
-      (it.exceptionOrNull() as? Suspended)?.token == this@configure
+    CoroutineStart.UNDISPATCHED(producer, this, Continuation(controlContinuation.context) {
+      controlContinuation.resumeWith(it)
     })
   }
 
@@ -52,13 +47,9 @@ public class Reset<R> internal constructor(
     suspender: Suspender, producer: @Composable (Continuation<T>) -> R
   ) {
     val composition = ControlledComposition(UnitApplier, suspender.compositionContext)
-    // Trying not to rely on Continuation equality, but it could've been used here
-    normalContinuationAbortToken?.let { normalContinuation.resumeWithException(Suspended(it)) }
-    normalContinuationAbortToken = null
     composition.setContent {
       with(suspender) {
-        startSuspendingComposition(composition,
-          { if ((it.exceptionOrNull() as? Suspended)?.token != this@configureC) controlContinuation.resumeWith(it) }) {
+        startSuspendingComposition(composition, { controlContinuation.resumeWith(it) }) {
           producer(
             this@configureC
           )
