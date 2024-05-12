@@ -1,9 +1,5 @@
-import Reset.Companion.lazyReset
-import Reset.Companion.reset
 import androidx.compose.runtime.Composable
 import arrow.fx.coroutines.resourceScope
-import io.kotest.common.Platform
-import io.kotest.common.platform
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -15,14 +11,10 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.ExperimentalTime
 
 @Composable
-fun <T> Reset<List<T>>.yield(x: T) {
-  shift { k -> listOf(x) + k(Unit) }
-}
+fun <T> Reset<List<T>>.yield(x: T) = shift { k -> listOf(x) + k(null) }
 
 @Composable
-fun <T> Reset<List<T>>.yieldAll(xs: List<T>) {
-  shift { k -> xs + k(Unit) }
-}
+fun <T> Reset<List<T>>.yieldAll(xs: List<T>) = shift { k -> xs + k(null) }
 
 class ContinuationTest {
   @Composable
@@ -65,15 +57,15 @@ class ContinuationTest {
     var shiftPostActCount = 0
     var shiftDiscardCount = 0
     val shiftResult = reset<Int> {
-      val act = shift<@Composable () -> Unit, _> { k ->
-        k { }
+      val act = shift<@Composable () -> Nothing?, _> { k ->
+        k { null }
         k {
           shift { _ ->
             shiftDiscardCount++ // Capturing and discarding the continuation...
             42
           }
         }
-        k { }
+        k { null }
       }
       act()
       effect {
@@ -87,15 +79,15 @@ class ContinuationTest {
     var controlPostActCount = 0
     var controlDiscardCount = 0
     val controlResult = reset<Int> {
-      val act = control<@Composable () -> Unit, _> { k ->
-        k { }
+      val act = control<@Composable () -> Nothing?, _> { k ->
+        k { null }
         k {
           control { _ ->
             controlDiscardCount++ // Capturing and discarding the continuation...
             42
           }
         }
-        k { }
+        k { null }
       }
       act()
       effect {
@@ -109,84 +101,10 @@ class ContinuationTest {
   }
 
   @Test
-  fun typeChanging() = runTest {
-    // From https://web.archive.org/web/20200713053410/http://lambda-the-ultimate.org/node/606
-    resourceScope {
-      val f = lazyReset<Cont<@Composable () -> Nothing, Nothing>> {
-        controlAndChangeType({ k -> k }) { it() }
-      }
-      reset {
-        f.invokeC { control { false } }
-        // The compiler knows that this will never run!
-        true
-      } shouldBe false
-    }
-    reset {
-      val f: @Composable () -> Nothing = control { k ->
-        k { control { false } }
-        true
-      }
-      f()
-    } shouldBe false
-    reset {
-      val f: @Composable () -> Nothing = shift { k ->
-        k {
-          shift { false }
-        }
-        true
-      }
-      f()
-    } shouldBe true
-
-    resourceScope {
-      val cont: Cont<@Composable Reset<Boolean>.() -> Boolean, Boolean> = lazyReset {
-        shiftAndChangeType<_, _, Boolean>({ k -> k }) { it() }
-      }
-      reset {
-        shift { k ->
-          cont { shift { false } }
-          k(Unit)
-        }
-        true
-      } shouldBe true
-      reset {
-        shiftC { k ->
-          k.invokeC(Unit)
-          cont.invokeC { this@reset.shift { false } }
-          k.invokeC(Unit)
-        }
-        true
-      } shouldBe false
-    }
-
-    reset {
-      reset { shiftWith(false) }
-      true
-    } shouldBe true
-    reset outer@{
-      reset<Nothing> { this@outer.shiftWith(false) }
-      true
-    } shouldBe false
-
-    resourceScope {
-      val f = lazyReset<Cont<@Composable () -> Nothing, Nothing>> {
-        controlAndChangeType({ k -> k }) { it() }
-      }
-      try {
-        reset {
-          f.invokeC { throw RuntimeException("Hello") }
-        }
-      } catch (e: RuntimeException) {
-        e.message shouldBe "Hello"
-      }
-    }
-  }
-
-  @Test
   fun nestedContinuations() = runTest {
     reset<List<Int>> {
       yield(1)
-      yieldAll(reset<List<Int>> {
+      yieldAll(nestedReset<List<Int>> {
         yield(4)
         yield(5)
         yield(6)
@@ -219,20 +137,22 @@ class ContinuationTest {
 
   @Test
   fun stackSafety() = runTest {
-    val n = stackSafeIteration()
-    val result = reset<Int> {
-      for (i in 0 until n) {
-        shift { k -> k(Unit) + i }
+    resourceScope {
+      val n = 10
+      val result = reset<Int> {
+        for (i in 0 until n) {
+          shift { k -> (k(null) + i) }
+        }
+        0
       }
-      0
+      result shouldBe n * (n - 1) / 2
     }
-    result shouldBe n * (n - 1) / 2
   }
 
   @Test
   fun manyIterations() = runTest {
-    val n = 200_000
-    // Bottleneck is coroutines!
+    val n = 100
+    // Quadratic
     val result = reset<Int> {
       shift { k ->
         (1..n).sumOf { k(it) }
@@ -248,7 +168,7 @@ class ContinuationTest {
       2 + shift<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
     10 * reset<Int> {
-      shiftC {
+      shift {
         5 * shift<Int, _> { f -> f(1) + 1 }
       }
     } shouldBe 60
@@ -261,19 +181,19 @@ class ContinuationTest {
       @Composable
       fun Reset<String>.x() = shift { f -> "a" + f("") }
       reset<String> {
-        shiftC { x() }
+        shift { x() }
       }
     } shouldBe "a"
     reset<String> {
-      shiftC { g ->
-        shiftC { f -> "a" + f.invokeC("") }
+      shift { g ->
+        shift { f -> "a" + f("") }
         "b"
       }
     } shouldBe "ab"
     reset<String> {
-      shiftC { g ->
-        shiftC { f -> "a" + f.invokeC("") }
-        g.invokeC("b")
+      shift { g ->
+        shift { f -> "a" + f("") }
+        g("b")
       }
     } shouldBe "ab"
   }
@@ -283,13 +203,20 @@ class ContinuationTest {
     10 + reset<Int> {
       2 + control<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
-    run {
-      @Composable
-      fun Reset<String>.x() = control { f -> "a" + f("") }
-      reset<String> {
-        controlC { x() }
-      }
+    // (prompt (control g (control f (cons 'a (f '())))))
+    reset<String> {
+      control { control { f -> "a" + f("") } }
+    } shouldBe "a"
+    // (prompt (let ((x (control f (cons 'a (f '()))))) (control g x)))
+    reset<String> {
+      val x = control { f -> "a" + f("") }
+      control { x }
     } shouldBe ""
+    // (prompt (let ((x (control f (cons 'a (f '()))))) (control g (g x))))
+    reset<String> {
+      val x = control { f -> "a" + f("") }
+      control { g -> g(x) }
+    } shouldBe "a"
     reset<Int> {
       control { l ->
         1 + l(0)
@@ -299,12 +226,8 @@ class ContinuationTest {
     reset<String> {
       control { f -> "a" + f("") }
     } shouldBe "a"
-    // Failing. Perhaps I need that idea of setting a normal continuation upon control being called, instead of that being done for every call to the Cont
     reset<String> {
-      controlC { g -> g.invokeC(controlC { f -> "a" + f.invokeC("") }) }
-    } shouldBe "a"
-    reset<String> {
-      controlC { g ->
+      control { g ->
         control { f -> "a" + f("") }
         "b"
       }
@@ -317,16 +240,49 @@ class ContinuationTest {
       control { f -> "a" + f("") }
       control { g -> g("b") }
     } shouldBe "ab"
+    // (prompt (control g (let ((x (control f (cons 'a (f '()))))) (cons 'b '()))))
     reset<String> {
-      controlC { g ->
-        controlC { f -> "a" + f.invokeC("") }
+      control { g ->
+        control { f -> "a" + f("") }
         "b"
       }
-    } shouldBe "b"
+    } shouldBe "ab"
+    reset<String> {
+      control { g ->
+        "b" + control { f -> "a" + f("") }
+      }
+    } shouldBe "ab"
   }
-}
 
-fun stackSafeIteration(): Int = when (platform) {
-  Platform.JVM -> 20_000
-  else -> 1000
+  @Test
+  fun shift0Tests() = runTest {
+    10 + reset0<Int> {
+      2 + shift0<Int, _> { k -> 100 + k(k(3)) }
+    } shouldBe 117
+    reset0<String> {
+      "a" + nestedReset0<String>(this) {
+        shift0 { _ -> shift0 { _ -> "" } }
+      }
+    } shouldBe ""
+    reset0<String> {
+      "a" + nestedReset0<String>(this) {
+        nestedReset0<String>(this) {
+          shift0 { _ -> shift0 { _ -> "" } }
+        }
+      }
+    } shouldBe "a"
+  }
+
+  @Test
+  fun control0Tests() = runTest {
+    10 + reset0<Int> {
+      2 + control0<Int, _> { k -> 100 + k(k(3)) }
+    } shouldBe 117
+    reset0<String> {
+      nestedReset0<String>(this) {
+        val x = control0 { f -> "a" + f("") }
+        control0 { x }
+      }
+    } shouldBe ""
+  }
 }

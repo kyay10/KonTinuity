@@ -1,9 +1,8 @@
-import Reset.Companion.lazyReset
 import androidx.compose.runtime.Composable
 import arrow.fx.coroutines.ResourceScope
 import arrow.fx.coroutines.resourceScope
 
-public typealias Handle<Error, T, R> = suspend Handler<Error, T, R>.(Error, ControlOrShiftCont<T, R>) -> R
+public typealias Handle<Error, T, R> = @Composable Handler<Error, T, R>.(Error, Cont<T, R>) -> R
 
 @ResetDsl
 public suspend fun <Error, T, R> ResourceScope.lazyResetWithHandler(
@@ -21,7 +20,7 @@ public suspend fun <Error, T, R> resetWithHandler(
 }
 
 public class Handler<Error, T, R>(@PublishedApi internal var handler: Handle<Error, T, R>) {
-  public fun installHandler(handler: suspend Handler<Error, T, R>.(Error, ControlOrShiftCont<T, R>) -> R) {
+  public fun installHandler(handler: @Composable Handler<Error, T, R>.(Error, Cont<T, R>) -> R) {
     this.handler = handler
   }
 
@@ -40,4 +39,4 @@ public class Handler<Error, T, R>(@PublishedApi internal var handler: Handle<Err
 context(Reset<R>, Handler<Error, T, R>)
 @Composable
 @ResetDsl
-public fun <Error, T, R> fcontrol(value: Error): T = controlOrShift { handler(this@Handler, value, it) }
+public fun <Error, T, R> fcontrol(value: Error): T = control { handler(this@Handler, value, it) }

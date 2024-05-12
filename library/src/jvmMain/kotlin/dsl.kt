@@ -1,4 +1,3 @@
-import Reset.Companion.lazyReset
 import androidx.compose.runtime.Composable
 import arrow.core.raise.Raise
 import arrow.core.raise.recover
@@ -52,5 +51,9 @@ context(Reset<Flow<R>>)
 @OptIn(ExperimentalCoroutinesApi::class)
 @Composable
 public fun <T, R> Flow<T>.bind(): T = shift { continuation ->
-  flatMapConcat { value -> continuation(value) }
+  flatMapConcat { value ->
+    reset {
+      continuation(value)
+    }
+  }
 }

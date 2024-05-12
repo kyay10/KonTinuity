@@ -2,7 +2,7 @@ import androidx.compose.runtime.AbstractApplier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionContext
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.ControlledComposition
+import androidx.compose.runtime.DontMemoize
 import androidx.compose.runtime.RecomposeScope
 import androidx.compose.runtime.Recomposer
 import androidx.compose.runtime.currentRecomposeScope
@@ -38,7 +38,6 @@ public inline fun <R> effect(block: () -> R): R = with(remember { EffectState<R>
 @PublishedApi
 internal class Suspender(
   private val clock: GatedFrameClock,
-  private val composition: ControlledComposition,
   private val recomposer: Recomposer,
 ) {
   @PublishedApi
@@ -57,7 +56,7 @@ internal class Suspender(
     get() = recomposer
 
   @PublishedApi
-  internal inline fun <T> EffectState<T>.suspendComposition(
+  internal fun <T> EffectState<T>.suspendComposition(
     recomposeScope: RecomposeScope, block: (Continuation<T>) -> Unit
   ): T {
     this@Suspender.recomposeScope = recomposeScope
@@ -76,8 +75,8 @@ internal class Suspender(
 
   @Composable
   internal fun <R> startSuspendingComposition(
-    composition: ControlledComposition, emitter: suspend (Result<R>) -> Unit, body: @Composable () -> R
-  ) = recomposer.startSuspendingComposition(composition, clock, emitter, body)
+    emitter: suspend (Result<R>) -> Unit, body: @Composable () -> R
+  ) = recomposer.startSuspendingComposition(clock, emitter, body)
 
   @PublishedApi
   internal class CompositionContinuation<T>(
@@ -106,12 +105,11 @@ internal class Suspender(
     @PublishedApi
     @Composable
     internal fun <R> Recomposer.startSuspendingComposition(
-      composition: ControlledComposition,
       clock: GatedFrameClock,
       emitter: suspend (Result<R>) -> Unit,
       body: @Composable () -> R
     ) {
-      val suspender = Suspender(clock, composition, this)
+      val suspender = Suspender(clock, this)
       CompositionLocalProvider(suspenderCompositionLocal provides suspender) {
         suspender.bodyRecomposeScope = currentRecomposeScope
         val res = runCatchingComposable { body() }
@@ -139,8 +137,8 @@ public fun <T> await(block: suspend () -> T): T = suspendComposition { cont ->
 @Composable
 @PublishedApi
 internal inline fun <T> suspendComposition(
-  block: (Continuation<T>) -> Unit
-): T = with(currentSuspender) { remember { EffectState<T>() }.suspendComposition(currentRecomposeScope, block) }
+  crossinline block: (Continuation<T>) -> Unit
+): T = with(currentSuspender) { remember { EffectState<T>() }.suspendComposition(currentRecomposeScope) @DontMemoize { block(it) }}
 
 internal object UnitApplier : AbstractApplier<Unit>(Unit) {
   override fun insertBottomUp(index: Int, instance: Unit) {}
@@ -149,3 +147,6 @@ internal object UnitApplier : AbstractApplier<Unit>(Unit) {
   override fun remove(index: Int, count: Int) {}
   override fun onClear() {}
 }
+
+@PublishedApi
+internal class Suspended(val token: Any) : Exception("Composable was suspended up to $token")

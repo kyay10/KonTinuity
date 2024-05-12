@@ -1,4 +1,3 @@
-import Reset.Companion.lazyReset
 import androidx.compose.runtime.Composable
 import arrow.fx.coroutines.*
 import io.kotest.matchers.shouldBe
@@ -32,7 +31,11 @@ class MonadTest {
   @Composable
   fun <S, A, B> Reset<SuspendState<S, A>>.bind(state: SuspendState<S, B>): B =
     shift { continuation ->
-      state.flatMap { value -> continuation(value) }
+      state.flatMap { value ->
+        reset {
+          continuation(value)
+        }
+      }
     }
 
   @OptIn(DelicateCoroutinesApi::class)
@@ -122,7 +125,11 @@ class MonadTest {
   @Composable
   fun <R, A, B> Reset<SuspendReader<R, A>>.bind(reader: SuspendReader<R, B>): B =
     shift { continuation ->
-      reader.flatMap { value -> continuation(value) }
+      reader.flatMap { value ->
+        reset {
+          continuation(value)
+        }
+      }
     }
 
   @OptIn(DelicateCoroutinesApi::class)
