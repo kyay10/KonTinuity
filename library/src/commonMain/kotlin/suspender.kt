@@ -1,6 +1,6 @@
 import androidx.compose.runtime.AbstractApplier
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionContext
+import androidx.compose.runtime.Composition
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DontMemoize
 import androidx.compose.runtime.RecomposeScope
@@ -8,12 +8,16 @@ import androidx.compose.runtime.Recomposer
 import androidx.compose.runtime.currentRecomposeScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import arrow.fx.coroutines.ResourceScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 
 private val suspenderCompositionLocal = staticCompositionLocalOf<Suspender> { error("No Suspender provided") }
 
@@ -40,20 +44,15 @@ internal class Suspender(
   private val clock: GatedFrameClock,
   private val recomposer: Recomposer,
 ) {
-  @PublishedApi
-  internal lateinit var recomposeScope: RecomposeScope
+  private lateinit var recomposeScope: RecomposeScope
 
-  @PublishedApi
-  internal lateinit var bodyRecomposeScope: RecomposeScope
+  private lateinit var bodyRecomposeScope: RecomposeScope
 
-  @PublishedApi
-  internal var resumeToken: Any? = null
+  private var resumeToken: Any? = null
 
   @PublishedApi
   internal var reachedResumePoint: Boolean = true
-
-  internal val compositionContext: CompositionContext
-    get() = recomposer
+    private set
 
   @PublishedApi
   internal fun <T> EffectState<T>.suspendComposition(
@@ -61,7 +60,7 @@ internal class Suspender(
   ): T {
     this@Suspender.recomposeScope = recomposeScope
     if (reachedResumePoint) {
-      val continuation = CompositionContinuation(this, this@Suspender)
+      val continuation = CompositionContinuation(this)
       block(continuation)
       continuation.inFastPath = false
       // Fast path: if the first call in `block` is `resumeWith`, we can use the value immediately
@@ -73,56 +72,51 @@ internal class Suspender(
     return value.getOrThrow()
   }
 
-  @Composable
-  internal fun <R> startSuspendingComposition(
-    emitter: suspend (Result<R>) -> Unit, body: @Composable () -> R
-  ) = recomposer.startSuspendingComposition(clock, emitter, body)
-
   @PublishedApi
-  internal class CompositionContinuation<T>(
-    private val state: EffectState<T>, private val suspender: Suspender
-  ) : Continuation<T> {
-    @PublishedApi
-    internal var inFastPath: Boolean = true
-    override val context: CoroutineContext = suspender.recomposer.effectCoroutineContext
+  internal fun <R> startSuspendingComposition(
+    emitter: (Result<R>) -> Unit, body: @Composable () -> R
+  ) = Composition(UnitApplier, recomposer).setContent {
+    val suspender = Suspender(clock, recomposer)
+    CompositionLocalProvider(suspenderCompositionLocal provides suspender) {
+      suspender.bodyRecomposeScope = currentRecomposeScope
+      val res = runCatchingComposable { body() }
+      clock.isRunning = false
+      val exception = res.exceptionOrNull()
+      if (exception !is Suspended) {
+        CoroutineScope(recomposer.effectCoroutineContext).launch {
+          recomposer.awaitIdle()
+          emitter(res)
+        }
+      }
+    }
+  }
+
+  private inner class CompositionContinuation<T>(private val state: EffectState<T>) : Continuation<T> {
+    var inFastPath: Boolean = true
+    override val context: CoroutineContext = recomposer.effectCoroutineContext
 
     override fun resumeWith(result: Result<T>) {
       state.value = result
-      suspender.resumeToken = state
-      if (!inFastPath)
-        CoroutineScope(context).launch {
-          suspender.recomposer.awaitIdle()
-          // TODO do we need both scope invalidations?
-          suspender.recomposeScope.invalidate()
-          suspender.bodyRecomposeScope.invalidate()
-          suspender.reachedResumePoint = false
-          suspender.clock.isRunning = true
-        }
+      resumeToken = state
+      if (!inFastPath) CoroutineScope(context).launch {
+        recomposer.awaitIdle()
+        // TODO do we need both scope invalidations?
+        recomposeScope.invalidate()
+        bodyRecomposeScope.invalidate()
+        reachedResumePoint = false
+        clock.isRunning = true
+      }
     }
   }
 
   companion object {
     @PublishedApi
-    @Composable
-    internal fun <R> Recomposer.startSuspendingComposition(
-      clock: GatedFrameClock,
-      emitter: suspend (Result<R>) -> Unit,
-      body: @Composable () -> R
-    ) {
-      val suspender = Suspender(clock, this)
-      CompositionLocalProvider(suspenderCompositionLocal provides suspender) {
-        suspender.bodyRecomposeScope = currentRecomposeScope
-        val res = runCatchingComposable { body() }
-        clock.isRunning = false
-        CoroutineScope(effectCoroutineContext).launch {
-          awaitIdle()
-          val exception = res.exceptionOrNull()
-          if (exception is Suspended) {
-            return@launch
-          }
-          emitter(res)
-        }
-      }
+    internal suspend fun ResourceScope.suspender(): Suspender {
+      val job = Job(coroutineContext[Job])
+      onRelease { job.cancelAndJoin() }
+      val clock = GatedFrameClock()
+      val recomposer = CoroutineScope(coroutineContext + job + clock).launchRecomposer()
+      return Suspender(clock, recomposer)
     }
   }
 }
@@ -137,8 +131,12 @@ public fun <T> await(block: suspend () -> T): T = suspendComposition { cont ->
 @Composable
 @PublishedApi
 internal inline fun <T> suspendComposition(
-  crossinline block: (Continuation<T>) -> Unit
-): T = with(currentSuspender) { remember { EffectState<T>() }.suspendComposition(currentRecomposeScope) @DontMemoize { block(it) }}
+  crossinline block: Suspender.(Continuation<T>) -> Unit
+): T = with(currentSuspender) {
+  remember { EffectState<T>() }.suspendComposition(currentRecomposeScope) @DontMemoize {
+    block(it)
+  }
+}
 
 internal object UnitApplier : AbstractApplier<Unit>(Unit) {
   override fun insertBottomUp(index: Int, instance: Unit) {}
@@ -148,5 +146,4 @@ internal object UnitApplier : AbstractApplier<Unit>(Unit) {
   override fun onClear() {}
 }
 
-@PublishedApi
-internal class Suspended(val token: Any) : Exception("Composable was suspended up to $token")
+private class Suspended(val token: Any) : Exception("Composable was suspended up to $token")

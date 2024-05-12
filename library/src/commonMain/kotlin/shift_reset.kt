@@ -6,18 +6,18 @@ public typealias Reset<R> = _Reset<H<R>>
 
 @ResetDsl
 public suspend fun <R> ResourceScope.lazyReset(
-  body: @Composable Reset<R>.() -> R
-): R = lazyGreset({ hrStop(it) }, body)
+  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
+): R = lazyGreset({ hrStop(it) }, tag, body)
 
 @ResetDsl
 public suspend fun <R> reset(
-  body: @Composable Reset<R>.() -> R
-): R = resourceScope { lazyReset(body) }
+  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
+): R = resourceScope { lazyReset(tag, body) }
 
 @Composable
 @ResetDsl
 public fun <R> nestedReset(
-  tag: Reset<R>? = null, body: @Composable Reset<R>.() -> R
+  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
 ): R = nestedGreset({ hrStop(it) }, tag, body)
 
 @Composable
@@ -30,18 +30,18 @@ public inline fun <T, R> Reset<R>.control(crossinline block: @Composable (Cont<T
 
 @ResetDsl
 public suspend fun <R> ResourceScope.lazyReset0(
-  body: @Composable Reset<R>.() -> R
-): R = lazyGreset({ hrProp(it) }, body)
+  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
+): R = lazyGreset({ hrProp(it) }, tag, body)
 
 @ResetDsl
 public suspend fun <R> reset0(
-  body: @Composable Reset<R>.() -> R
-): R = resourceScope { lazyReset0(body) }
+  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
+): R = resourceScope { lazyReset0(tag, body) }
 
 @Composable
 @ResetDsl
 public fun <R> nestedReset0(
-  tag: Reset<R>? = null, body: @Composable Reset<R>.() -> R
+  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
 ): R = nestedGreset({ hrProp(it) }, tag, body)
 
 @Composable

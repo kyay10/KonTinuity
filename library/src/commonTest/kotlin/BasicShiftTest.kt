@@ -13,15 +13,15 @@ import kotlin.time.ExperimentalTime
 
 @Composable
 fun <T> _Reset<List<T>>.yield(x: T) =
-  _shift { k -> listOf(x) + k(Unit) }
+  _shiftC { k -> listOf(x) + k(Unit) }
 
 @Composable
 fun <T> _Reset<List<T>>.yieldAll(xs: List<T>) =
-  _shift { k -> xs + k(Unit) }
+  _shiftC { k -> xs + k(Unit) }
 
 class BasicShiftTest {
   @Composable
-  fun _Reset<Int>.foo(): Int = _shift { k -> k(k(k(7))) } + 1
+  fun _Reset<Int>.foo(): Int = _shiftC { k -> k(k(k(7))) } + 1
 
   @Composable
   fun _Reset<Int>.bar(): Int = 2 * foo()
@@ -37,11 +37,11 @@ class BasicShiftTest {
   fun simpleContinuations() = runTest {
     // Examples from https://en.wikipedia.org/wiki/Delimited_continuation
     _reset<Int> {
-      val value = _shift { k -> k(5) }
-      _shift { k -> k(value + 1) }
+      val value = _shiftC { k -> k(5) }
+      _shiftC { k -> k(value + 1) }
     } * 2 shouldBe 12
     _reset {
-      _shift { k -> k(k(4)) } * 2
+      _shiftC { k -> k(k(4)) } * 2
     } + 1 shouldBe 17
     _reset<List<Int>> {
       yield(1)
@@ -60,10 +60,10 @@ class BasicShiftTest {
     var shiftPostActCount = 0
     var shiftDiscardCount = 0
     val shiftResult = _reset<Int> {
-      val act = _shift<@Composable () -> Nothing?, _> { k ->
+      val act = _shiftC<@Composable () -> Nothing?, _> { k ->
         k { null }
         k {
-          _shift { _ ->
+          _shiftC { _ ->
             shiftDiscardCount++ // Capturing and discarding the continuation...
             42
           }
@@ -122,7 +122,7 @@ class BasicShiftTest {
       val n = 10
       val result = _reset<Int> {
         for (i in 0 until n) {
-          _shift { k -> (k(null) + i) }
+          _shiftC { k -> (k(null).also(::println) + i) }
         }
         0
       }
@@ -135,7 +135,7 @@ class BasicShiftTest {
     val n = 100
     // Quadratic
     val result = _reset<Int> {
-      _shift { k ->
+      _shiftC { k ->
         (1..n).sumOf { k(it) }
       }
       1
@@ -146,34 +146,34 @@ class BasicShiftTest {
   @Test
   fun shiftTests() = runTest {
     10 + _reset<Int> {
-      2 + _shift<Int, _> { k -> 100 + k(k(3)) }
+      2 + _shiftC<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
     10 * _reset<Int> {
-      _shift {
-        5 * _shift<Int, _> { f -> f(1) + 1 }
+      _shiftC {
+        5 * _shiftC<Int, _> { f -> f(1) + 1 }
       }
     } shouldBe 60
     run {
       @Composable
-      fun <R> _Reset<R>.f(x: R) = _shift<R, R> { k -> k(k(x)) }
+      fun <R> _Reset<R>.f(x: R) = _shiftC<R, R> { k -> k(k(x)) }
       1 + _reset<Int> { 10 + f(100) }
     } shouldBe 121
     run {
       @Composable
-      fun _Reset<String>.x() = _shift { f -> "a" + f("") }
+      fun _Reset<String>.x() = _shiftC { f -> "a" + f("") }
       _reset<String> {
-        _shift { x() }
+        _shiftC { x() }
       }
     } shouldBe "a"
     _reset<String> {
-      _shift { g ->
-        _shift { f -> "a" + f("") }
+      _shiftC { g ->
+        _shiftC { f -> "a" + f("") }
         "b"
       }
     } shouldBe "ab"
     _reset<String> {
-      _shift { g ->
-        _shift { f -> "a" + f("") }
+      _shiftC { g ->
+        _shiftC { f -> "a" + f("") }
         g("b")
       }
     } shouldBe "ab"
@@ -183,7 +183,7 @@ class BasicShiftTest {
   fun lazyShifts() = runTest {
     _reset<Int> {
       val x = _nestedReset(this) {
-        _shift { k -> k(1) + k(1) + 1 }
+        _shiftC { k -> k(1) + k(1) + 1 }
       }
       x + 1
     } shouldBe 4

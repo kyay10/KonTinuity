@@ -22,11 +22,12 @@ import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Launch a coroutine into this [CoroutineScope] which will continually recompose the return `Composition`
+ * Launch a coroutine into this [CoroutineScope] which will continually recompose any composition that has
+ * the returned [Recomposer] as a parent.
  *
  * The coroutine context is inherited from the [CoroutineScope].
  */
-public fun CoroutineScope.launchMolecule(): Recomposer {
+internal fun CoroutineScope.launchRecomposer(): Recomposer {
   val recomposer = Recomposer(coroutineContext)
   var snapshotHandle: ObserverHandle? = null
   launch(start = UNDISPATCHED) {
