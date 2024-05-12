@@ -22,11 +22,11 @@ public fun <R> nestedReset(
 
 @Composable
 public inline fun <T, R> Reset<R>.shift(crossinline block: @Composable (Cont<T, R>) -> R): T =
-  gshift({ hsStop(it) }) { nestedReset(this) { block(it) } } // TODO weird that we have to wrap here instead at call site
+  gshift({ hsStop(it) }) { block(it) }
 
 @Composable
 public inline fun <T, R> Reset<R>.control(crossinline block: @Composable (Cont<T, R>) -> R): T =
-  gshift({ hsProp(it) }) { nestedReset(this) { block(it) } } // TODO same as above
+  gshift({ hsProp(it) }) { block(it) }
 
 @ResetDsl
 public suspend fun <R> ResourceScope.lazyReset0(

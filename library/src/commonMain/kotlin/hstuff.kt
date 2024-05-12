@@ -43,7 +43,7 @@ public inline fun <T, R> _Reset<H<R>>.gshift(
 
 @Composable
 public fun <R> _Reset<H<R>>.hrStop(h: H<R>): R = when (h) {
-  is H.HC<*, R> -> nestedGreset({ hrStop(it) }, this) { h.doIt() } // TODO: seems equivalent to hrProp.
+  is H.HC<*, R> -> nestedGreset({ hrStop(it) }, this) { h.doIt() }
   is H.HValue -> h.v
 }
 
