@@ -104,7 +104,7 @@ class ContinuationTest {
   fun nestedContinuations() = runTest {
     reset<List<Int>> {
       yield(1)
-      yieldAll(nestedReset<List<Int>> {
+      yieldAll(reset {
         yield(4)
         yield(5)
         yield(6)
@@ -129,9 +129,10 @@ class ContinuationTest {
         delay(200.milliseconds)
         a.await()
       }
+      await { delay(100.milliseconds) }
       await { value + 1 }
     }
-    mark.elapsedNow() shouldBe 500.milliseconds
+    mark.elapsedNow() shouldBe 600.milliseconds
     result shouldBe 6
   }
 
@@ -260,13 +261,13 @@ class ContinuationTest {
       2 + shift0<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
     reset0<String> {
-      "a" + nestedReset0<String>(this) {
+      "a" + reset0<String> {
         shift0 { _ -> shift0 { _ -> "" } }
       }
     } shouldBe ""
     reset0<String> {
-      "a" + nestedReset0<String>(this) {
-        nestedReset0<String>(this) {
+      "a" + reset0<String> {
+        reset0<String> {
           shift0 { _ -> shift0 { _ -> "" } }
         }
       }
@@ -279,10 +280,21 @@ class ContinuationTest {
       2 + control0<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
     reset0<String> {
-      nestedReset0<String>(this) {
+      reset0 {
         val x = control0 { f -> "a" + f("") }
         control0 { x }
       }
     } shouldBe ""
+  }
+
+
+  @Test
+  fun lazyShifts() = runTest {
+    reset<Int> {
+      val x = reset {
+        shift { k -> k(1) + k(1) + 1 }
+      }
+      x + 1
+    } shouldBe 4
   }
 }

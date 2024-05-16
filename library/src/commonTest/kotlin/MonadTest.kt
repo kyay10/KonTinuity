@@ -32,7 +32,7 @@ class MonadTest {
   fun <S, A, B> Reset<SuspendState<S, A>>.bind(state: SuspendState<S, B>): B =
     shift { continuation ->
       state.flatMap { value ->
-        reset {
+        awaitSuspendingComposition {
           continuation(value)
         }
       }
@@ -126,7 +126,7 @@ class MonadTest {
   fun <R, A, B> Reset<SuspendReader<R, A>>.bind(reader: SuspendReader<R, B>): B =
     shift { continuation ->
       reader.flatMap { value ->
-        reset {
+        awaitSuspendingComposition {
           continuation(value)
         }
       }

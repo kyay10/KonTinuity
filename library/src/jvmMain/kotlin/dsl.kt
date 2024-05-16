@@ -1,6 +1,5 @@
 import androidx.compose.runtime.Composable
 import arrow.core.raise.Raise
-import arrow.core.raise.recover
 import arrow.fx.coroutines.*
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -17,10 +16,10 @@ public suspend fun <R> reset(
 public suspend fun <R> ResourceScope.lazyReset(
   failValue: R,
   body: @Composable context(Raise<Unit>) Reset<R>.() -> R
-): R = lazyReset reset@{
-  recover({
-    runCatchingComposable { body(this, this@reset) }.getOrThrow()
-  }) { failValue }
+): R = lazyReset {
+  body(object: Raise<Unit> {
+    override fun raise(e: Unit): Nothing = raise(failValue)
+  }, this)
 }
 
 public suspend fun <R> listReset(

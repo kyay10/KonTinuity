@@ -9,6 +9,7 @@ import androidx.compose.runtime.currentRecomposeScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import arrow.fx.coroutines.ResourceScope
+import arrow.fx.coroutines.resourceScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.InternalCoroutinesApi
@@ -18,6 +19,8 @@ import kotlinx.coroutines.launch
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
+import Suspender.Companion.suspender
+import kotlin.coroutines.suspendCoroutine
 
 private val suspenderCompositionLocal = staticCompositionLocalOf<Suspender> { error("No Suspender provided") }
 
@@ -138,7 +141,15 @@ internal inline fun <T> suspendComposition(
   }
 }
 
-internal object UnitApplier : AbstractApplier<Unit>(Unit) {
+public suspend fun <R> awaitSuspendingComposition(block: @Composable () -> R): R = resourceScope {
+  with(suspender()) {
+    suspendCoroutine {
+      startSuspendingComposition(it::resumeWith, block)
+    }
+  }
+}
+
+private object UnitApplier : AbstractApplier<Unit>(Unit) {
   override fun insertBottomUp(index: Int, instance: Unit) {}
   override fun insertTopDown(index: Int, instance: Unit) {}
   override fun move(from: Int, to: Int, count: Int) {}
@@ -146,4 +157,4 @@ internal object UnitApplier : AbstractApplier<Unit>(Unit) {
   override fun onClear() {}
 }
 
-private class Suspended(val token: Any) : Exception("Composable was suspended up to $token")
+internal class Suspended(val token: Any) : Exception("Composable was suspended up to $token")
