@@ -1,6 +1,6 @@
 [versions]
 agp = "8.0.2"
-arrow = "2.0.0-SNAPSHOT"
+arrow = "2.0.0-alpha.1"
 kotest = "5.8.1"
 kotlin = "2.0.0-RC2"
 kotlinxCoroutinesCore = "1.8.0"

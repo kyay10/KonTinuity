@@ -10,7 +10,7 @@ public suspend fun <R> ResourceScope.lazyReset(
   tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
 ): R = with(suspender()) {
   suspendCoroutine { k ->
-    tag.holes.addLast(Hole(k, true))
+    tag.pushHole(Hole(k, true))
     startSuspendingComposition(tag::resumeWith) { body(tag) }
   }
 }
@@ -18,7 +18,7 @@ public suspend fun <R> ResourceScope.lazyReset(
 @Composable
 @ResetDsl
 public fun <R> Reset<R>.reset(body: @Composable Reset<R>.() -> R): R = suspendComposition { k ->
-  holes.addLast(Hole(k, true))
+  pushHole(Hole(k, true))
   startSuspendingComposition(::resumeWith) { body() }
 }
 
