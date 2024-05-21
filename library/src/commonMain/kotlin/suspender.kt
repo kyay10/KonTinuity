@@ -2,25 +2,21 @@ import androidx.compose.runtime.AbstractApplier
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Composition
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisallowComposableCalls
 import androidx.compose.runtime.DontMemoize
 import androidx.compose.runtime.RecomposeScope
 import androidx.compose.runtime.Recomposer
 import androidx.compose.runtime.currentRecomposeScope
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
-import arrow.fx.coroutines.ResourceScope
-import arrow.fx.coroutines.resourceScope
+import arrow.AutoCloseScope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.coroutineContext
-import Suspender.Companion.suspender
-import kotlin.coroutines.suspendCoroutine
 
 private val suspenderCompositionLocal = staticCompositionLocalOf<Suspender> { error("No Suspender provided") }
 
@@ -28,16 +24,18 @@ private val suspenderCompositionLocal = staticCompositionLocalOf<Suspender> { er
 internal val currentSuspender: Suspender
   @Composable get() = suspenderCompositionLocal.current
 
+private val inFastPathResult = Result.failure<Nothing>(IllegalStateException("Effect has not been run yet"))
+private val unsetResult = Result.failure<Nothing>(IllegalStateException("Effect has not been set yet"))
+
 @PublishedApi
 internal class EffectState<R> {
-  @Suppress("UNCHECKED_CAST")
-  var value: Result<R> = Result.success(null as R)
+  var value: Result<R> = inFastPathResult
 }
 
 // TODO: marking this with @DisallowComposableCalls causes some crashes when early-returning. Might be Compose bug.
 @Composable
 @ResetDsl
-public inline fun <R> effect(block: () -> R): R = with(remember { EffectState<R>() }) {
+public inline fun <R> effect(block: @DisallowComposableCalls () -> R): R = with(remember { EffectState<R>() }) {
   if (currentSuspender.reachedResumePoint) value = Result.success(block())
   value.getOrThrow()
 }
@@ -48,9 +46,7 @@ internal class Suspender(
   private val recomposer: Recomposer,
 ) {
   private lateinit var recomposeScope: RecomposeScope
-
   private lateinit var bodyRecomposeScope: RecomposeScope
-
   private var resumeToken: Any? = null
 
   @PublishedApi
@@ -63,11 +59,14 @@ internal class Suspender(
   ): T {
     this@Suspender.recomposeScope = recomposeScope
     if (reachedResumePoint) {
+      value = inFastPathResult
       val continuation = CompositionContinuation(this)
       block(continuation)
-      continuation.inFastPath = false
-      // Fast path: if the first call in `block` is `resumeWith`, we can use the value immediately
-      if (resumeToken != this) throw Suspended(this@Suspender)
+      // Fast path: if the first "suspending" call in `block` is `resumeWith`, we can use the value immediately
+      if (resumeToken != this) {
+        value = unsetResult
+        throw Suspended(this@Suspender)
+      }
     }
     if (resumeToken == this) {
       reachedResumePoint = true
@@ -90,15 +89,17 @@ internal class Suspender(
           recomposer.awaitIdle()
           emitter(res)
         }
+      } else {
+        check(exception.token == suspender || exception.token == null)
       }
     }
   }
 
   private inner class CompositionContinuation<T>(private val state: EffectState<T>) : Continuation<T> {
-    var inFastPath: Boolean = true
-    override val context: CoroutineContext = recomposer.effectCoroutineContext
+    override val context: CoroutineContext get() = recomposer.effectCoroutineContext
 
     override fun resumeWith(result: Result<T>) {
+      val inFastPath = state.value == inFastPathResult
       state.value = result
       resumeToken = state
       if (!inFastPath) CoroutineScope(context).launch {
@@ -113,12 +114,13 @@ internal class Suspender(
   }
 
   companion object {
+    @OptIn(ExperimentalStdlibApi::class)
     @PublishedApi
-    internal suspend fun ResourceScope.suspender(): Suspender {
-      val job = Job(coroutineContext[Job])
-      onRelease { job.cancelAndJoin() }
+    internal fun AutoCloseScope.suspender(context: CoroutineContext): Suspender {
+      val job = Job(context[Job])
+      install(AutoCloseable { job.cancel() })
       val clock = GatedFrameClock()
-      val recomposer = CoroutineScope(coroutineContext + job + clock).launchRecomposer()
+      val recomposer = CoroutineScope(context + job + clock).launchRecomposer()
       return Suspender(clock, recomposer)
     }
   }
@@ -141,14 +143,6 @@ internal inline fun <T> suspendComposition(
   }
 }
 
-public suspend fun <R> awaitSuspendingComposition(block: @Composable () -> R): R = resourceScope {
-  with(suspender()) {
-    suspendCoroutine {
-      startSuspendingComposition(it::resumeWith, block)
-    }
-  }
-}
-
 private object UnitApplier : AbstractApplier<Unit>(Unit) {
   override fun insertBottomUp(index: Int, instance: Unit) {}
   override fun insertTopDown(index: Int, instance: Unit) {}
@@ -157,4 +151,4 @@ private object UnitApplier : AbstractApplier<Unit>(Unit) {
   override fun onClear() {}
 }
 
-internal class Suspended(val token: Any) : Exception("Composable was suspended up to $token")
+internal class Suspended(val token: Suspender?) : Exception("Composable was suspended up to $token")

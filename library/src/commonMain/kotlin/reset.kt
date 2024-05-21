@@ -1,71 +1,122 @@
+import Suspender.Companion.suspender
 import androidx.compose.runtime.*
-import arrow.core.raise.Raise
+import arrow.AutoCloseScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.InternalCoroutinesApi
 import kotlin.coroutines.*
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
 @DslMarker
 public annotation class ResetDsl
 
-public typealias Cont<T, R> = @Composable (T) -> R
+public data class SubCont<T, R> internal constructor(
+  @PublishedApi internal val ekFragment: Continuation<T>, private val prompt: Prompt<R>, private val subchain: List<Hole<*>>
+) {
+  @PublishedApi
+  internal fun push(k: Continuation<R>, isDelimiting: Boolean = false) {
+    pushStack(Hole(prompt.takeIf { isDelimiting }, k))
+    pushAllStack(subchain)
+  }
+
+  @PublishedApi
+  internal inline operator fun invoke(value: () -> T, k: Continuation<R>, isDelimiting: Boolean = false) {
+    push(k, isDelimiting)
+    ekFragment.resume(value())
+  }
+}
+
+public suspend fun <R> AutoCloseScope.pushPrompt(prompt: Prompt<R>, body: @Composable Prompt<R>.() -> R): R =
+  suspendCoroutine { k ->
+    pushStack(Hole(prompt, k))
+    suspender(k.context).startSuspendingComposition(prompt::resumeWith) { body(prompt) }
+  }
+
+@Composable
+public fun <R> Prompt<R>.pushPrompt(body: @Composable Prompt<R>.() -> R): R = suspendComposition { k ->
+  pushStack(Hole(this@pushPrompt, k))
+  startSuspendingComposition(::resumeWith) { body() }
+}
+
+private fun deleteDelimiter() = pushStack(Hole(null, popStack().continuation))
+
+@Composable
+private fun <T, R> Prompt<R>.takeSubContHere(
+  deleteDelimiter: Boolean = true, body: Suspender.(SubCont<T, R>) -> Unit
+): T = suspendComposition { k ->
+  val subchain = buildList { unwind(this@takeSubContHere) }
+  // TODO: this seems dodgy
+  if (deleteDelimiter) deleteDelimiter()
+  body(SubCont(k, this@takeSubContHere, subchain))
+}
+
+@Composable
+public fun <T, R> Prompt<R>.takeSubCont(deleteDelimiter: Boolean = true, body: @Composable (SubCont<T, R>) -> R): T =
+  takeSubContHere(deleteDelimiter) @DontMemoize { startSuspendingComposition(::resumeWith) { body(it) } }
+
+@OptIn(InternalCoroutinesApi::class)
+@Composable
+public fun <T, R> Prompt<R>.takeSubContS(deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R): T =
+  takeSubContHere(deleteDelimiter) @DontMemoize { CoroutineStart.UNDISPATCHED(body, it, this@takeSubContS) }
+
+public fun <R> Prompt<R>.abort(value: R, deleteDelimiter: Boolean = false): Nothing {
+  unwindAbort(this)
+  if (deleteDelimiter) deleteDelimiter()
+  resume(value)
+  throw Suspended(null)
+}
+
+@Composable
+public inline fun <T, R> SubCont<T, R>.pushSubCont(crossinline value: () -> T): R = suspendComposition { k ->
+  invoke(value, k, isDelimiting = false)
+}
+
+@Composable
+public inline fun <T, R> SubCont<T, R>.pushDelimSubCont(crossinline value: () -> T): R = suspendComposition { k ->
+  invoke(value, k, isDelimiting = true)
+}
+
+public suspend inline fun <T, R> SubCont<T, R>.pushDelimSubContS(crossinline value: () -> T): R = suspendCoroutine { k ->
+  invoke(value, k, isDelimiting = true)
+}
+
+private val pStack: MutableList<Hole<*>> = mutableListOf()
+
+private fun peekStack(): Hole<*> = pStack.lastOrNull() ?: error("No prompt set")
+private fun popStack(): Hole<*> = pStack.removeLastOrNull() ?: error("No prompt set")
+private fun pushStack(hole: Hole<*>) = pStack.add(hole)
+private fun pushAllStack(holes: List<Hole<*>>) = pStack.addAll(holes)
+public val <R> Prompt<R>.isSet: Boolean get() = pStack.any { it.prompt === this }
+
+private tailrec fun MutableList<Hole<*>>.unwind(prompt: Prompt<*>) {
+  val item = peekStack()
+  if (item.prompt !== prompt) {
+    popStack()
+    add(0, item)
+    unwind(prompt)
+  }
+}
+
+private tailrec fun unwindAbort(prompt: Prompt<*>) {
+  val item = peekStack()
+  if (item.prompt !== prompt) {
+    popStack()
+    unwindAbort(prompt)
+  }
+}
+
+internal data class Hole<R>(val prompt: Prompt<R>?, val continuation: Continuation<R>)
 
 @Suppress("EqualsOrHashCode")
 @Stable
-public class Reset<R>() : Continuation<R>, Raise<R> {
-  private val holes: ArrayDeque<Hole<R>> = ArrayDeque()
-
-  @PublishedApi
-  internal fun pushHole(hole: Hole<R>) {
-    holes.addFirst(hole)
-  }
-
-  @PublishedApi
-  internal fun popHole(): Hole<R> = holes.removeFirstOrNull() ?: error("No prompt set")
-
-  @PublishedApi
-  internal fun pushHolesPrefix(holes: List<Hole<R>>) {
-    this.holes.addAll(0, holes)
-  }
-
-  @PublishedApi
-  internal tailrec fun MutableList<Hole<R>>.unwindTillMarked(keepDelimiterUponEffect: Boolean) {
-    val hole = popHole()
-    if (hole.isDelimiting) {
-      pushHole(if (keepDelimiterUponEffect) hole else Hole(hole.continuation, false))
-    } else {
-      add(hole)
-      unwindTillMarked(keepDelimiterUponEffect)
-    }
-  }
-
-  // TODO investigate why `@DontMemoize` is needed for capturing lambdas with enableNonSkippingGroupOptimization
-  @Composable
-  public inline fun <T> `*F*`(
-    keepDelimiterUponEffect: Boolean, isShift: Boolean, crossinline block: @Composable (Cont<T, R>) -> R
-  ): T = suspendComposition { f ->
-    val holesPrefix = buildList { unwindTillMarked(keepDelimiterUponEffect) }.asReversed()
-    startSuspendingComposition(::resumeWith) @DontMemoize {
-      block @DontMemoize { t ->
-        suspendComposition @DontMemoize { k ->
-          pushHole(Hole(k, isShift))
-          pushHolesPrefix(holesPrefix)
-          f.resume(t)
-        }
-      }
-    }
-  }
-
-  override val context: CoroutineContext get() = holes.last().continuation.context
-
-  override fun resumeWith(result: Result<R>): Unit =
-    popHole().continuation.resumeWith(result)
-
-  override fun raise(r: R): Nothing {
-    resume(r)
-    throw Suspended(Unit)
-  }
-
+public class Prompt<R> : Continuation<R> {
   override fun equals(other: Any?): Boolean = false
 
-  @PublishedApi
-  internal class Hole<R>(val continuation: Continuation<R>, val isDelimiting: Boolean)
+  override val context: CoroutineContext get() = peekStack().continuation.context
+
+  @Suppress("UNCHECKED_CAST")
+  override fun resumeWith(result: Result<R>) {
+    val (prompt, continuation) = popStack() as Hole<R>
+    check(prompt === this || prompt == null)
+    continuation.resumeWith(result)
+  }
 }

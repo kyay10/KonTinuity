@@ -11,17 +11,17 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.ExperimentalTime
 
 @Composable
-fun <T> Reset<List<T>>.yield(x: T) = shift { k -> listOf(x) + k(null) }
+fun <T> Prompt<List<T>>.yield(x: T) = shift { k -> listOf(x) + k(null) }
 
 @Composable
-fun <T> Reset<List<T>>.yieldAll(xs: List<T>) = shift { k -> xs + k(null) }
+fun <T> Prompt<List<T>>.yieldAll(xs: List<T>) = shift { k -> xs + k(null) }
 
 class ContinuationTest {
   @Composable
-  fun Reset<Int>.foo(): Int = shift { k -> k(k(k(7))) } + 1
+  fun Prompt<Int>.foo(): Int = shift { k -> k(k(k(7))) } + 1
 
   @Composable
-  fun Reset<Int>.bar(): Int = 2 * foo()
+  fun Prompt<Int>.bar(): Int = 2 * foo()
 
   @Test
   fun noContinuation() = runTest {
@@ -175,12 +175,12 @@ class ContinuationTest {
     } shouldBe 60
     run {
       @Composable
-      fun <R> Reset<R>.f(x: R) = shift<R, R> { k -> k(k(x)) }
+      fun <R> Prompt<R>.f(x: R) = shift<R, R> { k -> k(k(x)) }
       1 + reset<Int> { 10 + f(100) }
     } shouldBe 121
     run {
       @Composable
-      fun Reset<String>.x() = shift { f -> "a" + f("") }
+      fun Prompt<String>.x() = shift { f -> "a" + f("") }
       reset<String> {
         shift { x() }
       }
@@ -283,6 +283,11 @@ class ContinuationTest {
       reset0 {
         val x = control0 { f -> "a" + f("") }
         control0 { x }
+      }
+    } shouldBe ""
+    reset0<String> {
+      "a" + reset0<String> {
+        control0 { _ -> control0 { _ -> "" } }
       }
     } shouldBe ""
   }

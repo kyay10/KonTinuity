@@ -29,17 +29,15 @@ class MonadTest {
   }
 
   @Composable
-  fun <S, A, B> Reset<SuspendState<S, A>>.bind(state: SuspendState<S, B>): B =
-    shift { continuation ->
+  fun <S, A, B> Prompt<SuspendState<S, A>>.bind(state: SuspendState<S, B>): B =
+    shiftS { continuation ->
       state.flatMap { value ->
-        awaitSuspendingComposition {
-          continuation(value)
-        }
+        continuation(value)
       }
     }
 
   @OptIn(DelicateCoroutinesApi::class)
-  suspend fun <S, R> stateReset(body: @Composable Reset<SuspendState<S, R>>.() -> R): SuspendState<S, R> {
+  suspend fun <S, R> stateReset(body: @Composable Prompt<SuspendState<S, R>>.() -> R): SuspendState<S, R> {
     val (suspendState, release) = resource { lazyReset { SuspendState.of(body(this)) } }.allocated()
     return suspendState.onCompletion { release(it?.let(ExitCase::ExitCase) ?: ExitCase.Completed) }
   }
@@ -123,17 +121,15 @@ class MonadTest {
   }
 
   @Composable
-  fun <R, A, B> Reset<SuspendReader<R, A>>.bind(reader: SuspendReader<R, B>): B =
-    shift { continuation ->
+  fun <R, A, B> Prompt<SuspendReader<R, A>>.bind(reader: SuspendReader<R, B>): B =
+    shiftS { continuation ->
       reader.flatMap { value ->
-        awaitSuspendingComposition {
-          continuation(value)
-        }
+        continuation(value)
       }
     }
 
   @OptIn(DelicateCoroutinesApi::class)
-  suspend fun <R, A> readerReset(body: @Composable Reset<SuspendReader<R, A>>.() -> A): SuspendReader<R, A> {
+  suspend fun <R, A> readerReset(body: @Composable Prompt<SuspendReader<R, A>>.() -> A): SuspendReader<R, A> {
     val (suspendReader, release) = resource { lazyReset { SuspendReader.of(body(this)) } }.allocated()
     return suspendReader.onCompletion { release(it?.let(ExitCase::ExitCase) ?: ExitCase.Completed) }
   }

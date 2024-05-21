@@ -1,67 +1,52 @@
-import Reset.Hole
 import androidx.compose.runtime.Composable
-import arrow.fx.coroutines.ResourceScope
-import arrow.fx.coroutines.resourceScope
-import kotlin.coroutines.suspendCoroutine
-import Suspender.Companion.suspender
+import arrow.AutoCloseScope
+import arrow.autoCloseScope
+
+public typealias Cont<T, R> = @Composable (T) -> R
+public typealias ContS<T, R> = suspend (T) -> R
 
 @ResetDsl
-public suspend fun <R> ResourceScope.lazyReset(
-  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
-): R = with(suspender()) {
-  suspendCoroutine { k ->
-    tag.pushHole(Hole(k, true))
-    startSuspendingComposition(tag::resumeWith) { body(tag) }
-  }
-}
+public suspend fun <R> AutoCloseScope.lazyReset(
+  prompt: Prompt<R> = Prompt(), body: @Composable Prompt<R>.() -> R
+): R = pushPrompt(prompt, body)
 
 @Composable
 @ResetDsl
-public fun <R> Reset<R>.reset(body: @Composable Reset<R>.() -> R): R = suspendComposition { k ->
-  pushHole(Hole(k, true))
-  startSuspendingComposition(::resumeWith) { body() }
-}
+public fun <R> Prompt<R>.reset(body: @Composable Prompt<R>.() -> R): R = pushPrompt(body)
 
-public suspend fun <R> reset(tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R): R =
-  resourceScope { lazyReset(tag, body) }
+public suspend fun <R> reset(prompt: Prompt<R> = Prompt(), body: @Composable Prompt<R>.() -> R): R =
+  autoCloseScope { lazyReset(prompt, body) }
 
 @Composable
-public inline fun <T, R> Reset<R>.shift(crossinline block: @Composable (Cont<T, R>) -> R): T =
-  `*F*`(true, true, block)
+public inline fun <T, R> Prompt<R>.shift(crossinline block: @Composable (Cont<T, R>) -> R): T =
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushDelimSubCont { it } } }
 
 @Composable
-public inline fun <T, R> Reset<R>.control(crossinline block: @Composable (Cont<T, R>) -> R): T =
-  `*F*`(true, false, block)
+public inline fun <T, R> Prompt<R>.shiftS(crossinline block: suspend (ContS<T, R>) -> R): T =
+  takeSubContS(deleteDelimiter = false) { sk -> block { sk.pushDelimSubContS { it } } }
 
-public fun <R> Reset<R>.abort(value: R): Nothing {
-  buildList { unwindTillMarked(true) }
-  raise(value)
-}
+@Composable
+public inline fun <T, R> Prompt<R>.control(crossinline block: @Composable (Cont<T, R>) -> R): T =
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubCont { it } } }
 
 @ResetDsl
-public suspend fun <R> ResourceScope.lazyReset0(
-  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
-): R = lazyReset(tag, body)
+public suspend fun <R> AutoCloseScope.lazyReset0(
+  prompt: Prompt<R> = Prompt(), body: @Composable Prompt<R>.() -> R
+): R = lazyReset(prompt, body)
 
 @ResetDsl
 public suspend fun <R> reset0(
-  tag: Reset<R> = Reset(), body: @Composable Reset<R>.() -> R
-): R = reset(tag, body)
+  prompt: Prompt<R> = Prompt(), body: @Composable Prompt<R>.() -> R
+): R = reset(prompt, body)
 
 @Composable
 @ResetDsl
-public fun <R> Reset<R>.reset0(body: @Composable Reset<R>.() -> R
-): R = reset(body)
+public fun <R> Prompt<R>.reset0(body: @Composable Prompt<R>.() -> R): R = reset(body)
 
 @Composable
-public inline fun <T, R> Reset<R>.shift0(crossinline block: @Composable (Cont<T, R>) -> R): T =
-  `*F*`(false, true, block)
+public inline fun <T, R> Prompt<R>.shift0(crossinline block: @Composable (Cont<T, R>) -> R): T =
+  takeSubCont { sk -> block { sk.pushDelimSubCont { it } } }
 
 @Composable
-public inline fun <T, R> Reset<R>.control0(crossinline block: @Composable (Cont<T, R>) -> R): T =
-  `*F*`(false, false, block)
-
-public fun <R> Reset<R>.abort0(value: R): Nothing {
-  buildList { unwindTillMarked(false) }
-  raise(value)
-}
+public inline fun <T, R> Prompt<R>.control0(crossinline block: @Composable (Cont<T, R>) -> R): T =
+  takeSubCont { sk -> block { sk.pushSubCont { it } } }

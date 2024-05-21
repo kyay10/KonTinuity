@@ -1,4 +1,5 @@
 import androidx.compose.runtime.Composable
+import arrow.AutoCloseScope
 import arrow.core.raise.Raise
 import arrow.fx.coroutines.*
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -8,51 +9,51 @@ import kotlinx.coroutines.flow.*
 context(A) internal fun <A> given(): A = this@A
 
 /** MonadFail-style errors */
+private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R): Raise<Unit> {
+  override fun raise(e: Unit): Nothing = prompt.abort(failValue)
+}
+
 public suspend fun <R> reset(
   failValue: R,
-  body: @Composable context(Raise<Unit>) Reset<R>.() -> R
-): R = resourceScope { lazyReset(failValue, body) }
+  body: @Composable context(Raise<Unit>) Prompt<R>.() -> R
+): R = resourceScope { lazyResetWithFail(failValue, body = body) }
 
-public suspend fun <R> ResourceScope.lazyReset(
+public suspend fun <R> AutoCloseScope.lazyResetWithFail(
   failValue: R,
-  body: @Composable context(Raise<Unit>) Reset<R>.() -> R
-): R = lazyReset {
-  body(object: Raise<Unit> {
-    override fun raise(e: Unit): Nothing = raise(failValue)
-  }, this)
+  prompt: Prompt<R> = Prompt(),
+  body: @Composable context(Raise<Unit>) Prompt<R>.() -> R
+): R {
+  val raise = PromptFail(prompt, failValue)
+  return lazyReset(prompt) {
+    body(raise, prompt)
+  }
 }
 
 public suspend fun <R> listReset(
-  body: @Composable context(Raise<Unit>) Reset<List<R>>.() -> R
+  body: @Composable context(Raise<Unit>) Prompt<List<R>>.() -> R
 ): List<R> = reset(emptyList()) {
   listOf(body(given<Raise<Unit>>(), this))
 }
 
-context(Reset<List<R>>)
+context(Prompt<List<R>>)
 @Composable
-public fun <T, R> List<T>.bind(): T = shift { continuation ->
-  flatMap { value -> continuation(value) }
+public fun <T, R> List<T>.bind(): T = shiftS { continuation ->
+  flatMap { continuation(it) }
 }
 
 @OptIn(DelicateCoroutinesApi::class)
 public suspend fun <R> flowReset(
-  body: @Composable context(Raise<Unit>) Reset<Flow<R>>.() -> R
+  body: @Composable context(Raise<Unit>) Prompt<Flow<R>>.() -> R
 ): Flow<R> {
   val (flow, release) = resource {
-    lazyReset(emptyFlow()) {
-      flowOf(body(given<Raise<Unit>>(), this@lazyReset))
+    lazyResetWithFail(emptyFlow()) {
+      flowOf(body(given<Raise<Unit>>(), this))
     }
   }.allocated()
   return flow.onCompletion { release(it?.let(ExitCase::ExitCase) ?: ExitCase.Completed) }
 }
 
-context(Reset<Flow<R>>)
+context(Prompt<Flow<R>>)
 @OptIn(ExperimentalCoroutinesApi::class)
 @Composable
-public fun <T, R> Flow<T>.bind(): T = shift { continuation ->
-  flatMapConcat { value ->
-    reset {
-      continuation(value)
-    }
-  }
-}
+public fun <T, R> Flow<T>.bind(): T = shiftS(::flatMapConcat)

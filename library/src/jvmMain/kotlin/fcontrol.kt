@@ -6,7 +6,7 @@ public typealias Handle<Error, T, R> = @Composable Handler<Error, T, R>.(Error, 
 
 @ResetDsl
 public suspend fun <Error, T, R> ResourceScope.lazyResetWithHandler(
-  body: @Composable context(Handler<Error, T, R>) Reset<R>.() -> R,
+  body: @Composable context(Handler<Error, T, R>) Prompt<R>.() -> R,
   handler: Handle<Error, T, R>
 ): R = with(Handler(handler)) {
   lazyReset { body(this) }
@@ -14,13 +14,13 @@ public suspend fun <Error, T, R> ResourceScope.lazyResetWithHandler(
 
 @ResetDsl
 public suspend fun <Error, T, R> resetWithHandler(
-  body: @Composable context(Handler<Error, T, R>) Reset<R>.() -> R, handler: Handle<Error, T, R>
+  body: @Composable context(Handler<Error, T, R>) Prompt<R>.() -> R, handler: Handle<Error, T, R>
 ): R = resourceScope {
   lazyResetWithHandler(body, handler)
 }
 
 public class Handler<Error, T, R>(@PublishedApi internal var handler: Handle<Error, T, R>) {
-  public fun installHandler(handler: @Composable Handler<Error, T, R>.(Error, Cont<T, R>) -> R) {
+  public fun installHandler(handler: Handle<Error, T, R>) {
     this.handler = handler
   }
 
@@ -36,7 +36,7 @@ public class Handler<Error, T, R>(@PublishedApi internal var handler: Handle<Err
   }
 }
 
-context(Reset<R>, Handler<Error, T, R>)
+context(Prompt<R>, Handler<Error, T, R>)
 @Composable
 @ResetDsl
 public fun <Error, T, R> fcontrol(value: Error): T = control { handler(this@Handler, value, it) }
