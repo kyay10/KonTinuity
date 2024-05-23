@@ -1,4 +1,3 @@
-import arrow.core.raise.ensure
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -10,9 +9,7 @@ class ListTest {
     var counter = 0
     val result = listReset {
       val item = list.bind()
-      effect {
-        counter++
-      }
+      counter++
       item
     }
     result shouldBe list
@@ -25,9 +22,7 @@ class ListTest {
     var counter = 0
     val result = listReset {
       val item = list.bind()
-      effect {
-        counter++
-      }
+      counter++
       item
     }
     result shouldBe list
@@ -39,10 +34,8 @@ class ListTest {
     val list = listOf(1, 2, 3)
     val result = listReset {
       val item = list.bind()
-      effect {
-        ensure(item != 2) { }
-        item
-      }
+      ensure(item != 2)
+      item
     }
     result shouldBe list.filter { it != 2 }
   }
@@ -57,23 +50,15 @@ class ListTest {
     var secondCounter = 0
     var thirdCounter = 0
     val result = listReset {
-      effect {
-        noObservedCounter++
-      }
+      noObservedCounter++
       val first = list1.bind()
-      effect {
-        ensure(first != Int.MAX_VALUE) { }
-        firstCounter++
-      }
+      ensure(first != Int.MAX_VALUE)
+      firstCounter++
       val second = list2.bind()
-      effect {
-        ensure(second != Int.MAX_VALUE) { }
-        secondCounter++
-      }
+      ensure(second != Int.MAX_VALUE)
+      secondCounter++
       list3.bind()
-      effect {
-        thirdCounter++
-      }
+      thirdCounter++
       first to second
     }
     result shouldBe list1.filter { it != Int.MAX_VALUE }.flatMap { first ->
@@ -96,13 +81,9 @@ class ListTest {
     var itemCount = 0
     val result = listReset {
       val inner = list.bind()
-      effect {
-        innerCount++
-      }
+      innerCount++
       val item = inner.bind()
-      effect {
-        itemCount++
-      }
+      itemCount++
       item
     }
     result shouldBe list.flatten()

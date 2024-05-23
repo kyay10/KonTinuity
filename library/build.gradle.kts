@@ -4,14 +4,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
   alias(libs.plugins.androidLibrary)
-  alias(libs.plugins.jetbrainsCompose)
-  alias(libs.plugins.compose.compiler)
   id("module.publication")
-}
-
-composeCompiler {
-  includeSourceInformation = true
-  enableStrongSkippingMode = true
 }
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -61,7 +54,6 @@ kotlin {
       dependencies {
         implementation(libs.arrow.core)
         implementation(libs.arrow.fx.coroutines)
-        api(compose.runtime)
         api(libs.kotlinx.coroutines.core)
       }
     }

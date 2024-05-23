@@ -1,22 +1,10 @@
-import androidx.compose.runtime.Composable
-import arrow.fx.coroutines.ResourceScope
-import arrow.fx.coroutines.resourceScope
-
-public typealias Handle<Error, T, R> = @Composable Handler<Error, T, R>.(Error, Cont<T, R>) -> R
-
-@ResetDsl
-public suspend fun <Error, T, R> ResourceScope.lazyResetWithHandler(
-  body: @Composable context(Handler<Error, T, R>) Prompt<R>.() -> R,
-  handler: Handle<Error, T, R>
-): R = with(Handler(handler)) {
-  lazyReset { body(this) }
-}
+public typealias Handle<Error, T, R> = suspend Handler<Error, T, R>.(Error, Cont<T, R>) -> R
 
 @ResetDsl
 public suspend fun <Error, T, R> resetWithHandler(
-  body: @Composable context(Handler<Error, T, R>) Prompt<R>.() -> R, handler: Handle<Error, T, R>
-): R = resourceScope {
-  lazyResetWithHandler(body, handler)
+  body: suspend context(Handler<Error, T, R>) Prompt<R>.() -> R, handler: Handle<Error, T, R>
+): R = with(Handler(handler)) {
+  topReset { body(this) }
 }
 
 public class Handler<Error, T, R>(@PublishedApi internal var handler: Handle<Error, T, R>) {
@@ -36,7 +24,6 @@ public class Handler<Error, T, R>(@PublishedApi internal var handler: Handle<Err
   }
 }
 
-context(Prompt<R>, Handler<Error, T, R>)
-@Composable
+context(Handler<Error, T, R>)
 @ResetDsl
-public fun <Error, T, R> fcontrol(value: Error): T = control { handler(this@Handler, value, it) }
+public suspend fun <Error, T, R> Prompt<R>.fcontrol(value: Error): T = control { handler(this@Handler, value, it) }

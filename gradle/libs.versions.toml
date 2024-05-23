@@ -5,7 +5,6 @@ kotest = "5.8.1"
 kotlin = "2.0.0-RC2"
 kotlinxCoroutinesCore = "1.8.0"
 nexus-publish = "2.0.0-rc-1"
-compose-plugin = "1.6.10-beta03"
 android-minSdk = "24"
 android-compileSdk = "33"
 turbine = "1.1.0"
@@ -23,6 +22,4 @@ turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 
 [plugins]
 androidLibrary = { id = "com.android.library", version.ref = "agp" }
-compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
-jetbrainsCompose = { id = "org.jetbrains.compose", version.ref = "compose-plugin" }
