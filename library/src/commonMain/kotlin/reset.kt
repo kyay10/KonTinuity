@@ -1,9 +1,9 @@
-import Suspender.Companion.suspender
 import androidx.compose.runtime.*
 import arrow.AutoCloseScope
-import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlin.coroutines.*
+import kotlin.coroutines.intrinsics.*
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
 @DslMarker
@@ -21,14 +21,14 @@ public data class SubCont<T, R> internal constructor(
   @PublishedApi
   internal inline operator fun invoke(value: () -> T, k: Continuation<R>, isDelimiting: Boolean = false) {
     push(k, isDelimiting)
-    ekFragment.resume(value())
+    ekFragment.resumeWith(runCatching(value))
   }
 }
 
 public suspend fun <R> AutoCloseScope.pushPrompt(prompt: Prompt<R>, body: @Composable Prompt<R>.() -> R): R =
   suspendCoroutine { k ->
     pushStack(Hole(prompt, k))
-    suspender(k.context).startSuspendingComposition(prompt::resumeWith) { body(prompt) }
+    recomposer(k.context).startSuspendingComposition(prompt::resumeWith) { body(prompt) }
   }
 
 @Composable
@@ -41,7 +41,7 @@ private fun deleteDelimiter() = pushStack(Hole(null, popStack().continuation))
 
 @Composable
 private fun <T, R> Prompt<R>.takeSubContHere(
-  deleteDelimiter: Boolean = true, body: Suspender.(SubCont<T, R>) -> Unit
+  deleteDelimiter: Boolean = true, body: Recomposer.(SubCont<T, R>) -> Unit
 ): T = suspendComposition { k ->
   val subchain = buildList { unwind(this@takeSubContHere) }
   // TODO: this seems dodgy
@@ -56,13 +56,24 @@ public fun <T, R> Prompt<R>.takeSubCont(deleteDelimiter: Boolean = true, body: @
 @OptIn(InternalCoroutinesApi::class)
 @Composable
 public fun <T, R> Prompt<R>.takeSubContS(deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R): T =
-  takeSubContHere(deleteDelimiter) @DontMemoize { CoroutineStart.UNDISPATCHED(body, it, this@takeSubContS) }
+  takeSubContHere(deleteDelimiter) @DontMemoize {
+    body.startCoroutineUnintercepted(it, this@takeSubContS)
+  }
+
+private fun <R, T> (suspend R.() -> T).startCoroutineUnintercepted(receiver: R, completion: Continuation<T>) {
+  try {
+    val res = startCoroutineUninterceptedOrReturn(receiver, completion)
+    if (res != COROUTINE_SUSPENDED) completion.resume(res as T)
+  } catch (e: Throwable) {
+    completion.resumeWithException(e)
+  }
+}
 
 public fun <R> Prompt<R>.abort(value: R, deleteDelimiter: Boolean = false): Nothing {
   unwindAbort(this)
   if (deleteDelimiter) deleteDelimiter()
   resume(value)
-  throw Suspended(null)
+  throw AbortException
 }
 
 @Composable
@@ -115,8 +126,11 @@ public class Prompt<R> : Continuation<R> {
 
   @Suppress("UNCHECKED_CAST")
   override fun resumeWith(result: Result<R>) {
+    if (result.exceptionOrNull() == AbortException) return
     val (prompt, continuation) = popStack() as Hole<R>
     check(prompt === this || prompt == null)
     continuation.resumeWith(result)
   }
 }
+
+private object AbortException : CancellationException("Abort")

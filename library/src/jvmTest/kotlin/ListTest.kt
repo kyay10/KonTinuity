@@ -115,7 +115,7 @@ class ListTest {
     val list = listOf(1, 2, 2, 3)
     val twoElements = listOf(0, 0)
     val result = listReset {
-      val x = listOf(1, 2, 2, 3).bind()
+      val x = list.bind()
       if (x == 2) {
         twoElements.bind()
         "firstBranch"

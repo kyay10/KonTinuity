@@ -1,5 +1,7 @@
 import androidx.compose.runtime.Composable
 import arrow.fx.coroutines.resourceScope
+import io.kotest.common.Platform
+import io.kotest.common.platform
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
@@ -139,10 +141,10 @@ class ContinuationTest {
   @Test
   fun stackSafety() = runTest {
     resourceScope {
-      val n = 10
+      val n = stackSafeIterations
       val result = reset<Int> {
         for (i in 0 until n) {
-          shift { k -> (k(null) + i) }
+          shiftS { k -> k(null) + i }
         }
         0
       }
@@ -152,10 +154,9 @@ class ContinuationTest {
 
   @Test
   fun manyIterations() = runTest {
-    val n = 100
-    // Quadratic
+    val n = 100_000
     val result = reset<Int> {
-      shift { k ->
+      shiftS { k ->
         (1..n).sumOf { k(it) }
       }
       1
@@ -302,4 +303,9 @@ class ContinuationTest {
       x + 1
     } shouldBe 4
   }
+}
+
+val stackSafeIterations: Int = when (platform) {
+  Platform.JVM -> 20_000
+  else -> 1000
 }
