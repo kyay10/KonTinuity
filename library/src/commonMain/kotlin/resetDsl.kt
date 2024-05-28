@@ -4,7 +4,7 @@ public typealias Cont<T, R> = suspend (T) -> R
 public suspend fun <R> Prompt<R>.reset(body: suspend Prompt<R>.() -> R): R = pushPrompt(body)
 
 public suspend fun <R> topReset(body: suspend Prompt<R>.() -> R): R =
-  withMultishot { Prompt<R>().reset(body) }
+  multishotBoundary { Prompt<R>().reset(body) }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Cont<T, R>) -> R): T =

@@ -1,4 +1,3 @@
-import arrow.fx.coroutines.resourceScope
 import io.kotest.common.Platform
 import io.kotest.common.platform
 import io.kotest.matchers.shouldBe
@@ -131,16 +130,13 @@ class ContinuationTest {
 
   @Test
   fun stackSafety() = runTest {
-    resourceScope {
-      val n = stackSafeIterations
-      val result = topReset<Int> {
-        repeat(n) {
-          shift { k -> k(Unit) + it }
-        }
-        0
+    val n = stackSafeIterations
+    topReset<Int> {
+      repeat(n) {
+        shift { k -> k(Unit) + it }
       }
-      result shouldBe n * (n - 1) / 2
-    }
+      0
+    } shouldBe n * (n - 1) / 2
   }
 
   @Test
@@ -265,6 +261,25 @@ class ContinuationTest {
   }
 
   @Test
+  fun abort0Tests() = runTest {
+    10 + topReset<Int> {
+      2 + shift0<Int, _> { k -> 100 + k(k(3)) }
+    } shouldBe 117
+    topReset<String> {
+      "a" + reset<String> {
+        abort0 { abort0 { "" } }
+      }
+    } shouldBe ""
+    topReset<String> {
+      "a" + reset<String> {
+        reset<String> {
+          abort0 { abort0 { "" } }
+        }
+      }
+    } shouldBe "a"
+  }
+
+  @Test
   fun control0Tests() = runTest {
     10 + topReset<Int> {
       2 + control0<Int, _> { k -> 100 + k(k(3)) }
@@ -281,7 +296,6 @@ class ContinuationTest {
       }
     } shouldBe ""
   }
-
 
   @Test
   fun lazyShifts() = runTest {

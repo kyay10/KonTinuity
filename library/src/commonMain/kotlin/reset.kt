@@ -36,7 +36,7 @@ public suspend fun <R> Prompt<R>.pushPrompt(body: suspend Prompt<R>.() -> R): R 
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
-): T = suspendMultishotCoroutine { k ->
+): T = suspendMultishotCoroutine(intercepted = false) { k ->
   val subchain = buildList { unwind(this@Prompt) }
   // TODO: this seems dodgy
   if (deleteDelimiter) deleteDelimiter()
@@ -55,6 +55,10 @@ public inline fun <R> Prompt<R>.abort(deleteDelimiter: Boolean = false, value: (
   resumeWith(runCatching(value))
   throw AbortException
 }
+
+@ResetDsl
+public inline fun <R> Prompt<R>.abort0(value: () -> R): Nothing =
+  abort(deleteDelimiter = true, value)
 
 internal data class Hole<R>(val prompt: Prompt<R>?, val continuation: Continuation<R>)
 
