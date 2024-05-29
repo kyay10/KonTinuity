@@ -11,8 +11,7 @@ public suspend fun <R> multishotBoundary(body: suspend () -> R): R = suspendCoro
 }
 
 @PublishedApi
-internal class MultishotContinuation<T>(cont: Continuation<T>, private val intercepted: Boolean) : Continuation<T> {
-  private val cont = cont.clone() // TODO: seems like this clone call could be removed
+internal class MultishotContinuation<T>(private val cont: Continuation<T>, private val intercepted: Boolean) : Continuation<T> {
   override val context: CoroutineContext get() = cont.context
 
   override fun resumeWith(result: Result<T>) {
