@@ -133,7 +133,7 @@ class ContinuationTest {
     val n = stackSafeIterations
     topReset<Int> {
       repeat(n) {
-        shift { k -> k(Unit) + it }
+        shiftStackSafe { k -> k(Unit) + it }
       }
       0
     } shouldBe n * (n - 1) / 2

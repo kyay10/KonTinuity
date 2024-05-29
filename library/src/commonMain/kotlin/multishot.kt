@@ -22,9 +22,18 @@ internal class MultishotContinuation<T>(cont: Continuation<T>, private val inter
 }
 
 @PublishedApi
+internal class ContWrapper<T>(val cont: MultishotContinuation<T>)
+
+@Suppress("UNCHECKED_CAST")
+@PublishedApi
 internal suspend inline fun <T> suspendMultishotCoroutine(
-  intercepted: Boolean = true, crossinline block: (Continuation<T>) -> Unit
-): T = suspendCoroutineUninterceptedOrReturn {
-  block(MultishotContinuation(it, intercepted))
-  COROUTINE_SUSPENDED
+  intercepted: Boolean = true, block: (Continuation<T>) -> Unit
+): T {
+  val res = suspendCoroutineUninterceptedOrReturn<Any?> {
+    ContWrapper(MultishotContinuation(it, intercepted))
+  } // ContWrapper<T> | T
+  if (res is ContWrapper<*>) {
+    block(res.cont as Continuation<T>)
+    suspendCoroutineUninterceptedOrReturn<Nothing> { COROUTINE_SUSPENDED } // Suspend forever
+  } else return res as T
 }
