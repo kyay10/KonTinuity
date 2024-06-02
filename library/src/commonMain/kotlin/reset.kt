@@ -6,141 +6,91 @@ import kotlin.coroutines.*
 public annotation class ResetDsl
 
 public data class SubCont<T, R> internal constructor(
-  @PublishedApi internal val ekFragment: Continuation<T>,
+  @PublishedApi internal val ekFragment: MultishotContinuation<T>,
   private val prompt: Prompt<R>,
-  private val subchain: List<Hole<*>>
 ) {
-  @PublishedApi
-  internal fun PStack.push(k: Continuation<R>, isDelimiting: Boolean = false) {
-    push(Hole(prompt.takeIf { isDelimiting }, k))
-    pushAll(subchain)
-  }
 
   @ResetDsl
-  public suspend fun pushSubCont(isDelimiting: Boolean = false, value: Result<T>): R = suspendMultishotCoroutine { k ->
-    k.context.pStack.push(k, isDelimiting)
-    ekFragment.resumeWith(value)
+  public suspend fun pushSubContWith(isDelimiting: Boolean = false, value: Result<T>): R = suspendMultishotCoroutine { k ->
+    ekFragment.resumeWith(if (isDelimiting) Hole(prompt, k) else k, prompt, value)
   }
 
 
   @ResetDsl
-  public suspend fun pushSubContS(isDelimiting: Boolean = false, value: suspend () -> T): R =
+  public suspend fun pushSubCont(isDelimiting: Boolean = false, value: suspend () -> T): R =
     suspendMultishotCoroutine { k ->
-      k.context.pStack.push(k, isDelimiting)
-      value.startCoroutine(ekFragment)
+      val replacement = if (isDelimiting) Hole(prompt, k) else k
+      value.startCoroutine(Continuation(k.context) { result ->
+        ekFragment.resumeWith(replacement, prompt, result)
+      })
     }
 
   @ResetDsl
-  public suspend fun pushDelimSubCont(value: Result<T>): R = pushSubCont(isDelimiting = true, value)
+  public suspend fun pushDelimSubContWith(value: Result<T>): R = pushSubContWith(isDelimiting = true, value)
 
   @ResetDsl
-  public suspend fun pushDelimSubContS(value: suspend () -> T): R = pushSubContS(isDelimiting = true, value)
+  public suspend fun pushDelimSubCont(value: suspend () -> T): R = pushSubCont(isDelimiting = true, value)
 }
 
 @ResetDsl
 public suspend fun <R> Prompt<R>.pushPrompt(body: suspend Prompt<R>.() -> R): R = suspendMultishotCoroutine { k ->
-  val pStack = k.context.pStack
-  pStack.push(Hole(this, k))
-  body.startCoroutine(this, pStack)
+  body.startCoroutine(this, Hole(this, k))
 }
 
+internal data class Hole<R>(val prompt: Prompt<R>, private val ultimateCont: MultishotContinuation<R>) :
+  Continuation<R> {
+  override val context: CoroutineContext get() = ultimateCont.context
+
+  @Suppress("UNCHECKED_CAST")
+  override fun resumeWith(result: Result<R>) {
+    if (result.isFailure) {
+      val exception = result.exceptionOrNull()
+      if (exception is UnwindCancellationException && exception.prompt === prompt) {
+        val (_, function, ekFragment, deleteDelimiter) = exception
+        val ultimateCont =
+          (if (deleteDelimiter) ultimateCont else this) as Continuation<Any?>
+        if (ekFragment == null) {
+          function.startCoroutine(null, ultimateCont)
+        } else {
+          val subCont = SubCont(ekFragment, prompt)
+          function.startCoroutine(subCont as SubCont<Any?, Any?>, ultimateCont)
+        }
+        return
+      }
+    }
+    ultimateCont.resumeWith(result)
+  }
+}
+
+@Suppress("UNCHECKED_CAST")
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
 ): T = suspendMultishotCoroutine(intercepted = false) { k ->
-  with(k.context.pStack) {
-    val subchain = buildList { unwind(this@Prompt) }
-    // TODO: this seems dodgy
-    if (deleteDelimiter) deleteDelimiter()
-    body.startCoroutine(SubCont(k, this@Prompt, subchain), this)
-  }
-}
-
-@PublishedApi
-internal fun PStack.preAbort(prompt: Prompt<*>, deleteDelimiter: Boolean) {
-  DevNullList.unwind(prompt)
-  if (deleteDelimiter) deleteDelimiter()
+  throw UnwindCancellationException(
+    this, body as suspend (SubCont<Any?, Any?>?) -> Any?, k as MultishotContinuation<Any?>, deleteDelimiter
+  )
 }
 
 @ResetDsl
 @PublishedApi
 internal fun <R> Prompt<R>.abort(
-  pStack: PStack, deleteDelimiter: Boolean = false, value: Result<R>
-): Nothing {
-  pStack.preAbort(this, deleteDelimiter)
-  (pStack as Continuation<Any?>).resumeWith(value)
-  // TODO: remove this and replace with some Raise-based mechanism
-  throw AbortException
-}
+  deleteDelimiter: Boolean = false, value: Result<R>
+): Nothing = abortS(deleteDelimiter) { value.getOrThrow() }
 
 @ResetDsl
 @PublishedApi
-internal suspend fun <R> Prompt<R>.abortS(
-  pStack: PStack, deleteDelimiter: Boolean = false, value: suspend () -> R
+internal fun <R> Prompt<R>.abortS(
+  deleteDelimiter: Boolean = false, value: suspend () -> R
 ): Nothing {
-  pStack.preAbort(this, deleteDelimiter)
-  value.startCoroutine(pStack)
-  suspendCoroutine<Nothing> { }
-}
-
-internal data class Hole<R>(val prompt: Prompt<R>?, val continuation: Continuation<R>)
-
-internal class PStack : CoroutineContext.Element, Continuation<Any?> {
-  private val pStack: MutableList<Hole<*>> = mutableListOf()
-
-  internal fun peek(): Hole<*> = pStack.lastOrNull() ?: error("No prompt set")
-  internal fun pop(): Hole<*> = pStack.removeLastOrNull() ?: error("No prompt set")
-  internal fun push(hole: Hole<*>) = pStack.add(hole)
-  internal fun pushAll(holes: List<Hole<*>>) = pStack.addAll(holes)
-  internal fun deleteDelimiter() = push(Hole(null, pop().continuation))
-  internal val <R> Prompt<R>.isSet: Boolean get() = pStack.any { it.prompt === this }
-
-  internal tailrec fun MutableList<in Hole<*>>.unwind(prompt: Prompt<*>) {
-    val item = peek()
-    if (item.prompt !== prompt) {
-      pop()
-      add(0, item)
-      unwind(prompt)
-    }
-  }
-
-  override val key: CoroutineContext.Key<PStack> get() = Key
-
-  override val context: CoroutineContext get() = peek().continuation.context
-
-  @Suppress("UNCHECKED_CAST")
-  override fun resumeWith(result: Result<Any?>) {
-    if (result.exceptionOrNull() == AbortException) return
-    (pop().continuation as Continuation<Any?>).resumeWith(result)
-  }
-
-  companion object Key : CoroutineContext.Key<PStack>
-
-  fun clear() {
-    pStack.clear()
-  }
-}
-
-@PublishedApi
-internal suspend fun pStack(): PStack = coroutineContext.pStack
-
-@PublishedApi
-internal val CoroutineContext.pStack get() = this[PStack.Key] ?: error("Not in multi-shot continuation context")
-
-@ResetDsl
-public suspend fun <R> Prompt<R>.isSet(): Boolean = with(pStack()) { isSet }
-
-private object DevNullList : AbstractMutableList<Any?>() {
-  override val size: Int get() = 0
-  override fun get(index: Int): Any? = throw IndexOutOfBoundsException()
-  override fun add(index: Int, element: Any?) {
-    check(index == 0)
-  }
-
-  override fun removeAt(index: Int): Any? = throw IndexOutOfBoundsException()
-  override fun set(index: Int, element: Any?): Any? = throw IndexOutOfBoundsException()
+  throw UnwindCancellationException(this, { value() }, null, deleteDelimiter)
 }
 
 public class Prompt<R>
 
-private object AbortException : CancellationException("Abort")
+internal data class UnwindCancellationException(
+  val prompt: Prompt<*>,
+  val function: suspend (SubCont<Any?, Any?>?) -> Any?,
+  val ekFragment: MultishotContinuation<Any?>?,
+  val deleteDelimiter: Boolean
+) : CancellationException("Should never get swallowed")

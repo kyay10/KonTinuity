@@ -7,28 +7,30 @@ import kotlin.coroutines.suspendCoroutine
 
 @OptIn(InternalCoroutinesApi::class)
 public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
-  val pStack = PStack()
-  body.startCoroutine(Continuation(it.context + pStack) { result ->
-    pStack.clear()
-    it.resumeWith(result)
-  })
+  body.startCoroutine(it)
 }
 
 @PublishedApi
-internal class MultishotContinuation<T>(private val cont: Continuation<T>, private val intercepted: Boolean) :
-  Continuation<T> {
+internal class MultishotContinuation<T>(cont: Continuation<T>, private val intercepted: Boolean) : Continuation<T> {
+  private val cont = cont.clone(null, null)
   override val context: CoroutineContext get() = cont.context
 
+  private fun prepareContinuation(replacementPromptContinuation: Continuation<*>?, prompt: Prompt<*>?): Continuation<T> =
+    cont.clone(replacementPromptContinuation, prompt).let { if (intercepted) it.intercepted() else it }
+
   override fun resumeWith(result: Result<T>) {
-    val cont = cont.clone().let { if (intercepted) it.intercepted() else it }
-    cont.resumeWith(result)
+    prepareContinuation(null, null).resumeWith(result)
+  }
+
+  fun resumeWith(replacementPromptContinuation: Continuation<*>, prompt: Prompt<*>, result: Result<T>) {
+    prepareContinuation(replacementPromptContinuation, prompt).resumeWith(result)
   }
 }
 
 @PublishedApi
 internal suspend inline fun <T> suspendMultishotCoroutine(
-  intercepted: Boolean = true, crossinline block: (Continuation<T>) -> Unit
+  intercepted: Boolean = true, crossinline block: (MultishotContinuation<T>) -> Unit
 ): T = suspendCoroutineUninterceptedOrReturn {
-  block(MultishotContinuation(it, intercepted))
+  block(MultishotContinuation(it.clone(null, null), intercepted))
   COROUTINE_SUSPENDED
 }

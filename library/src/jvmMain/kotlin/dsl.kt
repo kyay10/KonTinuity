@@ -8,14 +8,14 @@ import kotlinx.coroutines.flow.*
 context(A) internal fun <A> given(): A = this@A
 
 /** MonadFail-style errors */
-private class PromptFail<R>(private val prompt: Prompt<R>, private val pStack: PStack, private val failValue: R) : Raise<Unit> {
-  override fun raise(e: Unit): Nothing = prompt.abort(pStack, deleteDelimiter = false, Result.success(failValue))
+private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R) : Raise<Unit> {
+  override fun raise(e: Unit): Nothing = prompt.abort(deleteDelimiter = false, Result.success(failValue))
 }
 
 public suspend fun <R> resetWithFail(
   failValue: R, body: suspend context(SingletonRaise<Unit>) Prompt<R>.() -> R
 ): R = topReset {
-  body(SingletonRaise(PromptFail(this, pStack(), failValue)), this)
+  body(SingletonRaise(PromptFail(this, failValue)), this)
 }
 
 public suspend fun <R> listReset(
@@ -72,7 +72,7 @@ public fun <R> flowReset(
   channelFlow {
     runCC {
       newReset {
-        effectfulFlowOf(body(SingletonRaise<Unit>(PromptFail<EffectfulFlow<R>>(this, pStack(), EmptyEffectfulFlow)), this))
+        effectfulFlowOf(body(SingletonRaise<Unit>(PromptFail<EffectfulFlow<R>>(this, EmptyEffectfulFlow)), this))
       }.collect { send(it) }
     }
   }
