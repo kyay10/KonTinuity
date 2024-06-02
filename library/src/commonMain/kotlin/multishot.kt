@@ -6,12 +6,17 @@ import kotlin.coroutines.startCoroutine
 import kotlin.coroutines.suspendCoroutine
 
 @OptIn(InternalCoroutinesApi::class)
-public suspend fun <R> multishotBoundary(body: suspend () -> R): R = suspendCoroutine {
-  body.startCoroutine(it)
+public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
+  val pStack = PStack()
+  body.startCoroutine(Continuation(it.context + pStack) { result ->
+    pStack.clear()
+    it.resumeWith(result)
+  })
 }
 
 @PublishedApi
-internal class MultishotContinuation<T>(private val cont: Continuation<T>, private val intercepted: Boolean) : Continuation<T> {
+internal class MultishotContinuation<T>(private val cont: Continuation<T>, private val intercepted: Boolean) :
+  Continuation<T> {
   override val context: CoroutineContext get() = cont.context
 
   override fun resumeWith(result: Result<T>) {

@@ -267,13 +267,13 @@ class ContinuationTest {
     } shouldBe 117
     topReset<String> {
       "a" + reset<String> {
-        abort0 { abort0 { "" } }
+        abortS0 { abort0("") }
       }
     } shouldBe ""
     topReset<String> {
       "a" + reset<String> {
         reset<String> {
-          abort0 { abort0 { "" } }
+          abortS0 { abort0("") }
         }
       }
     } shouldBe "a"

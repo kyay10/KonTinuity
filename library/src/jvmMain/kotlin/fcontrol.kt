@@ -1,29 +1,21 @@
-public typealias Handle<Error, T, R> = suspend Handler<Error, T, R>.(Error, Cont<T, R>) -> R
+@file:Suppress("SUBTYPING_BETWEEN_CONTEXT_RECEIVERS")
 
+public data class ResumableError<Error, T, R>(val error: Error, val continuation: SubCont<T, R>)
+
+context(Prompt<ResumableError<Error, T, R>>, Prompt<R>)
 @ResetDsl
 public suspend fun <Error, T, R> resetWithHandler(
-  body: suspend context(Handler<Error, T, R>) Prompt<R>.() -> R, handler: Handle<Error, T, R>
-): R = with(Handler(handler)) {
-  topReset { body(this) }
+  handler: (Error, SubCont<T, R>) -> R, body: suspend () -> R
+): R = reset<R> {
+  val (error, continuation) = reset<ResumableError<Error, T, R>> {
+    val result = body()
+    abort(result)
+  }
+  handler(error, continuation)
 }
 
-public class Handler<Error, T, R>(@PublishedApi internal var handler: Handle<Error, T, R>) {
-  public fun installHandler(handler: Handle<Error, T, R>) {
-    this.handler = handler
-  }
-
-  @ResetDsl
-  public inline fun handle(block: () -> R, noinline handler: Handle<Error, T, R>): R {
-    val previousHandler = this.handler
-    installHandler(handler)
-    return try {
-      block()
-    } finally {
-      installHandler(previousHandler)
-    }
-  }
-}
-
-context(Handler<Error, T, R>)
+context(Prompt<ResumableError<Error, T, R>>, Prompt<R>)
 @ResetDsl
-public suspend fun <Error, T, R> Prompt<R>.fcontrol(value: Error): T = control { handler(this@Handler, value, it) }
+public suspend fun <Error, T, R> fcontrol(error: Error): T = peekSubCont<_, R>(deleteDelimiter = false) { sk ->
+  abort<ResumableError<Error, T, R>>(ResumableError(error, sk))
+}

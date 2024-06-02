@@ -11,7 +11,6 @@ plugins {
 kotlin {
   compilerOptions {
     freeCompilerArgs.add("-Xcontext-receivers")
-    optIn.addAll("kotlinx.cinterop.BetaInteropApi", "kotlinx.cinterop.ExperimentalForeignApi")
   }
   explicitApi()
   applyDefaultHierarchyTemplate()

@@ -17,7 +17,7 @@ class MonadTest {
   suspend fun <S, A, B> Prompt<State<S, A>>.bind(state: State<S, B>): B = shift(state::flatMap)
 
   suspend fun <S, R> stateReset(body: suspend Prompt<State<S, R>>.() -> R): State<S, R> =
-    topReset { State.of(body(this)) }
+    newReset { State.of(body(this)) }
 
   @Test
   fun stateMonad() = runTest {
@@ -32,13 +32,15 @@ class MonadTest {
       Pair(Unit, state.copy(count = state.count * 2))
     }
 
-    val result = stateReset {
-      bind(incrementCounter())
-      bind(doubleCounter())
-      bind(doubleCounter())
+    val result = runCC {
+      stateReset {
+        bind(incrementCounter())
+        bind(doubleCounter())
+        bind(doubleCounter())
+      }.run(CounterState(0))
     }
 
-    result.run(CounterState(0)) shouldBe incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }
+    result shouldBe incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }
       .run(CounterState(0))
   }
 
@@ -56,14 +58,16 @@ class MonadTest {
   suspend fun <R, A, B> Prompt<Reader<R, A>>.bind(reader: Reader<R, B>): B = shift(reader::flatMap)
 
   suspend fun <R, A> readerReset(body: suspend Prompt<Reader<R, A>>.() -> A): Reader<R, A> =
-    topReset { Reader.of(body(this)) }
+    newReset { Reader.of(body(this)) }
 
   @Test
   fun readerMonad() = runTest {
     val one: Reader<String, Int> = Reader { input -> input.toInt() }
-    val sum = readerReset {
-      bind(one) + bind(one)
+    val sum = runCC {
+      readerReset {
+        bind(one) + bind(one)
+      }.reader("1")
     }
-    sum.reader("1") shouldBe 2
+    sum shouldBe 2
   }
 }
