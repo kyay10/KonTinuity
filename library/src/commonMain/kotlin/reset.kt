@@ -9,11 +9,11 @@ public data class SubCont<T, R> internal constructor(
   @PublishedApi internal val ekFragment: MultishotContinuation<T>,
   private val prompt: Prompt<R>,
 ) {
-
   @ResetDsl
-  public suspend fun pushSubContWith(isDelimiting: Boolean = false, value: Result<T>): R = suspendMultishotCoroutine { k ->
-    ekFragment.resumeWith(if (isDelimiting) Hole(prompt, k) else k, prompt, value)
-  }
+  public suspend fun pushSubContWith(isDelimiting: Boolean = false, value: Result<T>): R =
+    suspendMultishotCoroutine { k ->
+      ekFragment.resumeWith(if (isDelimiting) Hole(prompt, k) else k, prompt, value)
+    }
 
 
   @ResetDsl
@@ -33,8 +33,8 @@ public data class SubCont<T, R> internal constructor(
 }
 
 @ResetDsl
-public suspend fun <R> Prompt<R>.pushPrompt(body: suspend Prompt<R>.() -> R): R = suspendMultishotCoroutine { k ->
-  body.startCoroutine(this, Hole(this, k))
+public suspend fun <R> Prompt<R>.pushPrompt(body: suspend () -> R): R = suspendMultishotCoroutine { k ->
+  body.startCoroutine(Hole(this, k))
 }
 
 internal data class Hole<R>(val prompt: Prompt<R>, private val ultimateCont: MultishotContinuation<R>) :
@@ -43,22 +43,14 @@ internal data class Hole<R>(val prompt: Prompt<R>, private val ultimateCont: Mul
 
   @Suppress("UNCHECKED_CAST")
   override fun resumeWith(result: Result<R>) {
-    if (result.isFailure) {
-      val exception = result.exceptionOrNull()
-      if (exception is UnwindCancellationException && exception.prompt === prompt) {
-        val (_, function, ekFragment, deleteDelimiter) = exception
-        val ultimateCont =
-          (if (deleteDelimiter) ultimateCont else this) as Continuation<Any?>
-        if (ekFragment == null) {
-          function.startCoroutine(null, ultimateCont)
-        } else {
-          val subCont = SubCont(ekFragment, prompt)
-          function.startCoroutine(subCont as SubCont<Any?, Any?>, ultimateCont)
-        }
-        return
-      }
-    }
-    ultimateCont.resumeWith(result)
+    val exception = result.exceptionOrNull()
+    if (exception is UnwindCancellationException && exception.prompt === prompt) {
+      val function = exception.function as suspend (SubCont<Any?, R>?) -> R
+      val ekFragment = exception.ekFragment
+      val deleteDelimiter = exception.deleteDelimiter
+      val subCont = ekFragment?.let { SubCont(ekFragment, prompt) }
+      function.startCoroutine(subCont, if (deleteDelimiter) ultimateCont else this)
+    } else ultimateCont.resumeWith(result)
   }
 }
 
@@ -67,7 +59,7 @@ internal data class Hole<R>(val prompt: Prompt<R>, private val ultimateCont: Mul
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
 ): T = suspendMultishotCoroutine(intercepted = false) { k ->
-  throw UnwindCancellationException(
+  throw NoTrace(
     this, body as suspend (SubCont<Any?, Any?>?) -> Any?, k as MultishotContinuation<Any?>, deleteDelimiter
   )
 }
@@ -83,14 +75,22 @@ internal fun <R> Prompt<R>.abort(
 internal fun <R> Prompt<R>.abortS(
   deleteDelimiter: Boolean = false, value: suspend () -> R
 ): Nothing {
-  throw UnwindCancellationException(this, { value() }, null, deleteDelimiter)
+  throw NoTrace(this, { value() }, null, deleteDelimiter)
 }
 
 public class Prompt<R>
 
-internal data class UnwindCancellationException(
+internal sealed class UnwindCancellationException(
   val prompt: Prompt<*>,
   val function: suspend (SubCont<Any?, Any?>?) -> Any?,
   val ekFragment: MultishotContinuation<Any?>?,
   val deleteDelimiter: Boolean
 ) : CancellationException("Should never get swallowed")
+
+@Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
+internal expect class NoTrace(
+  prompt: Prompt<*>,
+  function: suspend (SubCont<Any?, Any?>?) -> Any?,
+  ekFragment: MultishotContinuation<Any?>?,
+  deleteDelimiter: Boolean
+) : UnwindCancellationException

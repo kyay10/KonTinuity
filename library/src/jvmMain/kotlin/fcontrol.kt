@@ -8,8 +8,7 @@ public suspend fun <Error, T, R> resetWithHandler(
   handler: (Error, SubCont<T, R>) -> R, body: suspend () -> R
 ): R = reset<R> {
   val (error, continuation) = reset<ResumableError<Error, T, R>> {
-    val result = body()
-    abort(result)
+    abort<R>(body())
   }
   handler(error, continuation)
 }

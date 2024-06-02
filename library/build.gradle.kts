@@ -66,17 +66,23 @@ kotlin {
       }
     }
 
+    val nonJvmMain by creating {
+      dependsOn(commonMain)
+    }
+
     // We use a common folder instead of a common source set because there is no commonizer
     // which exposes the browser APIs across these two targets.
     jsMain {
+      dependsOn(nonJvmMain)
       kotlin.srcDir("src/browserMain/kotlin")
     }
     wasmJsMain {
+      dependsOn(nonJvmMain)
       kotlin.srcDir("src/browserMain/kotlin")
     }
 
     val darwinMain by creating {
-      dependsOn(commonMain)
+      dependsOn(nonJvmMain)
     }
 
     val displayLinkMain by creating {
