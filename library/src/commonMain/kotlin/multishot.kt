@@ -31,6 +31,6 @@ internal class MultishotContinuation<T>(cont: Continuation<T>, private val inter
 internal suspend inline fun <T> suspendMultishotCoroutine(
   intercepted: Boolean = true, crossinline block: (MultishotContinuation<T>) -> Unit
 ): T = suspendCoroutineUninterceptedOrReturn {
-  block(MultishotContinuation(it.clone(null, null), intercepted))
+  block(MultishotContinuation(it, intercepted))
   COROUTINE_SUSPENDED
 }
