@@ -32,6 +32,12 @@ public suspend fun <R> Prompt<R>.pushPrompt(
   body.startCoroutine(Hole(k, this, extraContext))
 }
 
+@ResetDsl
+public suspend fun <R> pushContext(context: CoroutineContext, body: suspend () -> R): R =
+  suspendCoroutineUnintercepted { k ->
+    body.startCoroutine(Hole(k, null, context))
+  }
+
 internal class Hole<R>(
   private val ultimateCont: Continuation<R>,
   private val prompt: Prompt<R>?,
@@ -82,6 +88,8 @@ internal fun <R> Prompt<R>.abortS(
 ): Nothing {
   throw NoTrace(this as Prompt<Any?>, { value() }, null, deleteDelimiter)
 }
+
+public suspend fun Prompt<*>.isSet(): Boolean = coroutineContext[this] != null
 
 public class Prompt<R> : CoroutineContext.Key<Hole<R>>
 
