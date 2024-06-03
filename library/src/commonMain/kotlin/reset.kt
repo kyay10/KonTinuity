@@ -8,33 +8,21 @@ public annotation class ResetDsl
 
 public data class SubCont<T, R> internal constructor(
   private val ekFragment: Continuation<T>,
-  private val prompt: Prompt<R>,
-  private val upTo: Hole<*>,
+  private val upTo: Hole<R>,
 ) {
   @ResetDsl
   public suspend fun pushSubContWith(
-    isDelimiting: Boolean = false, extraContext: CoroutineContext = EmptyCoroutineContext, value: Result<T>
+    value: Result<T>, delimiter: Prompt<R>? = null, extraContext: CoroutineContext = EmptyCoroutineContext
   ): R = suspendCoroutineUnintercepted { k ->
-    val replacement = if (isDelimiting) Hole(k, prompt, extraContext) else Hole(k, null, extraContext)
-    ekFragment.clone(upTo, replacement).resumeWith(value)
+    ekFragment.clone(upTo, Hole(k, delimiter, extraContext)).resumeWith(value)
   }
 
   @ResetDsl
   public suspend fun pushSubCont(
-    isDelimiting: Boolean = false, extraContext: CoroutineContext = EmptyCoroutineContext, value: suspend () -> T
+    delimiter: Prompt<R>? = null, extraContext: CoroutineContext = EmptyCoroutineContext, value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    val replacement = if (isDelimiting) Hole(k, prompt, extraContext) else Hole(k, null, extraContext)
-    value.startCoroutine(ekFragment.clone(upTo, replacement))
+    value.startCoroutine(ekFragment.clone(upTo, Hole<R>(k, delimiter, extraContext)))
   }
-
-  @ResetDsl
-  public suspend fun pushDelimSubContWith(extraContext: CoroutineContext = EmptyCoroutineContext, value: Result<T>): R =
-    pushSubContWith(isDelimiting = true, extraContext, value)
-
-  @ResetDsl
-  public suspend fun pushDelimSubCont(
-    extraContext: CoroutineContext = EmptyCoroutineContext, value: suspend () -> T
-  ): R = pushSubCont(isDelimiting = true, extraContext, value)
 }
 
 @ResetDsl
@@ -45,11 +33,13 @@ public suspend fun <R> Prompt<R>.pushPrompt(
 }
 
 internal class Hole<R>(
-  val ultimateCont: Continuation<R>, val prompt: Prompt<R>?, val extraContext: CoroutineContext = EmptyCoroutineContext
+  private val ultimateCont: Continuation<R>,
+  private val prompt: Prompt<R>?,
+  private val extraContext: CoroutineContext = EmptyCoroutineContext
 ) : CloneableContinuation<R>, CoroutineContext.Element {
   override val key: CoroutineContext.Key<*> get() = prompt ?: error("should never happen")
   override val context: CoroutineContext =
-    if (prompt != null) ultimateCont.context + this + extraContext else ultimateCont.context + extraContext
+    (if (prompt != null) ultimateCont.context + this else ultimateCont.context) + extraContext
 
   override fun resumeWith(result: Result<R>) {
     val exception = result.exceptionOrNull()
@@ -60,14 +50,16 @@ internal class Hole<R>(
 
   override fun clone(upTo: Hole<*>, replacement: Hole<*>): CloneableContinuation<R> =
     Hole(ultimateCont.clone(upTo, replacement), prompt, extraContext)
+
+  internal fun withoutDelimiter(): Hole<R> = Hole(ultimateCont, null, extraContext)
 }
 
 private fun <T, R> CoroutineContext.startHandler(
   handler: suspend (SubCont<T, R>?) -> R, ekFragment: Continuation<T>?, deleteDelimiter: Boolean, prompt: Prompt<R>
 ) {
   val hole = this[prompt] ?: error("Prompt $prompt not set")
-  val subCont = ekFragment?.let { SubCont(ekFragment, prompt, hole) }
-  handler.startCoroutine(subCont, if (deleteDelimiter) hole.ultimateCont.intercepted() else hole)
+  val subCont = ekFragment?.let { SubCont(ekFragment, hole) }
+  handler.startCoroutine(subCont, if (deleteDelimiter) hole.withoutDelimiter() else hole)
 }
 
 @Suppress("UNCHECKED_CAST")
@@ -78,15 +70,13 @@ public suspend fun <T, R> Prompt<R>.takeSubCont(
   k.context.startHandler(body as suspend (SubCont<T, R>?) -> R, k, deleteDelimiter, this)
 }
 
+// TODO: optimize
 @ResetDsl
-@PublishedApi
-internal fun <R> Prompt<R>.abort(
-  deleteDelimiter: Boolean = false, value: Result<R>
+internal fun <R> Prompt<R>.abortWith(
+  deleteDelimiter: Boolean, value: Result<R>
 ): Nothing = abortS(deleteDelimiter) { value.getOrThrow() }
 
 @Suppress("UNCHECKED_CAST")
-@ResetDsl
-@PublishedApi
 internal fun <R> Prompt<R>.abortS(
   deleteDelimiter: Boolean = false, value: suspend () -> R
 ): Nothing {
@@ -114,8 +104,7 @@ public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
   body.startCoroutine(it)
 }
 
-@PublishedApi
-internal suspend inline fun <T> suspendCoroutineUnintercepted(
+private suspend inline fun <T> suspendCoroutineUnintercepted(
   crossinline block: (Continuation<T>) -> Unit
 ): T = suspendCoroutineUninterceptedOrReturn {
   block(it)

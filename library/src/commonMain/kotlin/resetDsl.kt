@@ -10,19 +10,19 @@ public suspend fun <R> topReset(body: suspend Prompt<R>.() -> R): R = runCC { ne
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushDelimSubContWith(value = Result.success(it)) } }
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(Result.success(it), this) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(value = Result.success(it)) } }
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(Result.success(it)) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushDelimSubContWith(value = Result.success(it)) } }
+  takeSubCont { sk -> block { sk.pushSubContWith(Result.success(it), this) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushSubContWith(value = Result.success(it)) } }
+  takeSubCont { sk -> block { sk.pushSubContWith(Result.success(it)) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.peekSubCont(
@@ -32,19 +32,19 @@ public suspend inline fun <T, R> Prompt<R>.peekSubCont(
 }
 
 @ResetDsl
-public suspend inline fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing = abort(deleteDelimiter = false, value)
+public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing = abortWith(deleteDelimiter = false, value)
 
 @ResetDsl
-public suspend inline fun <R> Prompt<R>.abortWith0(value: Result<R>): Nothing = abort(deleteDelimiter = true, value)
+public fun <R> Prompt<R>.abortWith0(value: Result<R>): Nothing = abortWith(deleteDelimiter = true, value)
 
 @ResetDsl
-public suspend fun <R> Prompt<R>.abort(value: R): Nothing = abort(deleteDelimiter = false, Result.success(value))
+public fun <R> Prompt<R>.abort(value: R): Nothing = abortWith(Result.success(value))
 
 @ResetDsl
-public suspend fun <R> Prompt<R>.abort0(value: R): Nothing = abort(deleteDelimiter = true, Result.success(value))
+public fun <R> Prompt<R>.abort0(value: R): Nothing = abortWith0(Result.success(value))
 
 @ResetDsl
-public suspend fun <R> Prompt<R>.abortS(value: suspend () -> R): Nothing = abortS(deleteDelimiter = false, value)
+public fun <R> Prompt<R>.abortS(value: suspend () -> R): Nothing = abortS(deleteDelimiter = false, value)
 
 @ResetDsl
-public suspend fun <R> Prompt<R>.abortS0(value: suspend () -> R): Nothing = abortS(deleteDelimiter = true, value)
+public fun <R> Prompt<R>.abortS0(value: suspend () -> R): Nothing = abortS(deleteDelimiter = true, value)

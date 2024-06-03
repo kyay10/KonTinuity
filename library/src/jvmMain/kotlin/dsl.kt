@@ -2,87 +2,74 @@ import arrow.core.raise.Raise
 import arrow.core.raise.SingletonRaise
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.SendChannel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.*
-
-context(A) internal fun <A> given(): A = this@A
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.coroutineContext
 
 /** MonadFail-style errors */
 private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R) : Raise<Unit> {
-  override fun raise(e: Unit): Nothing = prompt.abort(deleteDelimiter = false, Result.success(failValue))
+  override fun raise(e: Unit): Nothing = prompt.abort(failValue)
 }
 
-public suspend fun <R> resetWithFail(
-  failValue: R, body: suspend context(SingletonRaise<Unit>) Prompt<R>.() -> R
-): R = topReset {
-  body(SingletonRaise(PromptFail(this, failValue)), this)
+private data class MarkedListBuilder<R>(
+  val builder: MutableList<R>, override val key: ListPrompt<R>
+) : CoroutineContext.Element
+
+public class ListPrompt<R> : CoroutineContext.Key<MarkedListBuilder<R>> {
+  internal val prompt = Prompt<Unit>()
+}
+
+public suspend fun <R> ListPrompt<R>.pushList(builder: MutableList<R>, body: suspend () -> Unit) {
+  prompt.pushPrompt(extraContext = MarkedListBuilder(builder, this), body)
 }
 
 public suspend fun <R> listReset(
-  body: suspend context(SingletonRaise<Unit>) Prompt<List<R>>.() -> R
-): List<R> = resetWithFail(emptyList()) {
-  listOf(body(given<SingletonRaise<Unit>>(), this))
-}
-
-context(Prompt<List<R>>)
-public suspend fun <T, R> List<T>.bind(): T = shift { continuation ->
-  flatMap { continuation(it) }
-}
-
-public interface EffectfulFlow<out T> {
-  public suspend fun collect(collector: EffectfulFlowCollector<T>)
-}
-
-public fun interface EffectfulFlowCollector<in T> {
-  public suspend fun emit(value: T)
-}
-
-private object EmptyEffectfulFlow : EffectfulFlow<Nothing> {
-  override suspend fun collect(collector: EffectfulFlowCollector<Nothing>) = Unit
-}
-
-@PublishedApi
-internal inline fun <T> unsafeEffectfulFlow(crossinline block: suspend EffectfulFlowCollector<T>.() -> Unit): EffectfulFlow<T> {
-  return object : EffectfulFlow<T> {
-    override suspend fun collect(collector: EffectfulFlowCollector<T>) {
-      collector.block()
-    }
+  body: suspend context(SingletonRaise<Unit>) ListPrompt<R>.() -> R
+): List<R> = runCC {
+  val prompt = ListPrompt<R>()
+  val builder = mutableListOf<R>()
+  prompt.pushList(builder) {
+    val result = body(SingletonRaise(PromptFail(prompt.prompt, Unit)), prompt)
+    (coroutineContext[prompt] ?: error("List builder not set for $prompt")).builder.add(result)
   }
+  builder
 }
 
-public fun <T> effectfulFlowOf(vararg values: T): EffectfulFlow<T> = unsafeEffectfulFlow {
-  for (value in values) emit(value)
+context(ListPrompt<R>)
+public suspend fun <T, R> List<T>.bind(): T = prompt.shift { continuation ->
+  for (item in this) continuation(item)
 }
 
-public fun <T> effectfulFlowOf(value: T): EffectfulFlow<T> = unsafeEffectfulFlow {
-  emit(value)
-}
+private data class MarkedFlowSendChannel<R>(
+  val channel: SendChannel<R>, override val key: FlowPrompt<R>
+) : CoroutineContext.Element
 
-public suspend fun <T> FlowCollector<T>.emitAll(effectfulFlow: EffectfulFlow<T>) {
-  effectfulFlow.collect { emit(it) }
-}
-
-public suspend fun <T> EffectfulFlowCollector<T>.emitAll(flow: EffectfulFlow<T>) {
-  flow.collect(this)
+public class FlowPrompt<R> : CoroutineContext.Key<MarkedFlowSendChannel<R>> {
+  internal val prompt = Prompt<Unit>()
 }
 
 public fun <R> flowReset(
-  body: suspend context(SingletonRaise<Unit>) Prompt<EffectfulFlow<R>>.() -> R
-): Flow<R> =
-  channelFlow {
-    runCC {
-      newReset {
-        effectfulFlowOf(body(SingletonRaise<Unit>(PromptFail<EffectfulFlow<R>>(this, EmptyEffectfulFlow)), this))
-      }.collect { send(it) }
+  body: suspend context(SingletonRaise<Unit>) FlowPrompt<R>.() -> R
+): Flow<R> = channelFlow {
+  runCC {
+    val prompt = FlowPrompt<R>()
+    prompt.pushFlow(this) {
+      val result = body(SingletonRaise(PromptFail(prompt.prompt, Unit)), prompt)
+      (currentCoroutineContext()[prompt] ?: error("Flow channel not set for $prompt")).channel.send(result)
     }
   }
+}
 
-context(Prompt<EffectfulFlow<R>>)
+public suspend fun <R> FlowPrompt<R>.pushFlow(channel: SendChannel<R>, body: suspend () -> Unit) {
+  prompt.pushPrompt(extraContext = MarkedFlowSendChannel(channel, this), body)
+}
+
+context(FlowPrompt<R>)
 @OptIn(ExperimentalCoroutinesApi::class)
-public suspend fun <T, R> Flow<T>.bind(): T = shift { continuation ->
-  unsafeEffectfulFlow {
-    for (item in this@bind.produceIn(CoroutineScope(currentCoroutineContext()))) {
-      emitAll(continuation(item))
-    }
+public suspend fun <T, R> Flow<T>.bind(): T = prompt.shift { continuation ->
+  for (item in this@bind.produceIn(CoroutineScope(currentCoroutineContext()))) {
+    continuation(item)
   }
 }

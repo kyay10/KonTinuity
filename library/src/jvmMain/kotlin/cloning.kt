@@ -12,6 +12,7 @@ private val coroutineOwnerClass = Class.forName("kotlinx.coroutines.debug.intern
 private val coroutineOwnerConstructor = coroutineOwnerClass.declaredConstructors.first().apply { isAccessible = true }
 private val delegateField = coroutineOwnerClass.getDeclaredField("delegate").apply { isAccessible = true }
 private val infoField = coroutineOwnerClass.getDeclaredField("info").apply { isAccessible = true }
+
 private tailrec fun <T> copyDeclaredFields(
   obj: T, copy: T, clazz: Class<out T>
 ) {
@@ -25,7 +26,6 @@ private tailrec fun <T> copyDeclaredFields(
 }
 
 @Suppress("UNCHECKED_CAST")
-@PublishedApi
 internal actual fun <T> Continuation<T>.clone(upTo: Hole<*>, replacement: Hole<*>): Continuation<T> =
   if (contClass.isInstance(this)) {
     val clazz = javaClass
@@ -44,6 +44,5 @@ internal actual fun <T> Continuation<T>.clone(upTo: Hole<*>, replacement: Hole<*
   } else if (this is CloneableContinuation<T>) {
     clone(upTo, replacement)
   } else {
-    //error("Continuation $this is not cloneable, but $upTo is not found in the chain.")
-    this
+    error("Continuation $this is not cloneable, but $upTo is not found in the chain.")
   }
