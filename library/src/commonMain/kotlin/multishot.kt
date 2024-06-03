@@ -15,15 +15,15 @@ internal class MultishotContinuation<T>(cont: Continuation<T>, private val inter
   private val cont = cont.clone(null, null)
   override val context: CoroutineContext get() = cont.context
 
-  private fun prepareContinuation(replacementPromptContinuation: Continuation<*>?, prompt: Prompt<*>?): Continuation<T> =
-    cont.clone(replacementPromptContinuation, prompt).let { if (intercepted) it.intercepted() else it }
+  fun withHoleReplaced(replacementHole: Continuation<*>, prompt: Prompt<*>): MultishotContinuation<T> =
+    MultishotContinuation(cont.clone(replacementHole, prompt), intercepted)
 
-  override fun resumeWith(result: Result<T>) {
-    prepareContinuation(null, null).resumeWith(result)
+  fun resumeWithHoleReplaced(replacementHole: Continuation<*>, prompt: Prompt<*>, result: Result<T>) {
+    cont.clone(replacementHole, prompt).let { if (intercepted) it.intercepted() else it }.resumeWith(result)
   }
 
-  fun resumeWith(replacementPromptContinuation: Continuation<*>, prompt: Prompt<*>, result: Result<T>) {
-    prepareContinuation(replacementPromptContinuation, prompt).resumeWith(result)
+  override fun resumeWith(result: Result<T>) {
+    cont.clone(null, null).let { if (intercepted) it.intercepted() else it }.resumeWith(result)
   }
 }
 

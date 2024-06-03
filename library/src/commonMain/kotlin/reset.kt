@@ -12,17 +12,14 @@ public data class SubCont<T, R> internal constructor(
   @ResetDsl
   public suspend fun pushSubContWith(isDelimiting: Boolean = false, value: Result<T>): R =
     suspendMultishotCoroutine { k ->
-      ekFragment.resumeWith(if (isDelimiting) Hole(prompt, k) else k, prompt, value)
+      ekFragment.resumeWithHoleReplaced(if (isDelimiting) Hole(prompt, k) else k, prompt, value)
     }
-
 
   @ResetDsl
   public suspend fun pushSubCont(isDelimiting: Boolean = false, value: suspend () -> T): R =
     suspendMultishotCoroutine { k ->
       val replacement = if (isDelimiting) Hole(prompt, k) else k
-      value.startCoroutine(Continuation(k.context) { result ->
-        ekFragment.resumeWith(replacement, prompt, result)
-      })
+      value.startCoroutine(ekFragment.withHoleReplaced(replacement, prompt))
     }
 
   @ResetDsl
@@ -59,6 +56,7 @@ internal data class Hole<R>(val prompt: Prompt<R>, private val ultimateCont: Mul
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
 ): T = suspendMultishotCoroutine(intercepted = false) { k ->
+  // TODO inspect coroutine stack instead and resume at the right Hole
   throw NoTrace(
     this, body as suspend (SubCont<Any?, Any?>?) -> Any?, k as MultishotContinuation<Any?>, deleteDelimiter
   )
