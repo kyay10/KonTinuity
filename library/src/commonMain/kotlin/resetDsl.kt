@@ -1,7 +1,7 @@
 public typealias Cont<T, R> = suspend (T) -> R
 
 @ResetDsl
-public suspend fun <R> Prompt<R>.reset(body: suspend () -> R): R = pushPrompt(body)
+public suspend fun <R> Prompt<R>.reset(body: suspend () -> R): R = pushPrompt(body = body)
 
 @ResetDsl
 public suspend fun <R> newReset(body: suspend Prompt<R>.() -> R): R = with(Prompt<R>()) { reset { body() } }
@@ -10,7 +10,7 @@ public suspend fun <R> topReset(body: suspend Prompt<R>.() -> R): R = runCC { ne
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushDelimSubContWith(Result.success(it)) } }
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushDelimSubContWith(value = Result.success(it)) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (Cont<T, R>) -> R): T =
@@ -18,7 +18,7 @@ public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (C
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushDelimSubContWith(Result.success(it)) } }
+  takeSubCont { sk -> block { sk.pushDelimSubContWith(value = Result.success(it)) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control0(crossinline block: suspend (Cont<T, R>) -> R): T =

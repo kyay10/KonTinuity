@@ -5,7 +5,7 @@ private val baseContClass = kotlin.coroutines.InterceptedCoroutine::class
 
 @Suppress("UNCHECKED_CAST")
 @PublishedApi
-internal actual fun <T> Continuation<T>.clone(replacementPromptContinuation: Continuation<*>?, prompt: Prompt<*>?): Continuation<T> = if (baseContClass.isInstance(this)) {
+internal actual fun <T> Continuation<T>.clone(upTo: Hole<*>, replacement: Hole<*>): Continuation<T> = if (baseContClass.isInstance(this)) {
   val cont = this
   val descriptors = js("Object.getOwnPropertyDescriptors(cont)")
   descriptors._intercepted_1.value = null
@@ -13,9 +13,15 @@ internal actual fun <T> Continuation<T>.clone(replacementPromptContinuation: Con
   if (resultContinuation === cont) {
     descriptors.resultContinuation_1.value = cont
   } else if (resultContinuation is Continuation<*>) {
-    descriptors.resultContinuation_1.value = resultContinuation.clone(replacementPromptContinuation, prompt)
+    val newResultContinuation = resultContinuation.clone(upTo, replacement)
+    descriptors.resultContinuation_1.value = newResultContinuation
+    descriptors._context_1.value = newResultContinuation.context
   }
   js("Object.defineProperties(Object.create(Object.getPrototypeOf(cont)), descriptors)")
-} else if (this is Hole<*> && this.prompt === prompt) {
-  replacementPromptContinuation as Continuation<T>
-} else this
+} else if (this == upTo) {
+  replacement as Continuation<T>
+} else if (this is CloneableContinuation<T>) {
+  clone(upTo, replacement)
+} else {
+  this
+}
