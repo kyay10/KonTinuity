@@ -12,6 +12,8 @@ public suspend fun <T> Reader<T>.get(): T {
   return readerValue.value
 }
 
+public suspend fun Reader<*>.isSet(): Boolean = coroutineContext[this] != null
+
 public suspend fun <T, R> runReader(value: T, body: suspend Reader<T>.() -> R): R {
   val reader = Reader<T>()
   return reader.pushReader(value) { reader.body() }

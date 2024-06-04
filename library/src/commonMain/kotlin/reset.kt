@@ -42,7 +42,7 @@ public suspend fun <R> pushContext(context: CoroutineContext, body: suspend () -
   }
 
 internal data class Hole<T>(
-  private val ultimateCont: Continuation<T>,
+  val ultimateCont: Continuation<T>,
   val prompt: Prompt<T>?,
   private val extraContext: CoroutineContext = EmptyCoroutineContext
 ) : CloneableContinuation<T>, CoroutineContext.Element {
@@ -56,13 +56,19 @@ internal data class Hole<T>(
     else ultimateCont.intercepted().resumeWith(result)
   }
 
-  override fun <R> clone(prompt: Prompt<R>, replacement: Hole<R>): Hole<T> =
+  override fun <R> clone(prompt: Prompt<R>, replacement: Continuation<R>): Hole<T> =
     copy(ultimateCont = ultimateCont.clone(prompt, replacement))
 
   internal fun withoutDelimiter(): Hole<T> = copy(prompt = null)
 }
 
-private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Hole<T> {
+public fun CoroutineContext.promptParentContext(prompt: Prompt<*>): CoroutineContext? =
+  this[prompt]?.ultimateCont?.context
+
+public fun CoroutineContext.promptContext(prompt: Prompt<*>): CoroutineContext? =
+  this[prompt]?.context
+
+private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Continuation<T> {
   val hole = this[prompt] ?: error("Prompt $prompt not set")
   return if (deleteDelimiter) hole.withoutDelimiter() else hole
 }
@@ -72,8 +78,7 @@ private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boo
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineUnintercepted { k ->
-  val hole = k.context.holeFor(this, deleteDelimiter)
-  body.startCoroutine(SubCont(k, this), if (deleteDelimiter) hole.withoutDelimiter() else hole)
+  body.startCoroutine(SubCont(k, this), k.context.holeFor(this, deleteDelimiter))
 }
 
 @Suppress("UNCHECKED_CAST")

@@ -21,9 +21,11 @@ class StateTest {
         incrementCounter()
         doubleCounter()
         doubleCounter()
-        get()
+        buildList {
+          this@runState.forEach { add(it) }
+        }
       }
     }
-    result shouldBe CounterState(4)
+    result shouldBe listOf(CounterState(4), CounterState(2), CounterState(1), CounterState(0))
   }
 }

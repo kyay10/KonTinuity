@@ -4,7 +4,7 @@ import kotlin.coroutines.Continuation
 private val baseContClass = kotlin.coroutines.InterceptedCoroutine::class
 
 internal actual fun <T, R> Continuation<T>.compilerGeneratedCloneOrNull(
-  prompt: Prompt<R>, replacement: Hole<R>
+  prompt: Prompt<R>, replacement: Continuation<R>
 ): Continuation<T>? = takeIf { baseContClass.isInstance(it) }?.let { cont ->
   val descriptors = js("Object.getOwnPropertyDescriptors(cont)")
   val resultContinuation = descriptors.resultContinuation_1.value as Continuation<*>

@@ -27,7 +27,7 @@ private tailrec fun <T> copyDeclaredFields(
 
 @Suppress("UNCHECKED_CAST")
 internal actual fun <T, R> Continuation<T>.compilerGeneratedCloneOrNull(
-  prompt: Prompt<R>, replacement: Hole<R>
+  prompt: Prompt<R>, replacement: Continuation<R>
 ): Continuation<T>? = if (baseContClass.isInstance(this)) {
   val completion = completionField.get(this) as Continuation<*>
   val newCompletion = if (completion === this) completion else completion.clone(prompt, replacement)
