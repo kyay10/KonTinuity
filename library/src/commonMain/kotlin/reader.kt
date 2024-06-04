@@ -7,10 +7,8 @@ public interface Reader<T> : CoroutineContext.Key<ReaderValue<T>>
 
 public fun <T> Reader(): Reader<T> = object : Reader<T> {}
 
-public suspend fun <T> Reader<T>.get(): T {
-  val readerValue = coroutineContext[this] ?: error("Reader $this not set")
-  return readerValue.value
-}
+public suspend fun <T> Reader<T>.ask(): T = (coroutineContext[this] ?: error("Reader $this not set")).value
+public suspend fun <T> Reader<T>.askOrNull(): T? = coroutineContext[this]?.value
 
 public suspend fun Reader<*>.isSet(): Boolean = coroutineContext[this] != null
 

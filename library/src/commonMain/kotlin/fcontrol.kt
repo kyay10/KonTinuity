@@ -9,7 +9,7 @@ public suspend fun <Error, T, R> Handle<Error, T, R>.resetWithHandler(
 
 @ResetDsl
 public suspend fun <Error, T, R> Handle<Error, T, R>.fcontrol(error: Error): T {
-  val handler = get()
+  val handler = ask()
   return prompt.takeSubCont(deleteDelimiter = false) { sk ->
     handler(error, sk)
   }

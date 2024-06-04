@@ -1,35 +1,19 @@
-import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.coroutineContext
+import arrow.atomic.Atomic
+import arrow.atomic.update
 
-public class State<T> : Reader<T> {
-  @PublishedApi
-  internal val prompt: Prompt<Nothing> = Prompt()
-}
+public typealias State<T> = Reader<Atomic<T>>
 
-// TODO would using mutation be saner here?
-public suspend fun <T> State<T>.set(value: T) = prompt.takeSubCont(deleteDelimiter = false) { sk ->
-  sk.pushSubContWith(Result.success(Unit), isDelimiting = true, extraContext = context(value))
-}
+public fun <T> State(): State<T> = Reader()
 
-public suspend inline fun <T> State<T>.modify(f: (T) -> T) = set(f(get()))
+public suspend fun <T> State<T>.set(value: T) = ask().set(value)
+public suspend fun <T> State<T>.get() = ask().get()
+
+public suspend inline fun <T> State<T>.modify(f: (T) -> T) = ask().update(f)
 
 public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R {
   val state = State<T>()
   return state.pushState(value) { state.body() }
 }
 
-public suspend fun <T, R> State<T>.pushState(value: T, body: suspend () -> R): R = newReset {
-  prompt.pushPrompt(context(value)) {
-    abort(body())
-  }
-}
-
-public suspend inline fun <T> State<T>.forEach(f: (T) -> Unit) {
-  var coroutineContext: CoroutineContext? = coroutineContext
-  var value = coroutineContext?.get(this)
-  while(value != null) {
-    f(value.value)
-    coroutineContext = coroutineContext?.promptParentContext(prompt)
-    value = coroutineContext?.get(this)
-  }
-}
+public suspend fun <T, R> State<T>.pushState(value: T, body: suspend () -> R): R =
+  pushReader(Atomic(value), body)

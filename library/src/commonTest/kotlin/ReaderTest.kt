@@ -9,7 +9,7 @@ class ReaderTest {
     runReader(1) reader@{
       newReset reset@{
         pushReader(2) {
-          this@reset.shift { f -> this@reader.get() }
+          this@reset.shift { f -> this@reader.ask() }
         }
       }
     } shouldBe 1
@@ -30,10 +30,10 @@ class ReaderTest {
       val f = tag.pushPrompt(p.context(1)) {
         r.pushReader(10) {
           tag.shift {
-            p.get() shouldBe 1
+            p.ask() shouldBe 1
             R.J(it)
           } shouldBe 0
-          R.R(p.get() + r.get())
+          R.R(p.ask() + r.ask())
         }
       }.shouldBeInstanceOf<R.J<Int, Int>>()
       pushContext(p.context(2) + r.context(20)) {
@@ -51,10 +51,10 @@ class ReaderTest {
         newReset<R<Int, Int>> {
           r.pushReader(10) {
             shift {
-              p.get() shouldBe 1
+              p.ask() shouldBe 1
               R.J(it)
             } shouldBe 0
-            R.R(p.get() + r.get())
+            R.R(p.ask() + r.ask())
           }
         }
       }.shouldBeInstanceOf<R.J<Int, Int>>()

@@ -26,7 +26,7 @@ public suspend fun <R> listReset(
     val prompt = ListPrompt<R>()
     prompt.pushList(this) {
       val result = body(SingletonRaise(PromptFail(prompt.prompt, Unit)), prompt)
-      prompt.get().add(result)
+      prompt.ask().add(result)
     }
   }
 }
@@ -47,7 +47,7 @@ public fun <R> flowReset(
     val prompt = FlowPrompt<R>()
     prompt.pushFlow(this) {
       val result = body(SingletonRaise(PromptFail(prompt.prompt, Unit)), prompt)
-      prompt.get().send(result)
+      prompt.ask().send(result)
     }
   }
 }

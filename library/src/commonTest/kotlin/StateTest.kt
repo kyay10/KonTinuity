@@ -21,11 +21,33 @@ class StateTest {
         incrementCounter()
         doubleCounter()
         doubleCounter()
-        buildList {
-          this@runState.forEach { add(it) }
-        }
+        get()
       }
     }
-    result shouldBe listOf(CounterState(4), CounterState(2), CounterState(1), CounterState(0))
+    result shouldBe CounterState(4)
+  }
+
+  @Test
+  fun stack() = runTest {
+    // Usage example
+    data class CounterState(val count: Int)
+
+    suspend fun StackState<CounterState>.incrementCounter() {
+      modify<CounterState> { state -> state.copy(count = state.count + 1) }
+    }
+
+    suspend fun StackState<CounterState>.doubleCounter() {
+      modify<CounterState> { state -> state.copy(count = state.count * 2) }
+    }
+
+    val result = runCC {
+      runStackState(CounterState(0)) {
+        incrementCounter()
+        doubleCounter()
+        doubleCounter()
+        get<List<CounterState>>()
+      }
+    }
+    result shouldBe listOf(CounterState(0), CounterState(1), CounterState(2), CounterState(4))
   }
 }
