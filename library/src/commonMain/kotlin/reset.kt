@@ -10,41 +10,71 @@ public data class SubCont<T, R> internal constructor(
   private val ekFragment: Continuation<T>,
   private val prompt: Prompt<R>,
 ) {
-  private fun composedWith(k: Continuation<R>, isDelimiting: Boolean, extraContext: CoroutineContext) =
-    ekFragment.clone(prompt, Hole(k, prompt.takeIf { isDelimiting }, extraContext))
+  private fun composedWith(
+    k: Continuation<R>,
+    isDelimiting: Boolean,
+    extraContext: CoroutineContext,
+    rewindHandler: RewindHandler?
+  ) =
+    ekFragment.clone(prompt, Hole(k, prompt.takeIf { isDelimiting }, extraContext, rewindHandler))
 
   @ResetDsl
   public suspend fun pushSubContWith(
-    value: Result<T>, isDelimiting: Boolean = false, extraContext: CoroutineContext = EmptyCoroutineContext
+    value: Result<T>,
+    isDelimiting: Boolean = false,
+    extraContext: CoroutineContext = EmptyCoroutineContext,
+    rewindHandler: RewindHandler? = null
   ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting, extraContext).resumeWith(value)
+    composedWith(k, isDelimiting, extraContext, rewindHandler).resumeWith(value)
   }
 
   @ResetDsl
   public suspend fun pushSubCont(
-    isDelimiting: Boolean = false, extraContext: CoroutineContext = EmptyCoroutineContext, value: suspend () -> T
+    isDelimiting: Boolean = false,
+    extraContext: CoroutineContext = EmptyCoroutineContext,
+    rewindHandler: RewindHandler? = null,
+    value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutine(composedWith(k, isDelimiting, extraContext))
+    value.startCoroutine(composedWith(k, isDelimiting, extraContext, rewindHandler))
   }
 }
 
 @ResetDsl
 public suspend fun <R> Prompt<R>.pushPrompt(
-  extraContext: CoroutineContext = EmptyCoroutineContext, body: suspend () -> R
+  extraContext: CoroutineContext = EmptyCoroutineContext, rewindHandler: RewindHandler? = null, body: suspend () -> R
 ): R = suspendCoroutineUnintercepted { k ->
-  body.startCoroutine(Hole(k, this, extraContext))
+  body.startCoroutine(Hole(k, this, extraContext, rewindHandler))
 }
 
 @ResetDsl
-public suspend fun <R> pushContext(context: CoroutineContext, body: suspend () -> R): R =
+public suspend fun <R> pushContext(
+  context: CoroutineContext,
+  rewindHandler: RewindHandler? = null,
+  body: suspend () -> R
+): R =
   suspendCoroutineUnintercepted { k ->
-    body.startCoroutine(Hole(k, null, context))
+    body.startCoroutine(Hole(k, null, context, rewindHandler))
+  }
+
+public fun interface RewindHandler {
+  public fun onRewind(context: CoroutineContext): CoroutineContext
+}
+
+@ResetDsl
+public suspend fun <R> withRewindHandler(
+  rewindHandler: RewindHandler,
+  extraContext: CoroutineContext = EmptyCoroutineContext,
+  body: suspend () -> R
+): R =
+  suspendCoroutineUnintercepted { k ->
+    body.startCoroutine(Hole(k, null, extraContext, rewindHandler))
   }
 
 internal data class Hole<T>(
   val ultimateCont: Continuation<T>,
   val prompt: Prompt<T>?,
-  private val extraContext: CoroutineContext = EmptyCoroutineContext
+  private val extraContext: CoroutineContext,
+  private val rewindHandler: RewindHandler?,
 ) : CloneableContinuation<T>, CoroutineContext.Element {
   override val key: Prompt<T> get() = prompt ?: error("should never happen")
   override val context: CoroutineContext =
@@ -56,8 +86,11 @@ internal data class Hole<T>(
     else ultimateCont.intercepted().resumeWith(result)
   }
 
-  override fun <R> clone(prompt: Prompt<R>, replacement: Continuation<R>): Hole<T> =
-    copy(ultimateCont = ultimateCont.clone(prompt, replacement))
+  override fun <R> clone(prompt: Prompt<R>, replacement: Continuation<R>): Hole<T> {
+    val cloned = ultimateCont.clone(prompt, replacement)
+    val context = rewindHandler?.onRewind(context) ?: EmptyCoroutineContext
+    return copy(ultimateCont = cloned, extraContext = extraContext + context)
+  }
 
   internal fun withoutDelimiter(): Hole<T> = copy(prompt = null)
 }

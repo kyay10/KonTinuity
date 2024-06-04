@@ -13,22 +13,24 @@ private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue
 }
 
 context(Prompt<Unit>)
-public suspend fun <R> Reader<MutableList<in R>>.pushList(builder: MutableList<R>, body: suspend () -> Unit) =
-  pushPrompt(context(builder), body)
+public suspend fun <R> Reader<MutableList<R>>.pushList(
+  builder: MutableList<R> = mutableListOf(), body: suspend () -> Unit
+): MutableList<R> = pushReader(builder) {
+  pushPrompt {
+    body()
+  }
+  ask()
+}
 
 public suspend fun <R> listReset(
-  body: suspend context(SingletonRaise<Unit>, Prompt<Unit>, Reader<MutableList<in R>>) () -> R
-): List<R> = buildList {
-  runCC {
-    with(Prompt<Unit>(), Reader<MutableList<in R>>()) {
-      pushList(this@buildList) {
-        val result = body(
-          SingletonRaise(PromptFail(given<Prompt<Unit>>(), Unit)),
-          given<Prompt<Unit>>(),
-          given<Reader<MutableList<in R>>>()
-        )
-        ask().add(result)
-      }
+  body: suspend context(SingletonRaise<Unit>, Prompt<Unit>, Reader<MutableList<R>>) () -> R
+): List<R> = runCC {
+  with(Prompt<Unit>(), ForkingReader<MutableList<R>>(MutableList<R>::toMutableList)) {
+    pushList {
+      val result = body(
+        SingletonRaise(PromptFail(given<Prompt<Unit>>(), Unit)), given<Prompt<Unit>>(), given<Reader<MutableList<R>>>()
+      )
+      ask().add(result)
     }
   }
 }
@@ -43,6 +45,7 @@ public suspend fun <T> List<T>.bind(): T = shift { continuation ->
   for (item in this) continuation(item)
 }
 
+// TODO Should we use ForkingReader here?
 public fun <R> flowReset(
   body: suspend context(SingletonRaise<Unit>, Prompt<Unit>, Reader<SendChannel<R>>) () -> R
 ): Flow<R> = channelFlow {
@@ -62,7 +65,7 @@ public fun <R> flowReset(
 
 context(Prompt<Unit>)
 public suspend fun <R> Reader<SendChannel<R>>.pushFlow(channel: SendChannel<R>, body: suspend () -> Unit) =
-  pushPrompt(context(channel), body)
+  pushPrompt(context(channel), body = body)
 
 context(Prompt<Unit>)
 @OptIn(ExperimentalCoroutinesApi::class)

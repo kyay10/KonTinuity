@@ -124,4 +124,36 @@ class ListTest {
     }
     result shouldBe List(1024) { 0 }
   }
+
+  @Test
+  fun allEightBitPatterns() = runTest {
+    val bits = listOf(0, 1)
+    val result = listReset {
+      runForkingReader(mutableListOf(), List<Int>::toMutableList) {
+        for (i in 1..8) {
+          val res = bits.bind()
+          ask().add(res)
+        }
+        ask()
+      }
+    }
+    println(result)
+    result.map { it.joinToString("").toInt(2) } shouldBe (0..255).toList()
+  }
+
+  @Test
+  fun allEightBitPatternsWithOnlyChange() = runTest {
+    val bits = listOf(0, 1)
+    val result = buildString {
+      listReset {
+        for (i in 1..8) {
+          append(bits.bind())
+        }
+        appendLine()
+      }
+    }.lines().drop(1).dropLast(1)
+    result shouldBe List(256) { it.toString(2).padStart(8, '0') }.zipWithNext { a, b ->
+      b.removePrefix(a.commonPrefixWith(b))
+    }
+  }
 }

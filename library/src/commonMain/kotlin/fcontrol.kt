@@ -5,7 +5,7 @@ public class Handle<Error, T, R> : Reader<(Error, SubCont<T, R>) -> R> {
 @ResetDsl
 public suspend fun <Error, T, R> Handle<Error, T, R>.resetWithHandler(
   handler: (Error, SubCont<T, R>) -> R, body: suspend () -> R
-): R = prompt.pushPrompt(context(handler), body)
+): R = prompt.pushPrompt(context(handler), body = body)
 
 @ResetDsl
 public suspend fun <Error, T, R> Handle<Error, T, R>.fcontrol(error: Error): T {
