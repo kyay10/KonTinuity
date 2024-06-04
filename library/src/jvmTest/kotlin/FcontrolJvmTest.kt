@@ -11,10 +11,10 @@ context(Prompt<ResumableError<Error, T, R>>, Prompt<R>)
 suspend fun <Error, T, R> resetWithHandler(
   handler: (Error, SubCont<T, R>) -> R, body: suspend () -> R
 ): R {
-  val outsidePrompt = given<Prompt<R>>()
-  return newReset {
+  val freshPrompt = Prompt<R>()
+  return freshPrompt.reset {
     val (error, continuation) = reset<ResumableError<Error, T, R>> {
-      abort(outsidePrompt.reset<R>(body))
+      freshPrompt.abort(reset<R>(body))
     }
     handler(error, continuation)
   }
