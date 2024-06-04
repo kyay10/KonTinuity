@@ -26,23 +26,21 @@ private tailrec fun <T> copyDeclaredFields(
 }
 
 @Suppress("UNCHECKED_CAST")
-internal actual fun <T> Continuation<T>.clone(upTo: Hole<*>, replacement: Hole<*>): Continuation<T> =
+internal actual fun <T, R> Continuation<T>.compilerGeneratedCloneOrNull(
+  prompt: Prompt<R>, replacement: Hole<R>
+): Continuation<T>? = if (baseContClass.isInstance(this)) {
+  val completion = completionField.get(this) as Continuation<*>
+  val newCompletion = if (completion === this) completion else completion.clone(prompt, replacement)
+  val clazz = javaClass
+  val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
+  completionField.set(copy, newCompletion)
   if (contClass.isInstance(this)) {
-    val clazz = javaClass
-    val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
-    val completion = (completionField.get(this) as Continuation<*>).clone(upTo, replacement)
-    completionField.set(copy, completion)
-    contextField.set(copy, completion.context)
+    contextField.set(copy, newCompletion.context)
     interceptedField.set(copy, null)
-    copyDeclaredFields(this, copy, clazz)
-    copy
-  } else if (coroutineOwnerClass.isInstance(this)) {
-    val delegate = delegateField.get(this) as Continuation<*>
-    coroutineOwnerConstructor.newInstance(delegate.clone(upTo, replacement), infoField.get(this)) as Continuation<T>
-  } else if (this == upTo) {
-    replacement as Continuation<T>
-  } else if (this is CloneableContinuation<T>) {
-    clone(upTo, replacement)
-  } else {
-    error("Continuation $this is not cloneable, but $upTo is not found in the chain.")
   }
+  copyDeclaredFields(this, copy, clazz)
+  copy
+} else if (coroutineOwnerClass.isInstance(this)) {
+  val delegate = delegateField.get(this) as Continuation<*>
+  coroutineOwnerConstructor.newInstance(delegate.clone(prompt, replacement), infoField.get(this)) as Continuation<T>
+} else null

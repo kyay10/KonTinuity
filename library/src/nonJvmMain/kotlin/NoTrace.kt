@@ -1,12 +1,7 @@
-import kotlin.coroutines.Continuation
+import kotlinx.coroutines.CancellationException
+import kotlin.coroutines.CoroutineContext
 
-@Suppress(
-  "EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING",
-  "SEALED_INHERITOR_IN_DIFFERENT_MODULE"
-)
-internal actual class NoTrace actual constructor(
-  prompt: Prompt<Any?>,
-  function: suspend (SubCont<Any?, Any?>?) -> Any?,
-  ekFragment: Continuation<Any?>?,
-  deleteDelimiter: Boolean
-) : UnwindCancellationException(prompt, function, ekFragment, deleteDelimiter)
+@Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
+internal actual abstract class SeekingCoroutineContextException: CancellationException("Should never get swallowed") {
+  actual abstract fun use(context: CoroutineContext)
+}

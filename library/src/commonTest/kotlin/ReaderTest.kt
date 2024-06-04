@@ -22,15 +22,14 @@ class ReaderTest {
       val p = Reader<Int>()
       val r = Reader<Int>()
       val tag = Prompt<Any?>()
-      val f =
-        tag.pushPrompt(p.context(1)) {
-          r.pushReader(10) {
-            tag.shift<Int, _> {
-              p.get() shouldBe 1
-              it
-            } shouldBe 0
-            p.get() + r.get()
-          }
+      val f = tag.pushPrompt(p.context(1)) {
+        r.pushReader(10) {
+          tag.shift<Int, _> {
+            p.get() shouldBe 1
+            it
+          } shouldBe 0
+          p.get() + r.get()
+        }
       } as suspend (Int) -> Int
       p.pushReader(2) {
         r.pushReader(20) {

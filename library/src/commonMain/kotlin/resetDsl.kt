@@ -10,7 +10,7 @@ public suspend fun <R> topReset(body: suspend Prompt<R>.() -> R): R = runCC { ne
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(Result.success(it), this) } }
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(Result.success(it), isDelimiting = true) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (Cont<T, R>) -> R): T =
@@ -18,18 +18,11 @@ public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (C
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushSubContWith(Result.success(it), this) } }
+  takeSubCont { sk -> block { sk.pushSubContWith(Result.success(it), isDelimiting = true) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control0(crossinline block: suspend (Cont<T, R>) -> R): T =
   takeSubCont { sk -> block { sk.pushSubContWith(Result.success(it)) } }
-
-@ResetDsl
-public suspend inline fun <T, R> Prompt<R>.peekSubCont(
-  deleteDelimiter: Boolean = true, crossinline block: suspend (SubCont<T, R>) -> T
-): T = takeSubCont(deleteDelimiter = deleteDelimiter) { sk ->
-  sk.pushSubCont { block(sk) }
-}
 
 @ResetDsl
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing = abortWith(deleteDelimiter = false, value)

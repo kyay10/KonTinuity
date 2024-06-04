@@ -8,20 +8,23 @@ public annotation class ResetDsl
 
 public data class SubCont<T, R> internal constructor(
   private val ekFragment: Continuation<T>,
-  private val upTo: Hole<R>,
+  private val prompt: Prompt<R>,
 ) {
+  private fun composedWith(k: Continuation<R>, isDelimiting: Boolean, extraContext: CoroutineContext) =
+    ekFragment.clone(prompt, Hole(k, prompt.takeIf { isDelimiting }, extraContext))
+
   @ResetDsl
   public suspend fun pushSubContWith(
-    value: Result<T>, delimiter: Prompt<R>? = null, extraContext: CoroutineContext = EmptyCoroutineContext
+    value: Result<T>, isDelimiting: Boolean = false, extraContext: CoroutineContext = EmptyCoroutineContext
   ): R = suspendCoroutineUnintercepted { k ->
-    ekFragment.clone(upTo, Hole(k, delimiter, extraContext)).resumeWith(value)
+    composedWith(k, isDelimiting, extraContext).resumeWith(value)
   }
 
   @ResetDsl
   public suspend fun pushSubCont(
-    delimiter: Prompt<R>? = null, extraContext: CoroutineContext = EmptyCoroutineContext, value: suspend () -> T
+    isDelimiting: Boolean = false, extraContext: CoroutineContext = EmptyCoroutineContext, value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutine(ekFragment.clone(upTo, Hole<R>(k, delimiter, extraContext)))
+    value.startCoroutine(composedWith(k, isDelimiting, extraContext))
   }
 }
 
@@ -38,34 +41,30 @@ public suspend fun <R> pushContext(context: CoroutineContext, body: suspend () -
     body.startCoroutine(Hole(k, null, context))
   }
 
-internal class Hole<R>(
-  private val ultimateCont: Continuation<R>,
-  private val prompt: Prompt<R>?,
+internal data class Hole<T>(
+  private val ultimateCont: Continuation<T>,
+  val prompt: Prompt<T>?,
   private val extraContext: CoroutineContext = EmptyCoroutineContext
-) : CloneableContinuation<R>, CoroutineContext.Element {
-  override val key: CoroutineContext.Key<*> get() = prompt ?: error("should never happen")
+) : CloneableContinuation<T>, CoroutineContext.Element {
+  override val key: Prompt<T> get() = prompt ?: error("should never happen")
   override val context: CoroutineContext =
     (if (prompt != null) ultimateCont.context + this else ultimateCont.context) + extraContext
 
-  override fun resumeWith(result: Result<R>) {
+  override fun resumeWith(result: Result<T>) {
     val exception = result.exceptionOrNull()
-    if (exception is UnwindCancellationException) {
-      context.startHandler(exception.function, exception.ekFragment, exception.deleteDelimiter, exception.prompt)
-    } else ultimateCont.intercepted().resumeWith(result)
+    if (exception is SeekingCoroutineContextException) exception.use(context)
+    else ultimateCont.intercepted().resumeWith(result)
   }
 
-  override fun clone(upTo: Hole<*>, replacement: Hole<*>): CloneableContinuation<R> =
-    Hole(ultimateCont.clone(upTo, replacement), prompt, extraContext)
+  override fun <R> clone(prompt: Prompt<R>, replacement: Hole<R>): Hole<T> =
+    copy(ultimateCont = ultimateCont.clone(prompt, replacement))
 
-  internal fun withoutDelimiter(): Hole<R> = Hole(ultimateCont, null, extraContext)
+  internal fun withoutDelimiter(): Hole<T> = copy(prompt = null)
 }
 
-private fun <T, R> CoroutineContext.startHandler(
-  handler: suspend (SubCont<T, R>?) -> R, ekFragment: Continuation<T>?, deleteDelimiter: Boolean, prompt: Prompt<R>
-) {
+private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Hole<T> {
   val hole = this[prompt] ?: error("Prompt $prompt not set")
-  val subCont = ekFragment?.let { SubCont(ekFragment, hole) }
-  handler.startCoroutine(subCont, if (deleteDelimiter) hole.withoutDelimiter() else hole)
+  return if (deleteDelimiter) hole.withoutDelimiter() else hole
 }
 
 @Suppress("UNCHECKED_CAST")
@@ -73,40 +72,38 @@ private fun <T, R> CoroutineContext.startHandler(
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineUnintercepted { k ->
-  k.context.startHandler(body as suspend (SubCont<T, R>?) -> R, k, deleteDelimiter, this)
+  val hole = k.context.holeFor(this, deleteDelimiter)
+  body.startCoroutine(SubCont(k, this), if (deleteDelimiter) hole.withoutDelimiter() else hole)
 }
 
-// TODO: optimize
-@ResetDsl
-internal fun <R> Prompt<R>.abortWith(
-  deleteDelimiter: Boolean, value: Result<R>
-): Nothing = abortS(deleteDelimiter) { value.getOrThrow() }
+@Suppress("UNCHECKED_CAST")
+internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>): Nothing =
+  throw AbortWithValueException(this as Prompt<Any?>, value, deleteDelimiter)
+
+private class AbortWithValueException(
+  private val prompt: Prompt<Any?>, private val value: Result<Any?>, private val deleteDelimiter: Boolean
+) : SeekingCoroutineContextException() {
+  override fun use(context: CoroutineContext) = context.holeFor(prompt, deleteDelimiter).resumeWith(value)
+}
 
 @Suppress("UNCHECKED_CAST")
-internal fun <R> Prompt<R>.abortS(
-  deleteDelimiter: Boolean = false, value: suspend () -> R
-): Nothing {
-  throw NoTrace(this as Prompt<Any?>, { value() }, null, deleteDelimiter)
+internal fun <R> Prompt<R>.abortS(deleteDelimiter: Boolean = false, value: suspend () -> R): Nothing =
+  throw AbortWithProducerException(this as Prompt<Any?>, value, deleteDelimiter)
+
+private class AbortWithProducerException(
+  private val prompt: Prompt<Any?>, private val value: suspend () -> Any?, private val deleteDelimiter: Boolean
+) : SeekingCoroutineContextException() {
+  override fun use(context: CoroutineContext) = value.startCoroutine(context.holeFor(prompt, deleteDelimiter))
 }
 
 public suspend fun Prompt<*>.isSet(): Boolean = coroutineContext[this] != null
 
 public class Prompt<R> : CoroutineContext.Key<Hole<R>>
 
-internal sealed class UnwindCancellationException(
-  val prompt: Prompt<Any?>,
-  val function: suspend (SubCont<Any?, Any?>?) -> Any?,
-  val ekFragment: Continuation<Any?>?,
-  val deleteDelimiter: Boolean
-) : CancellationException("Should never get swallowed")
-
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
-internal expect class NoTrace(
-  prompt: Prompt<Any?>,
-  function: suspend (SubCont<Any?, Any?>?) -> Any?,
-  ekFragment: Continuation<Any?>?,
-  deleteDelimiter: Boolean
-) : UnwindCancellationException
+internal expect abstract class SeekingCoroutineContextException() : CancellationException {
+  abstract fun use(context: CoroutineContext)
+}
 
 public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
   body.startCoroutine(it)

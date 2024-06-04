@@ -8,7 +8,7 @@ public suspend fun <T> State<T>.set(value: T) = setImpl(value)
 
 // Introduces an existential type R
 private suspend fun <T, R> NestableState<T, R>.setImpl(value: T) = prompt.takeSubCont(deleteDelimiter = false) { sk ->
-  sk.pushSubContWith(Result.success(Unit), prompt, extraContext = context(value))
+  sk.pushSubContWith(Result.success(Unit), isDelimiting = true, extraContext = context(value))
 }
 
 public suspend inline fun <T> State<T>.modify(f: (T) -> T) = set(f(get()))

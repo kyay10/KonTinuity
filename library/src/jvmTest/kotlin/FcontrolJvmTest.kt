@@ -10,16 +10,19 @@ context(Prompt<ResumableError<Error, T, R>>, Prompt<R>)
 @ResetDsl
 suspend fun <Error, T, R> resetWithHandler(
   handler: (Error, SubCont<T, R>) -> R, body: suspend () -> R
-): R = reset<R> {
-  val (error, continuation) = reset<ResumableError<Error, T, R>> {
-    abort<R>(body())
+): R {
+  val outsidePrompt = given<Prompt<R>>()
+  return newReset {
+    val (error, continuation) = reset<ResumableError<Error, T, R>> {
+      abort(outsidePrompt.reset<R>(body))
+    }
+    handler(error, continuation)
   }
-  handler(error, continuation)
 }
 
 context(Prompt<ResumableError<Error, T, R>>, Prompt<R>)
 @ResetDsl
-suspend fun <Error, T, R> fcontrol(error: Error): T = peekSubCont<_, R>(deleteDelimiter = false) { sk ->
+suspend fun <Error, T, R> fcontrol(error: Error): T = takeSubCont<_, R>(deleteDelimiter = false) { sk ->
   abort<ResumableError<Error, T, R>>(ResumableError(error, sk))
 }
 
@@ -44,3 +47,4 @@ class FcontrolJvmTest {
 }
 
 private inline fun <A, B, R> with(a: A, b: B, block: context(A, B) () -> R): R = block(a, b)
+private fun <T> T.given(): T = this
