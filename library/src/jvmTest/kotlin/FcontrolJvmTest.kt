@@ -47,4 +47,3 @@ class FcontrolJvmTest {
 }
 
 private inline fun <A, B, R> with(a: A, b: B, block: context(A, B) () -> R): R = block(a, b)
-private fun <T> T.given(): T = this
