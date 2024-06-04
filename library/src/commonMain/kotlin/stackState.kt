@@ -2,9 +2,9 @@ import arrow.atomic.Atomic
 import arrow.atomic.update
 import arrow.atomic.value
 
-public typealias StackState<T> = Reader<Atomic<List<T>>>
+public typealias StackState<T> = State<List<T>>
 
-public fun <T> StackState(): StackState<T> = Reader()
+public fun <T> StackState(): StackState<T> = State()
 
 public suspend fun <T> StackState<T>.set(value: T) = ask().update { it + value }
 public suspend fun <T> StackState<T>.get() = ask().value.last()

@@ -137,7 +137,6 @@ class ListTest {
         ask()
       }
     }
-    println(result)
     result.map { it.joinToString("").toInt(2) } shouldBe (0..255).toList()
   }
 

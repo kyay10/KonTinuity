@@ -1,9 +1,9 @@
 import arrow.atomic.Atomic
 import arrow.atomic.update
 
-public typealias State<T> = Reader<Atomic<T>>
+public typealias State<T> = ForkingReader<Atomic<T>>
 
-public fun <T> State(): State<T> = Reader()
+public fun <T> State(): State<T> = ForkingReader { Atomic(get()) }
 
 public suspend fun <T> State<T>.set(value: T) = ask().set(value)
 public suspend fun <T> State<T>.get() = ask().get()

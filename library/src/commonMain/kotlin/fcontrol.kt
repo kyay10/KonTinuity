@@ -1,10 +1,10 @@
-public class Handle<Error, T, R> : Reader<(Error, SubCont<T, R>) -> R> {
+public class Handle<Error, T, R> : Reader<suspend (Error, SubCont<T, R>) -> R> {
   internal val prompt = Prompt<R>()
 }
 
 @ResetDsl
 public suspend fun <Error, T, R> Handle<Error, T, R>.resetWithHandler(
-  handler: (Error, SubCont<T, R>) -> R, body: suspend () -> R
+  handler: suspend (Error, SubCont<T, R>) -> R, body: suspend () -> R
 ): R = prompt.pushPrompt(context(handler), body = body)
 
 @ResetDsl
