@@ -3,7 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
-  alias(libs.plugins.androidLibrary)
+  // alias(libs.plugins.androidLibrary)
   id("module.publication")
 }
 
@@ -15,16 +15,16 @@ kotlin {
   explicitApi()
   applyDefaultHierarchyTemplate()
   jvm()
-  androidTarget {
+/*  androidTarget {
     compilerOptions {
       jvmTarget = JvmTarget.JVM_1_8
     }
     publishLibraryVariants("release")
-  }
+  }*/
   js {
     browser()
   }
-  iosX64()
+  /*iosX64()
   iosArm64()
   iosSimulatorArm64()
   linuxArm64()
@@ -41,7 +41,7 @@ kotlin {
   watchosArm32()
   watchosArm64()
   watchosSimulatorArm64()
-  watchosX64()
+  watchosX64()*/
 
   sourceSets {
     val commonMain by getting {
@@ -76,7 +76,7 @@ kotlin {
       dependsOn(nonJvmMain)
       kotlin.srcDir("src/browserMain/kotlin")
     }
-    wasmJsMain {
+    /*wasmJsMain {
       dependsOn(nonJvmMain)
       kotlin.srcDir("src/browserMain/kotlin")
     }
@@ -121,10 +121,11 @@ kotlin {
 
     watchosMain {
       dependsOn(darwinMain)
-    }
+    }*/
   }
 }
 
+/*
 android {
   namespace = "org.jetbrains.kotlinx.multiplatform.library.template"
   compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -132,3 +133,4 @@ android {
     minSdk = libs.versions.android.minSdk.get().toInt()
   }
 }
+*/
