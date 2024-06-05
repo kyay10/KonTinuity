@@ -13,6 +13,12 @@ private val coroutineOwnerConstructor = coroutineOwnerClass.declaredConstructors
 private val delegateField = coroutineOwnerClass.getDeclaredField("delegate").apply { isAccessible = true }
 private val infoField = coroutineOwnerClass.getDeclaredField("info").apply { isAccessible = true }
 
+internal actual val Continuation<*>.isCompilerGenerated: Boolean
+  get() = baseContClass.isInstance(this) || coroutineOwnerClass.isInstance(this)
+internal actual val Continuation<*>.completion: Continuation<*>
+  get() = if (baseContClass.isInstance(this)) completionField.get(this) as Continuation<*>
+  else delegateField.get(this) as Continuation<*>
+
 private tailrec fun <T> copyDeclaredFields(
   obj: T, copy: T, clazz: Class<out T>
 ) {
@@ -22,25 +28,26 @@ private tailrec fun <T> copyDeclaredFields(
     field.set(copy, if (v === obj) copy else v)
   }
   val superclass = clazz.superclass
-  if (superclass != null && superclass != contClass) copyDeclaredFields(obj, copy, superclass)
+  if (superclass != null && superclass != contClass && superclass != baseContClass)
+    copyDeclaredFields(obj, copy, superclass)
 }
 
 @Suppress("UNCHECKED_CAST")
-internal actual fun <T, R> Continuation<T>.compilerGeneratedCloneOrNull(
-  prompt: Prompt<R>, replacement: Continuation<R>
-): Continuation<T>? = if (baseContClass.isInstance(this)) {
-  val completion = completionField.get(this) as Continuation<*>
-  val newCompletion = if (completion === this) completion else completion.clone(prompt, replacement)
-  val clazz = javaClass
-  val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
-  completionField.set(copy, newCompletion)
-  if (contClass.isInstance(this)) {
-    contextField.set(copy, newCompletion.context)
-    interceptedField.set(copy, null)
+internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> = when {
+  baseContClass.isInstance(this) -> {
+    val clazz = javaClass
+    val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
+    completionField.set(copy, completion)
+    if (contClass.isInstance(this)) {
+      contextField.set(copy, completion.context)
+      interceptedField.set(copy, null)
+    }
+    copyDeclaredFields(this, copy, clazz)
+    copy
   }
-  copyDeclaredFields(this, copy, clazz)
-  copy
-} else if (coroutineOwnerClass.isInstance(this)) {
-  val delegate = delegateField.get(this) as Continuation<*>
-  coroutineOwnerConstructor.newInstance(delegate.clone(prompt, replacement), infoField.get(this)) as Continuation<T>
-} else null
+
+  else -> {
+    val delegate = delegateField.get(this) as Continuation<*>
+    coroutineOwnerConstructor.newInstance(delegate.copy(completion), infoField.get(this)) as Continuation<T>
+  }
+}

@@ -14,14 +14,14 @@ private val contClass: KClass<*> = run {
 
 private suspend fun foo(): Continuation<*> = suspendCoroutineUninterceptedOrReturn { it }
 
-internal actual fun <T, R> Continuation<T>.compilerGeneratedCloneOrNull(
-  prompt: Prompt<R>, replacement: Continuation<R>
-): Continuation<T>? = takeIf { contClass.isInstance(it) }?.let { cont ->
+internal actual val Continuation<*>.isCompilerGenerated: Boolean get() = contClass.isInstance(this)
+internal actual val Continuation<*>.completion: Continuation<*> get() = asDynamic().resultContinuation_1
+
+internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> {
+  val cont = this
   val descriptors = js("Object.getOwnPropertyDescriptors(cont)")
-  val resultContinuation = descriptors.resultContinuation_1.value as Continuation<*>
-  val newResultContinuation = if (resultContinuation === cont) cont else resultContinuation.clone(prompt, replacement)
-  descriptors.resultContinuation_1.value = newResultContinuation
-  descriptors._context_1.value = newResultContinuation.context
+  descriptors.resultContinuation_1.value = completion
+  descriptors._context_1.value = completion.context
   descriptors._intercepted_1.value = null
-  js("Object.defineProperties(Object.create(Object.getPrototypeOf(cont)), descriptors)")
+  return js("Object.defineProperties(Object.create(Object.getPrototypeOf(cont)), descriptors)")
 }

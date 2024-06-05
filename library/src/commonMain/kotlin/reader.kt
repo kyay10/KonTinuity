@@ -1,5 +1,4 @@
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.coroutineContext
 
 public class ReaderValue<T>(public val value: T, override val key: Reader<T>) : CoroutineContext.Element
@@ -29,7 +28,7 @@ public suspend fun <T, R> runForkingReader(value: T, fork: T.() -> T, body: susp
 public suspend fun <T, R> Reader<T>.pushReader(value: T, body: suspend () -> R): R = pushContext(
   context = context(value),
   rewindHandler = if (this is ForkingReader<T>) RewindHandler {
-    it[this]?.value?.fork()?.let { context(it) } ?: EmptyCoroutineContext
+    it + context(it[this]!!.value.fork())
   } else null,
   body = body
 )

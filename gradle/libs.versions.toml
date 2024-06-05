@@ -1,12 +1,9 @@
 [versions]
-agp = "8.0.2"
 arrow = "2.0.0-alpha.1"
 kotest = "5.8.1"
 kotlin = "2.0.0"
 kotlinxCoroutinesCore = "1.8.0"
 nexus-publish = "2.0.0-rc-1"
-android-minSdk = "24"
-android-compileSdk = "33"
 turbine = "1.1.0"
 
 [libraries]
@@ -21,5 +18,4 @@ nexus-publish = { module = "io.github.gradle-nexus.publish-plugin:io.github.grad
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 
 [plugins]
-androidLibrary = { id = "com.android.library", version.ref = "agp" }
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

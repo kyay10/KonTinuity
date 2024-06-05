@@ -71,32 +71,32 @@ public suspend fun <R> withRewindHandler(
   }
 
 internal data class Hole<T>(
-  val ultimateCont: Continuation<T>,
+  override val completion: Continuation<T>,
   val prompt: Prompt<T>?,
-  private val extraContext: CoroutineContext,
+  val extraContext: CoroutineContext,
   private val rewindHandler: RewindHandler?,
-) : CloneableContinuation<T>, CoroutineContext.Element {
+) : CopyableContinuation<T>, CoroutineContext.Element {
   override val key: Prompt<T> get() = prompt ?: error("should never happen")
   override val context: CoroutineContext =
-    (if (prompt != null) ultimateCont.context + this else ultimateCont.context) + extraContext
+    (if (prompt != null) completion.context + this else completion.context) + extraContext
 
   override fun resumeWith(result: Result<T>) {
     val exception = result.exceptionOrNull()
     if (exception is SeekingCoroutineContextException) exception.use(context)
-    else ultimateCont.intercepted().resumeWith(result)
+    else completion.intercepted().resumeWith(result)
   }
 
-  override fun <R> clone(prompt: Prompt<R>, replacement: Continuation<R>): Hole<T> {
-    val cloned = ultimateCont.clone(prompt, replacement)
-    val context = rewindHandler?.onRewind(context) ?: EmptyCoroutineContext
-    return copy(ultimateCont = cloned, extraContext = extraContext + context)
+  @Suppress("UNCHECKED_CAST")
+  override fun copy(completion: Continuation<*>): Hole<T> {
+    val extraContext = rewindHandler?.onRewind(extraContext) ?: extraContext
+    return copy(completion = completion as Continuation<T>, extraContext = extraContext)
   }
 
   internal fun withoutDelimiter(): Hole<T> = copy(prompt = null)
 }
 
 public fun CoroutineContext.promptParentContext(prompt: Prompt<*>): CoroutineContext? =
-  this[prompt]?.ultimateCont?.context
+  this[prompt]?.completion?.context
 
 public fun CoroutineContext.promptContext(prompt: Prompt<*>): CoroutineContext? =
   this[prompt]?.context
