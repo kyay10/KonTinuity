@@ -1,10 +1,10 @@
 import arrow.core.raise.Raise
 import arrow.core.raise.SingletonRaise
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.consumeEach
-import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
+
 /** MonadFail-style errors */
 private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R) : Raise<Unit> {
   override fun raise(e: Unit): Nothing = prompt.abort(failValue)
@@ -71,10 +71,13 @@ public fun <R> flowReset(
 context(Choice)
 @OptIn(ExperimentalCoroutinesApi::class)
 public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
-  // TODO implement coroutineScope { ... }
-  nonReentrant {
-    produceIn(CoroutineScope(currentCoroutineContext())).consumeEach { item ->
-      continuation(item)
+  // TODO using coroutineScope in such a way is generally unsafe unless a nonReentrant block is used
+  // inside of it. That's because we can't "see through" the coroutineScope and because it's stateful
+  coroutineScope {
+    nonReentrant {
+      produceIn(this).consumeEach { item ->
+        continuation(item)
+      }
     }
   }
 }
