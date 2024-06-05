@@ -70,6 +70,15 @@ public suspend fun <R> withRewindHandler(
     body.startCoroutine(Hole(k, null, extraContext, rewindHandler))
   }
 
+@ResetDsl
+public suspend fun <R> nonReentrant(
+  body: suspend () -> R
+): R = withRewindHandler(NonReentrant, body = body)
+
+private object NonReentrant : RewindHandler {
+  override fun onRewind(context: CoroutineContext): CoroutineContext = throw IllegalStateException("Non-reentrant context")
+}
+
 internal data class Hole<T>(
   override val completion: Continuation<T>,
   val prompt: Prompt<T>?,

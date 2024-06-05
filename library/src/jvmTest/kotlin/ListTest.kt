@@ -129,12 +129,8 @@ class ListTest {
   fun allEightBitPatterns() = runTest {
     val bits = listOf(0, 1)
     val result = listReset {
-      runForkingReader(mutableListOf(), List<Int>::toMutableList) {
-        for (i in 1..8) {
-          val res = bits.bind()
-          ask().add(res)
-        }
-        ask()
+      replicate(8) {
+        bits.bind()
       }
     }
     result.map { it.joinToString("").toInt(2) } shouldBe (0..255).toList()
@@ -145,7 +141,7 @@ class ListTest {
     val bits = listOf(0, 1)
     val result = buildString {
       listReset {
-        for (i in 1..8) {
+        repeat(8) {
           append(bits.bind())
         }
         appendLine()
