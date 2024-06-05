@@ -105,7 +105,6 @@ private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boo
   return if (deleteDelimiter) hole.withoutDelimiter() else hole
 }
 
-@Suppress("UNCHECKED_CAST")
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R

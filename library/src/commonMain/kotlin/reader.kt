@@ -1,9 +1,9 @@
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 
-public class ReaderValue<out T>(public val value: T, override val key: Reader<T>) : CoroutineContext.Element
+public class ReaderValue<T>(public val value: T, override val key: Reader<T>) : CoroutineContext.Element
 
-public interface Reader<out T> : CoroutineContext.Key<ReaderValue<@UnsafeVariance T>>
+public interface Reader<T> : CoroutineContext.Key<ReaderValue<T>>
 
 public fun <T> Reader(): Reader<T> = object : Reader<T> {}
 

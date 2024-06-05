@@ -15,9 +15,9 @@ public suspend fun <T, R> runStackState(value: T, body: suspend StackState<T>.()
 }
 
 public suspend fun <T, R> StackState<T>.pushStackState(value: T, body: suspend () -> R): R =
-  pushReader(Atomic(listOf(value)), body)
+  pushState(listOf(value), body)
 
 public suspend fun <T, R> StackState<T>.pushStackStateWithCurrent(value: T, body: suspend () -> R): R {
   val current = askOrNull()?.value ?: emptyList()
-  return pushReader(Atomic(current + value), body)
+  return pushState(current + value, body)
 }

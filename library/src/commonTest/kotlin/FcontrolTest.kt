@@ -23,11 +23,9 @@ class FcontrolTest {
     val printed = mutableListOf<Int>()
     runCC {
       runReader(10) {
-        newResetWithHandlerRec({ error, cont ->
+        newResetWithHandler<Int, Unit, _>({ error, cont ->
           printed.add(error)
-          pushWithSameHandler {
-            pushReader(ask() + 1) { cont(Unit) }
-          }
+          pushReader(ask() + 1) { cont(Unit) }
         }) {
           fcontrol(ask())
           fcontrol(ask())
@@ -39,5 +37,28 @@ class FcontrolTest {
       }
     }
     printed shouldBe listOf(10, 11, 21, 21)
+  }
+
+  @Test
+  fun coroutineAndReaderWithNestedHandler() = runTest {
+    val printed = mutableListOf<Int>()
+    runCC {
+      runReader(10) {
+        newResetWithHandler<Int, Unit, _>({ error, cont ->
+          mapWithHandler({ e, k ->
+            printed.add(e)
+            k(this(e))
+          }) { pushReader(ask() + 1) { cont(Unit) } }
+        }) {
+          fcontrol(ask())
+          fcontrol(ask())
+          pushReader(ask() + 10) {
+            fcontrol(ask())
+            fcontrol(ask())
+          }
+        }
+      }
+    }
+    printed shouldBe listOf(11, 21, 21)
   }
 }
