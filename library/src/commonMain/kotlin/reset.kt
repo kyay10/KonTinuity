@@ -6,17 +6,13 @@ import kotlin.coroutines.intrinsics.*
 @DslMarker
 public annotation class ResetDsl
 
-public data class SubCont<T, R> internal constructor(
+public data class SubCont<in T, out R> internal constructor(
   private val ekFragment: Continuation<T>,
   private val prompt: Prompt<R>,
 ) {
   private fun composedWith(
-    k: Continuation<R>,
-    isDelimiting: Boolean,
-    extraContext: CoroutineContext,
-    rewindHandler: RewindHandler?
-  ) =
-    ekFragment.clone(prompt, Hole(k, prompt.takeIf { isDelimiting }, extraContext, rewindHandler))
+    k: Continuation<R>, isDelimiting: Boolean, extraContext: CoroutineContext, rewindHandler: RewindHandler?
+  ) = ekFragment.clone(prompt, Hole(k, prompt.takeIf { isDelimiting }, extraContext, rewindHandler))
 
   @ResetDsl
   public suspend fun pushSubContWith(
@@ -48,27 +44,21 @@ public suspend fun <R> Prompt<R>.pushPrompt(
 
 @ResetDsl
 public suspend fun <R> pushContext(
-  context: CoroutineContext,
-  rewindHandler: RewindHandler? = null,
-  body: suspend () -> R
-): R =
-  suspendCoroutineUnintercepted { k ->
-    body.startCoroutine(Hole(k, null, context, rewindHandler))
-  }
+  context: CoroutineContext, rewindHandler: RewindHandler? = null, body: suspend () -> R
+): R = suspendCoroutineUnintercepted { k ->
+  body.startCoroutine(Hole(k, null, context, rewindHandler))
+}
 
 public fun interface RewindHandler {
-  public fun onRewind(context: CoroutineContext): CoroutineContext
+  public fun onRewind(oldProducedContext: CoroutineContext, newParentContext: CoroutineContext): CoroutineContext
 }
 
 @ResetDsl
 public suspend fun <R> withRewindHandler(
-  rewindHandler: RewindHandler,
-  extraContext: CoroutineContext = EmptyCoroutineContext,
-  body: suspend () -> R
-): R =
-  suspendCoroutineUnintercepted { k ->
-    body.startCoroutine(Hole(k, null, extraContext, rewindHandler))
-  }
+  rewindHandler: RewindHandler, extraContext: CoroutineContext = EmptyCoroutineContext, body: suspend () -> R
+): R = suspendCoroutineUnintercepted { k ->
+  body.startCoroutine(Hole(k, null, extraContext, rewindHandler))
+}
 
 @ResetDsl
 public suspend fun <R> nonReentrant(
@@ -76,7 +66,8 @@ public suspend fun <R> nonReentrant(
 ): R = withRewindHandler(NonReentrant, body = body)
 
 private object NonReentrant : RewindHandler {
-  override fun onRewind(context: CoroutineContext): CoroutineContext = throw IllegalStateException("Non-reentrant context")
+  override fun onRewind(oldProducedContext: CoroutineContext, newParentContext: CoroutineContext): CoroutineContext =
+    throw IllegalStateException("Non-reentrant context")
 }
 
 internal data class Hole<T>(
@@ -97,7 +88,7 @@ internal data class Hole<T>(
 
   @Suppress("UNCHECKED_CAST")
   override fun copy(completion: Continuation<*>): Hole<T> {
-    val extraContext = rewindHandler?.onRewind(extraContext) ?: extraContext
+    val extraContext = rewindHandler?.onRewind(extraContext, completion.context) ?: extraContext
     return copy(completion = completion as Continuation<T>, extraContext = extraContext)
   }
 
@@ -107,8 +98,7 @@ internal data class Hole<T>(
 public fun CoroutineContext.promptParentContext(prompt: Prompt<*>): CoroutineContext? =
   this[prompt]?.completion?.context
 
-public fun CoroutineContext.promptContext(prompt: Prompt<*>): CoroutineContext? =
-  this[prompt]?.context
+public fun CoroutineContext.promptContext(prompt: Prompt<*>): CoroutineContext? = this[prompt]?.context
 
 private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Continuation<T> {
   val hole = this[prompt] ?: error("Prompt $prompt not set")

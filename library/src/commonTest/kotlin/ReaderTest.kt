@@ -22,27 +22,6 @@ class ReaderTest {
 
   // https://www.brinckerhoff.org/clements/csc530-sp08/Readings/kiselyov-2006.pdf
   @Test
-  fun example6FromDBDCPaperWithCollapsingOfNearbyContexts() = runTest {
-    runCC {
-      val p = Reader<Int>()
-      val r = Reader<Int>()
-      val tag = Prompt<R<Int, Int>>()
-      val f = tag.pushPrompt(p.context(1)) {
-        r.pushReader(10) {
-          tag.shift {
-            p.ask() shouldBe 1
-            R.J(it)
-          } shouldBe 0
-          R.R(p.ask() + r.ask())
-        }
-      }.shouldBeInstanceOf<R.J<Int, Int>>()
-      pushContext(p.context(2) + r.context(20)) {
-        f.f(0)
-      }
-    }.shouldBeInstanceOf<R.R<Int>>().b shouldBe 12
-  }
-
-  @Test
   fun example6FromDBDCPaper() = runTest {
     runCC {
       val p = Reader<Int>()

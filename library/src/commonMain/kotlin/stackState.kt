@@ -4,15 +4,13 @@ import arrow.atomic.value
 
 public typealias StackState<T> = State<List<T>>
 
-public fun <T> StackState(): StackState<T> = State()
-
 public suspend fun <T> StackState<T>.set(value: T) = ask().update { it + value }
 public suspend fun <T> StackState<T>.get() = ask().value.last()
 
 public suspend inline fun <T> StackState<T>.modify(f: (T) -> T) = ask().update { it + f(it.last()) }
 
 public suspend fun <T, R> runStackState(value: T, body: suspend StackState<T>.() -> R): R {
-  val state = StackState<T>()
+  val state = Reader<Atomic<List<T>>>()
   return state.pushStackState(value) { state.body() }
 }
 

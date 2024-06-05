@@ -1,12 +1,9 @@
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.coroutineContext
 
-public class ReaderValue<T>(public val value: T, override val key: Reader<T>) : CoroutineContext.Element
+public class ReaderValue<out T>(public val value: T, override val key: Reader<T>) : CoroutineContext.Element
 
-public interface Reader<T> : CoroutineContext.Key<ReaderValue<T>>
-public fun interface ForkingReader<T> : Reader<T> {
-  public fun T.fork(): T
-}
+public interface Reader<out T> : CoroutineContext.Key<ReaderValue<@UnsafeVariance T>>
 
 public fun <T> Reader(): Reader<T> = object : Reader<T> {}
 
@@ -20,17 +17,28 @@ public suspend fun <T, R> runReader(value: T, body: suspend Reader<T>.() -> R): 
   return reader.pushReader(value) { reader.body() }
 }
 
-public suspend fun <T, R> runForkingReader(value: T, fork: T.() -> T, body: suspend Reader<T>.() -> R): R {
-  val reader = ForkingReader<T>(fork)
-  return reader.pushReader(value) { reader.body() }
-}
+public suspend fun <T, R> runForkingReader(value: T, fork: T.() -> T, body: suspend Reader<T>.() -> R): R =
+  with(Reader<T>()) {
+    pushForkingReader(value, fork) { body() }
+  }
+
+public suspend fun <T, R> Reader<T>.pushForkingReader(value: T, fork: T.() -> T, body: suspend () -> R): R =
+  pushContext(
+    context = context(value), rewindHandler = RewindHandler { oldProducedContext, _ ->
+      context(oldProducedContext[this]!!.value.fork())
+    }, body = body
+  )
 
 public suspend fun <T, R> Reader<T>.pushReader(value: T, body: suspend () -> R): R = pushContext(
-  context = context(value),
-  rewindHandler = if (this is ForkingReader<T>) RewindHandler {
-    it + context(it[this]!!.value.fork())
-  } else null,
-  body = body
+  context = context(value), rewindHandler = null, body = body
 )
 
-public fun <T> Reader<T>.context(value: T): CoroutineContext.Element = ReaderValue<T>(value, this)
+// TODO this is non-standard and a bad attempt at implementing `local`
+// Investigate if any legitimate use-cases exist for this
+public suspend fun <T, R> Reader<T>.mapReader(map: (T) -> T, body: suspend () -> R): R = pushContext(
+  context = context(map(ask())), rewindHandler = RewindHandler { _, newParentContext ->
+    context(map(newParentContext[this]!!.value))
+  }, body = body
+)
+
+private fun <T> Reader<T>.context(value: T): CoroutineContext.Element = ReaderValue<T>(value, this)

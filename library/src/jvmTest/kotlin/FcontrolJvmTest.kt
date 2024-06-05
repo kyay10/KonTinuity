@@ -1,49 +1,101 @@
-@file:Suppress("SUBTYPING_BETWEEN_CONTEXT_RECEIVERS")
-
+import arrow.core.Either.Left
+import arrow.core.Either.Right
+import arrow.core.left
+import arrow.core.right
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
-data class ResumableError<Error, T, R>(val error: Error, val continuation: SubCont<T, R>)
-
-context(Prompt<ResumableError<Error, T, R>>, Prompt<R>)
-@ResetDsl
-suspend fun <Error, T, R> resetWithHandler(
-  handler: (Error, SubCont<T, R>) -> R, body: suspend () -> R
-): R {
-  val freshPrompt = Prompt<R>()
-  return freshPrompt.reset {
-    val (error, continuation) = reset<ResumableError<Error, T, R>> {
-      freshPrompt.abort(reset<R>(body))
-    }
-    handler(error, continuation)
-  }
-}
-
-context(Prompt<ResumableError<Error, T, R>>, Prompt<R>)
-@ResetDsl
-suspend fun <Error, T, R> fcontrol(error: Error): T = takeSubCont<_, R>(deleteDelimiter = false) { sk ->
-  abort<ResumableError<Error, T, R>>(ResumableError(error, sk))
-}
-
 class FcontrolJvmTest {
   @Test
-  fun fcontrol() = runTest {
-    runCC {
-      with(Prompt<Int>(), Prompt<ResumableError<Int, Nothing, Int>>()) {
-        suspend fun product(s: Iterator<Int>): Int = resetWithHandler({ error, _ -> error }) {
-          var acc = 1
-          for (i in s) {
-            if (i == 0) fcontrol(0)
-            acc *= i
-          }
-          acc
-        }
-        // Infinite sequence
-        product(generateSequence(5) { it - 1 }.iterator()) shouldBe 0
+  fun tooBig() = runTest {
+    data class TooBig(val value: Int)
+
+    suspend fun Prompt<TooBig>.ex2(m: Int) = if (m > 5) abort(TooBig(m)) else m
+    suspend fun Prompt<TooBig>.exRec(body: suspend () -> Int): Int = newReset {
+      val m = this@exRec.reset {
+        abort(body())
       }
+      if (m.value <= 7) m.value else abort(m)
+    }
+
+    runCC {
+      val res = newReset {
+        newReset<TooBig> {
+          abort(runList {
+            ex2(listOf(5, 7, 1).bind())
+          }.right())
+        }.left()
+      }
+      res shouldBe Left(TooBig(7))
+    }
+
+    runCC {
+      val res = newReset {
+        newReset<TooBig> {
+          abort(runList {
+            exRec {
+              ex2(listOf(5, 7, 1).bind())
+            }
+          }.right())
+        }.left()
+      }
+      res shouldBe Right(listOf(5, 7, 1))
+    }
+
+    runCC {
+      val res = newReset {
+        newReset<TooBig> {
+          abort(runList {
+            exRec {
+              ex2(listOf(5, 7, 11, 1).bind())
+            }
+          }.right())
+        }.left()
+      }
+      res shouldBe Left(TooBig(11))
+    }
+  }
+
+  @Test
+  fun tooBigHandler() = runTest {
+    data class TooBig(val value: Int)
+
+    suspend fun Handle<TooBig, Nothing>.ex2(m: Int) = if (m > 5) fcontrol(TooBig(m)) else m
+    suspend fun Handle<TooBig, Nothing>.exRec(body: suspend Handle<TooBig, Nothing>.() -> Int): Int =
+      newResetWithHandler({ error, _ ->
+        if (error.value <= 7) error.value else this@exRec.fcontrol(error)
+      }, body)
+
+    runCC {
+      val res = newResetWithHandler({ error: TooBig, _ -> error.left() }) {
+        runList {
+          ex2(listOf(5, 7, 1).bind())
+        }.right()
+      }
+      res shouldBe Left(TooBig(7))
+    }
+
+    runCC {
+      val res = newResetWithHandler({ error: TooBig, _ -> error.left() }) {
+        runList {
+          exRec {
+            ex2(listOf(5, 7, 1).bind())
+          }
+        }.right()
+      }
+      res shouldBe Right(listOf(5, 7, 1))
+    }
+
+    runCC {
+      val res = newResetWithHandler({ error: TooBig, _ -> error.left() }) {
+        runList {
+          exRec {
+            ex2(listOf(5, 7, 11, 1).bind())
+          }
+        }.right()
+      }
+      res shouldBe Left(TooBig(11))
     }
   }
 }
-
-private inline fun <A, B, R> with(a: A, b: B, block: context(A, B) () -> R): R = block(a, b)
