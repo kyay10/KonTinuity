@@ -1,33 +1,30 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.targets.js.dsl.ExperimentalWasmDsl
 
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
-  alias(libs.plugins.androidLibrary)
-  alias(libs.plugins.jetbrainsCompose)
+  // alias(libs.plugins.androidLibrary)
   id("module.publication")
 }
 
-@OptIn(ExperimentalWasmDsl::class, ExperimentalKotlinGradlePluginApi::class)
+@OptIn(ExperimentalKotlinGradlePluginApi::class)
 kotlin {
   compilerOptions {
     freeCompilerArgs.add("-Xcontext-receivers")
-    optIn.addAll("kotlinx.cinterop.BetaInteropApi", "kotlinx.cinterop.ExperimentalForeignApi")
   }
   explicitApi()
   applyDefaultHierarchyTemplate()
   jvm()
-  androidTarget {
+/*  androidTarget {
     compilerOptions {
       jvmTarget = JvmTarget.JVM_1_8
     }
     publishLibraryVariants("release")
-  }
+  }*/
   js {
     browser()
   }
-  iosX64()
+  /*iosX64()
   iosArm64()
   iosSimulatorArm64()
   linuxArm64()
@@ -41,20 +38,21 @@ kotlin {
   tvosSimulatorArm64()
   tvosX64()
 
-//  wasmJs {
-//    browser()
-//  }
-
   watchosArm32()
   watchosArm64()
   watchosSimulatorArm64()
-  watchosX64()
+  watchosX64()*/
 
   sourceSets {
     val commonMain by getting {
+      repositories {
+        google()
+        mavenCentral()
+        maven("https://oss.sonatype.org/content/repositories/snapshots")
+      }
       dependencies {
         implementation(libs.arrow.core)
-        api(compose.runtime)
+        implementation(libs.arrow.fx.coroutines)
         api(libs.kotlinx.coroutines.core)
       }
     }
@@ -63,21 +61,28 @@ kotlin {
         implementation(libs.kotlin.test)
         implementation(libs.kotlinx.coroutines.test)
         implementation(libs.kotest.assertions.core)
+        implementation(libs.kotest.property)
         implementation(libs.turbine)
       }
+    }
+
+    val nonJvmMain by creating {
+      dependsOn(commonMain)
     }
 
     // We use a common folder instead of a common source set because there is no commonizer
     // which exposes the browser APIs across these two targets.
     jsMain {
+      dependsOn(nonJvmMain)
       kotlin.srcDir("src/browserMain/kotlin")
     }
-    wasmJsMain {
+    /*wasmJsMain {
+      dependsOn(nonJvmMain)
       kotlin.srcDir("src/browserMain/kotlin")
     }
 
     val darwinMain by creating {
-      dependsOn(commonMain)
+      dependsOn(nonJvmMain)
     }
 
     val displayLinkMain by creating {
@@ -116,10 +121,11 @@ kotlin {
 
     watchosMain {
       dependsOn(darwinMain)
-    }
+    }*/
   }
 }
 
+/*
 android {
   namespace = "org.jetbrains.kotlinx.multiplatform.library.template"
   compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -127,3 +133,4 @@ android {
     minSdk = libs.versions.android.minSdk.get().toInt()
   }
 }
+*/
