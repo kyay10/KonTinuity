@@ -92,7 +92,7 @@ internal data class Hole<T>(
     return copy(completion = completion as Continuation<T>, extraContext = extraContext)
   }
 
-  internal fun withoutDelimiter(): Hole<T> = copy(prompt = null)
+  internal fun withoutDelimiter(): Continuation<T> = completion
 }
 
 public fun CoroutineContext.promptParentContext(prompt: Prompt<*>): CoroutineContext? =

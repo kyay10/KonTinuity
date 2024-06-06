@@ -41,4 +41,4 @@ public suspend fun <T, R> Reader<T>.mapReader(map: (T) -> T, body: suspend () ->
   }, body = body
 )
 
-private fun <T> Reader<T>.context(value: T): CoroutineContext.Element = ReaderValue<T>(value, this)
+internal fun <T> Reader<T>.context(value: T): CoroutineContext.Element = ReaderValue<T>(value, this)

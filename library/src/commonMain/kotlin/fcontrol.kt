@@ -3,6 +3,7 @@ import kotlin.jvm.JvmInline
 @JvmInline
 public value class Handle<Error, T> internal constructor(private val reader: Reader<suspend (Error) -> T>) {
   public constructor() : this(Reader())
+
   @ResetDsl
   public suspend fun fcontrol(error: Error): T = reader.ask()(error)
 
@@ -11,18 +12,15 @@ public value class Handle<Error, T> internal constructor(private val reader: Rea
     handler: suspend (Error, Cont<T, R>) -> R, body: suspend () -> R
   ): R {
     val prompt = Prompt<R>()
-    return reader.pushReader({ prompt.control { k -> handler(it, k) } }) {
-      prompt.reset(body)
-    }
+    return prompt.pushPrompt(extraContext = reader.context { prompt.control { k -> handler(it, k) } }, body = body)
   }
 
   @ResetDsl
-  public suspend fun <R> mapWithHandler(
-    handler: suspend (suspend (Error) -> T).(Error, Cont<T, R>) -> R, body: suspend () -> R
+  public suspend fun <R> resetWithHandler0(
+    handler: suspend (Error, Cont<T, R>) -> R, body: suspend () -> R
   ): R {
-    // TODO this doesn't update if our continuation gets reinstated with a different parent handler
-    val oldHandler = reader.ask()
-    return resetWithHandler({ e, k -> oldHandler.handler(e, k) }, body)
+    val prompt = Prompt<R>()
+    return prompt.pushPrompt(extraContext = reader.context { prompt.control0 { k -> handler(it, k) } }, body = body)
   }
 }
 

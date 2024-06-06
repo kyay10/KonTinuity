@@ -45,9 +45,9 @@ class FcontrolTest {
     runCC {
       runReader(10) {
         newResetWithHandler<Int, Unit, _>({ error, cont ->
-          mapWithHandler({ e, k ->
+          resetWithHandler0({ e, k ->
             printed.add(e)
-            k(this(e))
+            k(fcontrol(e))
           }) { pushReader(ask() + 1) { cont(Unit) } }
         }) {
           fcontrol(ask())
