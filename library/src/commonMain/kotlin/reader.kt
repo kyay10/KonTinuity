@@ -41,4 +41,5 @@ public suspend fun <T, R> Reader<T>.mapReader(map: (T) -> T, body: suspend () ->
   }, body = body
 )
 
+// TODO we could probably make this public
 internal fun <T> Reader<T>.context(value: T): CoroutineContext.Element = ReaderValue<T>(value, this)
