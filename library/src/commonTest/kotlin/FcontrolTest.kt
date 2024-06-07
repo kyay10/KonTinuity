@@ -6,7 +6,7 @@ class FcontrolTest {
   @Test
   fun infiniteSequence() = runTest {
     runCC {
-      suspend fun product(s: Iterator<Int>): Int = newResetWithHandler<_, Nothing, _>({ error, _ -> error }) {
+      suspend fun product(s: Iterator<Int>): Int = newResetFcontrol<_, Nothing, _>({ error, _ -> error }) {
         var acc = 1
         for (i in s) {
           if (i == 0) fcontrol(0)
@@ -23,9 +23,9 @@ class FcontrolTest {
     val printed = mutableListOf<Int>()
     runCC {
       runReader(10) {
-        newResetWithHandler<Int, Unit, _>({ error, cont ->
+        newResetFcontrol<Int, Unit, _>({ error, cont ->
           printed.add(error)
-          pushReader(ask() + 1) { cont(Unit) }
+          pushReader(ask() + 1) { cont.pushSubContWith(Result.success(Unit)) }
         }) {
           fcontrol(ask())
           fcontrol(ask())
@@ -44,11 +44,11 @@ class FcontrolTest {
     val printed = mutableListOf<Int>()
     runCC {
       runReader(10) {
-        newResetWithHandler<Int, Unit, _>({ error, cont ->
-          resetWithHandler0({ e, k ->
+        newResetFcontrol<Int, Unit, _>({ error, cont ->
+          resetFcontrol0({ e, k ->
             printed.add(e)
-            k(fcontrol(e))
-          }) { pushReader(ask() + 1) { cont(Unit) } }
+            k.pushSubCont { fcontrol(e) }
+          }) { pushReader(ask() + 1) { cont.pushSubContWith(Result.success(Unit)) } }
         }) {
           fcontrol(ask())
           fcontrol(ask())

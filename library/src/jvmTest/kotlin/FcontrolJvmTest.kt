@@ -61,14 +61,14 @@ class FcontrolJvmTest {
   fun tooBigHandler() = runTest {
     data class TooBig(val value: Int)
 
-    suspend fun Handle<TooBig, Nothing>.ex2(m: Int) = if (m > 5) fcontrol(TooBig(m)) else m
-    suspend fun Handle<TooBig, Nothing>.exRec(body: suspend Handle<TooBig, Nothing>.() -> Int): Int =
-      newResetWithHandler({ error, _ ->
+    suspend fun Fcontrol<TooBig, Nothing>.ex2(m: Int) = if (m > 5) fcontrol(TooBig(m)) else m
+    suspend fun Fcontrol<TooBig, Nothing>.exRec(body: suspend Fcontrol<TooBig, Nothing>.() -> Int): Int =
+      newResetFcontrol({ error, _ ->
         if (error.value <= 7) error.value else this@exRec.fcontrol(error)
       }, body)
 
     runCC {
-      val res = newResetWithHandler({ error: TooBig, _ -> error.left() }) {
+      val res = newResetFcontrol({ error: TooBig, _ -> error.left() }) {
         runList {
           ex2(listOf(5, 7, 1).bind())
         }.right()
@@ -77,7 +77,7 @@ class FcontrolJvmTest {
     }
 
     runCC {
-      val res = newResetWithHandler({ error: TooBig, _ -> error.left() }) {
+      val res = newResetFcontrol({ error: TooBig, _ -> error.left() }) {
         runList {
           exRec {
             ex2(listOf(5, 7, 1).bind())
@@ -88,7 +88,7 @@ class FcontrolJvmTest {
     }
 
     runCC {
-      val res = newResetWithHandler({ error: TooBig, _ -> error.left() }) {
+      val res = newResetFcontrol({ error: TooBig, _ -> error.left() }) {
         runList {
           exRec {
             ex2(listOf(5, 7, 11, 1).bind())
