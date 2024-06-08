@@ -1,18 +1,20 @@
 import kotlinx.coroutines.CancellationException
 import kotlin.coroutines.*
 import kotlin.coroutines.intrinsics.*
+import kotlin.jvm.JvmInline
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
 @DslMarker
 public annotation class ResetDsl
 
-public data class SubCont<in T, out R> internal constructor(
-  private val ekFragment: Continuation<T>,
-  private val prompt: Prompt<R>,
+@JvmInline
+public value class SubCont<in T, out R> internal constructor(
+  private val subchain: Subchain<T, R>,
 ) {
+  private val prompt get() = subchain.hole.prompt
   private fun composedWith(
     k: Continuation<R>, isDelimiting: Boolean, extraContext: CoroutineContext, rewindHandler: RewindHandler?
-  ) = ekFragment.clone(prompt, Hole(k, prompt.takeIf { isDelimiting }, extraContext, rewindHandler))
+  ) = subchain.replace(Hole(k, prompt.takeIf { isDelimiting }, extraContext, rewindHandler))
 
   @ResetDsl
   public suspend fun pushSubContWith(
@@ -91,8 +93,6 @@ internal data class Hole<T>(
     val extraContext = rewindHandler?.onRewind(extraContext, completion.context) ?: extraContext
     return copy(completion = completion as Continuation<T>, extraContext = extraContext)
   }
-
-  internal fun withoutDelimiter(): Continuation<T> = completion
 }
 
 public fun CoroutineContext.promptParentContext(prompt: Prompt<*>): CoroutineContext? =
@@ -102,14 +102,16 @@ public fun CoroutineContext.promptContext(prompt: Prompt<*>): CoroutineContext? 
 
 private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Continuation<T> {
   val hole = this[prompt] ?: error("Prompt $prompt not set")
-  return if (deleteDelimiter) hole.withoutDelimiter() else hole
+  return if (deleteDelimiter) hole.completion else hole
 }
 
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineUnintercepted { k ->
-  body.startCoroutine(SubCont(k, this), k.context.holeFor(this, deleteDelimiter))
+  val subchain = k.collectSubchain(this)
+  val hole = subchain.hole
+  body.startCoroutine(SubCont(subchain), if(deleteDelimiter) hole.completion else hole)
 }
 
 @Suppress("UNCHECKED_CAST")
