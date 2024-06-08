@@ -1,16 +1,27 @@
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
+import kotlin.random.Random
 import kotlin.test.Test
 
 class HandleTest {
   @Test
   fun coroutineAndReader() = runTest {
+    val randomAdds = List(4) { Random.nextInt(1, 10) }
+    val randomAddsIterator = randomAdds.iterator()
     val printed = mutableListOf<Int>()
     runCC {
       runReader(10) {
         suspend fun Handle<Int, Unit>.handler(error: Int, cont: Cont<Unit, Unit>) {
           printed.add(error)
-          handleShallow(::handler) { pushReader(ask() + 1) { cont(Unit) } }
+          newReset<Unit> {
+            pushReader(ask() + randomAddsIterator.next()) {
+              handleShallow({ e, c ->
+                abortS0 {
+                  handler(e, c)
+                }
+              }) { cont(Unit) }
+            }
+          }
         }
         newHandleShallow<Int, Unit, _>(Handle<Int, Unit>::handler) {
           call(ask())
@@ -22,7 +33,7 @@ class HandleTest {
         }
       }
     }
-    printed shouldBe listOf(10, 11, 21, 21)
+    printed shouldBe listOf(10, 10 + randomAdds[0], 20 + randomAdds[1], 20 + randomAdds[1])
   }
 
   @Test
