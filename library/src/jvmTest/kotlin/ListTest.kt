@@ -127,10 +127,9 @@ class ListTest {
 
   @Test
   fun allEightBitPatterns() = runTest {
-    val bits = listOf(0, 1)
     val result = listReset {
       replicate(8) {
-        bits.bind()
+        choose(0, 1)
       }
     }
     result.map { it.joinToString("").toInt(2) } shouldBe (0..255).toList()
@@ -138,11 +137,10 @@ class ListTest {
 
   @Test
   fun allEightBitPatternsWithOnlyChange() = runTest {
-    val bits = listOf(0, 1)
     val result = buildString {
       listReset {
         repeat(8) {
-          append(bits.bind())
+          append(choose(0, 1))
         }
         appendLine()
       }

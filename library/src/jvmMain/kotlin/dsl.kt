@@ -10,16 +10,16 @@ private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue
   override fun raise(e: Unit): Nothing = prompt.abort(failValue)
 }
 
-public typealias Choice = Prompt<Unit>
+public typealias Choose = Prompt<Unit>
 
-public suspend fun <R> Choice.pushChoice(body: suspend () -> R, handler: suspend (R) -> Unit) {
+public suspend fun <R> Choose.pushChoice(body: suspend () -> R, handler: suspend (R) -> Unit) {
   pushPrompt {
     handler(body())
   }
 }
 
 public suspend fun <R> runChoice(
-  body: suspend context(SingletonRaise<Unit>, Choice) () -> R, handler: suspend (R) -> Unit
+  body: suspend context(SingletonRaise<Unit>, Choose) () -> R, handler: suspend (R) -> Unit
 ) {
   val prompt = Prompt<Unit>()
   prompt.pushChoice({
@@ -27,7 +27,7 @@ public suspend fun <R> runChoice(
   }, handler)
 }
 
-public suspend fun <R> Choice.pushList(body: suspend () -> R): List<R> =
+public suspend fun <R> Choose.pushList(body: suspend () -> R): List<R> =
   runForkingReader(mutableListOf(), MutableList<R>::toMutableList) {
     pushChoice(body) {
       ask().add(it)
@@ -35,7 +35,7 @@ public suspend fun <R> Choice.pushList(body: suspend () -> R): List<R> =
     ask()
   }
 
-public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choice) () -> R): List<R> =
+public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =
   runForkingReader(mutableListOf(), MutableList<R>::toMutableList) {
     runChoice(body) {
       ask().add(it)
@@ -43,15 +43,20 @@ public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choic
     ask()
   }
 
-public suspend fun <R> listReset(body: suspend context(SingletonRaise<Unit>, Choice) () -> R): List<R> =
+public suspend fun <R> listReset(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =
   runCC { runList(body) }
 
-context(Choice)
+context(Choose)
 public suspend fun <T> List<T>.bind(): T = shift { continuation ->
   for (item in 0..lastIndex) continuation(this[item])
 }
 
-context(Choice)
+public suspend fun <T> Choose.choose(left: T, right: T): T = shift { continuation ->
+  continuation(left)
+  continuation(right)
+}
+
+context(Choose)
 public suspend fun IntRange.bind(): Int = shift { continuation ->
   for (i in start..endInclusive) continuation(i)
 }
@@ -61,14 +66,14 @@ public suspend fun <T> replicate(amount: Int, producer: suspend (Int) -> T): Lis
 }
 
 public fun <R> flowReset(
-  body: suspend context(SingletonRaise<Unit>, Choice) () -> R
+  body: suspend context(SingletonRaise<Unit>, Choose) () -> R
 ): Flow<R> = channelFlow {
   runCC {
     runChoice(body, this::send)
   }
 }
 
-context(Choice)
+context(Choose)
 @OptIn(ExperimentalCoroutinesApi::class)
 public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
   // TODO using coroutineScope in such a way is generally unsafe unless a nonReentrant block is used
