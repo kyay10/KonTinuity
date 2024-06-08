@@ -47,7 +47,6 @@ internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Conti
   }
 
   else -> {
-    val delegate = delegateField.get(this) as Continuation<*>
-    coroutineOwnerConstructor.newInstance(delegate.copy(completion), infoField.get(this)) as Continuation<T>
+    coroutineOwnerConstructor.newInstance(completion, infoField.get(this)) as Continuation<T>
   }
 }

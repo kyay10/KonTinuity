@@ -19,7 +19,7 @@ internal inline fun Continuation<*>.forEach(block: (Continuation<*>) -> Unit) {
     current = when (current) {
       in CompilerGenerated -> current.completion
       is CopyableContinuation -> current.completion
-      else -> error("Continuation $this is not see-through, so its stack can't be traversed")
+      else -> error("Continuation $current is not see-through, so its stack can't be traversed")
     }
   }
 }

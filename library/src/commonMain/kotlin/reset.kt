@@ -114,6 +114,20 @@ public suspend fun <T, R> Prompt<R>.takeSubCont(
   body.startCoroutine(SubCont(subchain), if(deleteDelimiter) hole.completion else hole)
 }
 
+// Acts like shift0/shift { it(body()) }
+// This is NOT multishot
+@ResetDsl
+public suspend fun <T> Prompt<*>.inHandlingContext(
+  includeBodyContext: Boolean = false, body: suspend () -> T
+): T = suspendCoroutineUnintercepted { k ->
+  val hole = k.context.holeFor(this, !includeBodyContext)
+  body.startCoroutine(Continuation(hole.context) {
+    val exception = it.exceptionOrNull()
+    if (exception is SeekingCoroutineContextException) exception.use(hole.context)
+    else k.resumeWith(it)
+  })
+}
+
 @Suppress("UNCHECKED_CAST")
 internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>): Nothing =
   throw AbortWithValueException(this as Prompt<Any?>, value, deleteDelimiter)

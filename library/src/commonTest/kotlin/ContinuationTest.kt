@@ -306,6 +306,56 @@ class ContinuationTest {
       x + 1
     } shouldBe 4
   }
+
+  @Test
+  fun handlingContext() = runTest {
+    runCC {
+      runReader(1) {
+        newReset<Int> {
+          pushReader(2) {
+            ask() shouldBe 2
+            shift { k -> k(ask()) } shouldBe 1
+            shift0 { k -> k(ask()) } shouldBe 1
+            ask() shouldBe 2
+            inHandlingContext { ask() } shouldBe 1
+            inHandlingContext(includeBodyContext = true) { ask() } shouldBe 1
+            ask() shouldBe 2
+          }
+        }
+      }
+    }
+    runCC {
+      runReader(1) {
+        newReset<Int> {
+          pushReader(2) {
+            ask() shouldBe 2
+            shift { k ->
+              val v = ask()
+              pushReader(3) { k(v) }
+            } shouldBe 1
+            ask() shouldBe 2
+            shift0 { k -> k(ask()) } shouldBe 3
+            shift0 { k -> shift0 { k(ask()) } } shouldBe 1
+            ask() shouldBe 2
+            shift { k ->
+              val v = ask()
+              pushReader(4) { k(v) }
+            } shouldBe 1
+            ask() shouldBe 2
+            // Introduces an extra delimiter
+            shift { k -> k(ask()) } shouldBe 4
+            ask() shouldBe 2
+            inHandlingContext { ask() } shouldBe 4
+            inHandlingContext { inHandlingContext { ask() } } shouldBe 4
+            inHandlingContext { inHandlingContext { inHandlingContext { ask() } } } shouldBe 1
+            inHandlingContext(includeBodyContext = true) { inHandlingContext { inHandlingContext { ask() } } } shouldBe 4
+            inHandlingContext(includeBodyContext = true) { inHandlingContext { inHandlingContext { inHandlingContext { ask() } } } } shouldBe 1
+            ask() shouldBe 2
+          }
+        }
+      }
+    }
+  }
 }
 
 val stackSafeIterations: Int = when (platform) {
