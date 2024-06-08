@@ -17,7 +17,7 @@ class ReaderTest {
 
   sealed class R<in A, out B> {
     data class R<out B>(val b: B) : ReaderTest.R<Any?, B>()
-    data class J<in A, out B>(val f: suspend (A) -> ReaderTest.R<A, B>) : ReaderTest.R<A, B>()
+    data class J<in A, out B>(val f: Cont<A, ReaderTest.R<A, B>>) : ReaderTest.R<A, B>()
   }
 
   // https://www.brinckerhoff.org/clements/csc530-sp08/Readings/kiselyov-2006.pdf

@@ -1,4 +1,8 @@
-public typealias Cont<T, R> = suspend (T) -> R
+public fun interface Cont<in T, out R> {
+  public suspend fun with(value: Result<T>): R
+  public suspend operator fun invoke(value: T): R = with(Result.success(value))
+  public suspend fun withException(exception: Throwable): R = with(Result.failure(exception))
+}
 
 @ResetDsl
 public suspend fun <R> Prompt<R>.reset(body: suspend () -> R): R = pushPrompt(body = body)
@@ -10,19 +14,19 @@ public suspend fun <R> topReset(body: suspend Prompt<R>.() -> R): R = runCC { ne
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(Result.success(it), isDelimiting = true) } }
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it, isDelimiting = true) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(Result.success(it)) } }
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushSubContWith(Result.success(it), isDelimiting = true) } }
+  takeSubCont { sk -> block { sk.pushSubContWith(it, isDelimiting = true) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushSubContWith(Result.success(it)) } }
+  takeSubCont { sk -> block { sk.pushSubContWith(it) } }
 
 @ResetDsl
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing = abortWith(deleteDelimiter = false, value)

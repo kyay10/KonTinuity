@@ -9,7 +9,7 @@ private val contClass: KClass<*> = run {
   var c: Continuation<*>? = null
   suspend { c = foo() }.startCoroutineUninterceptedOrReturn(Continuation(EmptyCoroutineContext) { })
   val cont = c!!
-  (js("Object.getPrototypeOf(Object.getPrototypeOf(cont)).constructor") as JsClass<*>).kotlin
+  js("Object.getPrototypeOf(Object.getPrototypeOf(cont)).constructor").unsafeCast<JsClass<*>>().kotlin
 }
 
 private suspend fun foo(): Continuation<*> = suspendCoroutineUninterceptedOrReturn { it }
