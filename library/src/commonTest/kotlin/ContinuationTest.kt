@@ -356,6 +356,22 @@ class ContinuationTest {
       }
     }
   }
+
+  @Test
+  fun ex4dot2dot1() = runTest {
+    topReset<Int> {
+      shift0 { k -> k(k(100)) } + 10
+    } + 1 shouldBe 121
+  }
+
+  @Test
+  fun ex4dot2dot2() = runTest {
+    topReset<Int> p1@{
+      if(newReset p2@{
+        shift<Boolean, Int> { 21 }
+      }) 1 else 2
+    } * 2 shouldBe 42
+  }
 }
 
 val stackSafeIterations: Int = when (platform) {
