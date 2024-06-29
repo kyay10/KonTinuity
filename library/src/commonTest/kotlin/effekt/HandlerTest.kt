@@ -1,12 +1,16 @@
 package effekt
 
+import Reader
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import ask
+import context
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import runCC
 import kotlin.collections.plus
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 
 class HandlerTest {
@@ -128,25 +132,21 @@ interface Amb {
   suspend fun flip(): Boolean
 }
 
-interface Choose {
-  suspend fun <A> choose(first: A, second: A): A
-}
-
 private suspend fun drunkFlip(amb: Amb, exc: Exc): String {
   val caught = amb.flip()
   val heads = if (caught) amb.flip() else exc.raise("We dropped the coin.")
   return if (heads) "Heads" else "Tails"
 }
 
-fun interface Maybe<R> : Exc, Handler<R, Option<R>> {
-  override suspend fun unit(value: R): Option<R> = Some(value)
-  override suspend fun raise(msg: String): Nothing = useAbort { None }
+fun interface Maybe<R> : Exc, Handler<Option<R>> {
+  override suspend fun raise(msg: String): Nothing = discard { None }
 }
 
-suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle(::Maybe, block)
+suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle(::Maybe) {
+  Some(block())
+}
 
-fun interface Collect<R> : Amb, Handler<R, List<R>> {
-  override suspend fun unit(value: R): List<R> = listOf(value)
+fun interface Collect<R> : Amb, Handler<List<R>> {
   override suspend fun flip(): Boolean = use { resume ->
     val ts = resume(true)
     val fs = resume(false)
@@ -154,13 +154,9 @@ fun interface Collect<R> : Amb, Handler<R, List<R>> {
   }
 }
 
-suspend fun <R> collect(block: suspend Amb.() -> R): List<R> = handle(::Collect, block)
-
-fun interface CollectChoose<R> : Collect<R>, Choose {
-  override suspend fun <A> choose(first: A, second: A): A = if (flip()) first else second
+suspend fun <R> collect(block: suspend Amb.() -> R): List<R> = handle(::Collect) {
+  listOf(block())
 }
-
-suspend fun <R> collectChoose(block: suspend CollectChoose<R>.() -> R): List<R> = handle(::CollectChoose, block)
 
 interface Fiber {
   suspend fun suspend()
@@ -212,7 +208,7 @@ suspend inline fun poll(state: StateScope, fiber: Fiber, block: suspend Async.()
 
 interface NonDetermined : Amb, Exc
 
-interface Backtrack<R> : Amb, Handler<R, Option<R>> {
+interface Backtrack<R> : Amb, Handler<Option<R>> {
   override suspend fun flip(): Boolean = use { resume ->
     resume(true).onNone { return@use resume(false) }
   }
@@ -220,44 +216,47 @@ interface Backtrack<R> : Amb, Handler<R, Option<R>> {
 
 fun interface FirstResult<R> : NonDetermined, Maybe<R>, Backtrack<R>
 
-suspend fun <R> firstResult(block: suspend NonDetermined.() -> R) = handle(::FirstResult, block)
-
-interface Scheduler<R> : Fiber, Handler<R, Unit> {
-  val queue: StateScope.Field<Queue>
-  override suspend fun unit(value: R) {}
-  override suspend fun exit(): Nothing = useAbort {}
-  override suspend fun fork(): Boolean = use { resume ->
-    queue.update { listOf(suspend { resume(true) }, suspend { resume(false) }) + it }
-    run()
-  }
-
-  override suspend fun suspend() = use { resume ->
-    queue.update { it + suspend { resume(Unit) } }
-    run()
-  }
+suspend fun <R> firstResult(block: suspend NonDetermined.() -> R): Option<R> = handle(::FirstResult) {
+  Some(block())
 }
 
-suspend fun StateScope.scheduler(block: suspend Fiber.() -> Unit) {
-  val queue = field(emptyList<suspend () -> Unit>())
-  handle<Unit, Unit, Scheduler<Unit>>({
-    object : Scheduler<Unit> {
-      override val queue = queue
-      override fun prompt(): ObscurePrompt<Unit> = it()
+interface Scheduler : Fiber, Handler<Unit> {
+  val queue: Reader<Queue>
+  override suspend fun exit(): Nothing = discard {}
+  override suspend fun fork(): Boolean {
+    val q = queue.ask()
+    return useStateful { resume ->
+      run(listOf<suspend (CoroutineContext) -> Unit>({ resume(true, it) }, { resume(false, it) }) + q)
     }
-  }, block)
+  }
+
+  override suspend fun suspend() {
+    val q = queue.ask()
+    useStateful { resume ->
+      run(q + { resume(Unit, it) })
+    }
+  }
 }
 
-private tailrec suspend fun Scheduler<*>.run() {
-  val q = queue.get()
+suspend fun scheduler(block: suspend Fiber.() -> Unit) {
+  val queue = Reader<Queue>()
+  handleStateful<Unit, Fiber>({
+    object : Scheduler {
+      override val queue = queue
+      override fun prompt(): HandlerPrompt<Unit> = it()
+    }
+  }, queue.context(emptyList()), block)
+}
+
+private suspend fun Scheduler.run(q: Queue) {
   if (q.isNotEmpty()) {
     val p = q.first()
-    queue.set(q.drop(1))
-    p()
-    run()
+    val newQ = q.drop(1)
+    p(queue.context(newQ))
   }
 }
 
-typealias Queue = List<suspend () -> Unit>
+typealias Queue = List<suspend (CoroutineContext) -> Unit>
 
 interface Input {
   suspend fun read(): Char

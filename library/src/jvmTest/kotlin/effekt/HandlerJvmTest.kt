@@ -3,6 +3,7 @@ package effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import arrow.core.recover
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
@@ -120,18 +121,22 @@ suspend fun <R> stringInput(input: String, block: suspend StringInput<R>.() -> R
 }
 
 fun interface Nondet<R> : Collect<R>, NonDetermined {
-  override suspend fun raise(msg: String): Nothing = useAbort { emptyList() }
+  override suspend fun raise(msg: String): Nothing = discard { emptyList() }
 }
 
-suspend fun <R> nondet(block: suspend NonDetermined.() -> R): List<R> = handle(::Nondet, block)
+suspend fun <R> nondet(block: suspend NonDetermined.() -> R): List<R> = handle(::Nondet) {
+  listOf(block())
+}
 
 fun interface Backtrack2<R> : Maybe<R>, NonDetermined {
   override suspend fun flip(): Boolean = use { resume ->
-    resume(true).onNone { return@use resume(false) }
+    resume(true).recover { resume(false).bind() }
   }
 }
 
-suspend fun <R> backtrack(block: suspend NonDetermined.() -> R): Option<R> = handle(::Backtrack2, block)
+suspend fun <R> backtrack(block: suspend NonDetermined.() -> R): Option<R> = handle(::Backtrack2) {
+  Some(block())
+}
 
 interface Generator<A> {
   suspend fun yield(value: A)
@@ -141,9 +146,8 @@ private suspend fun Generator<Int>.numbers(upto: Int) {
   for (i in 0..upto) yield(i)
 }
 
-interface Iterate<A> : Generator<A>, Handler<Unit, EffectfulIterator<A>> {
+interface Iterate<A> : Generator<A>, Handler<EffectfulIterator<A>> {
   val nextValue: StateScope.Field<(suspend (Unit) -> A)?>
-  override suspend fun unit(value: Unit): EffectfulIterator<A> = EffectfulIteratorImpl(nextValue)
   override suspend fun yield(value: A) = use { resume ->
     nextValue.set {
       resume(Unit)
@@ -164,9 +168,17 @@ suspend fun <A> StateScope.iterate(block: suspend Generator<A>.() -> Unit): Effe
   return handle({
     object : Iterate<A> {
       override val nextValue = nextValue
-      override fun prompt(): ObscurePrompt<EffectfulIterator<A>> = it()
+      override fun prompt(): HandlerPrompt<EffectfulIterator<A>> = it()
     }
-  }, block)
+  }) {
+    block()
+    EmptyEffectfulIterator
+  }
+}
+
+private object EmptyEffectfulIterator : EffectfulIterator<Nothing> {
+  override suspend fun hasNext(): Boolean = false
+  override suspend fun next(): Nothing = throw NoSuchElementException()
 }
 
 interface EffectfulIterator<out A> {
