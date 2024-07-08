@@ -13,7 +13,7 @@ import kotlin.collections.plus
 import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 
-class HandlerTest {
+class PaperTest {
   @Test
   fun ex4dot1() = runTest {
     runCC {
@@ -124,26 +124,10 @@ class HandlerTest {
   }
 }
 
-interface Exc {
-  suspend fun raise(msg: String): Nothing
-}
-
-interface Amb {
-  suspend fun flip(): Boolean
-}
-
 private suspend fun drunkFlip(amb: Amb, exc: Exc): String {
   val caught = amb.flip()
   val heads = if (caught) amb.flip() else exc.raise("We dropped the coin.")
   return if (heads) "Heads" else "Tails"
-}
-
-fun interface Maybe<R> : Exc, Handler<Option<R>> {
-  override suspend fun raise(msg: String): Nothing = discard { None }
-}
-
-suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle(::Maybe) {
-  Some(block())
 }
 
 fun interface Collect<R> : Amb, Handler<List<R>> {
@@ -208,12 +192,6 @@ suspend inline fun poll(state: StateScope, fiber: Fiber, block: suspend Async.()
 
 interface NonDetermined : Amb, Exc
 
-interface Backtrack<R> : Amb, Handler<Option<R>> {
-  override suspend fun flip(): Boolean = use { resume ->
-    resume(true).onNone { return@use resume(false) }
-  }
-}
-
 fun interface FirstResult<R> : NonDetermined, Maybe<R>, Backtrack<R>
 
 suspend fun <R> firstResult(block: suspend NonDetermined.() -> R): Option<R> = handle(::FirstResult) {
@@ -241,9 +219,8 @@ interface Scheduler : Fiber, Handler<Unit> {
 suspend fun scheduler(block: suspend Fiber.() -> Unit) {
   val queue = Reader<Queue>()
   handleStateful<Unit, Fiber>({
-    object : Scheduler {
+    object : Scheduler, Handler<Unit> by it() {
       override val queue = queue
-      override fun prompt(): HandlerPrompt<Unit> = it()
     }
   }, queue.context(emptyList()), block)
 }

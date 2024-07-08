@@ -40,7 +40,7 @@ class HandlerJvmTest {
       }
     } shouldBe listOf(123, 12, 1)
     runCC {
-      backtrack {
+      backtrack2 {
         stringInput("123") {
           number()
         }
@@ -53,7 +53,7 @@ class HandlerJvmTest {
     buildList {
       runCC {
         region {
-          for (i in iterate { numbers(10) }) {
+          for (i in iterate2 { numbers(10) }) {
             add(i)
           }
         }
@@ -120,11 +120,11 @@ suspend fun <R> stringInput(input: String, block: suspend StringInput<R>.() -> R
   })
 }
 
-fun interface Nondet<R> : Collect<R>, NonDetermined {
+fun interface Nondet2<R> : Collect<R>, NonDetermined {
   override suspend fun raise(msg: String): Nothing = discard { emptyList() }
 }
 
-suspend fun <R> nondet(block: suspend NonDetermined.() -> R): List<R> = handle(::Nondet) {
+suspend fun <R> nondet(block: suspend NonDetermined.() -> R): List<R> = handle(::Nondet2) {
   listOf(block())
 }
 
@@ -134,19 +134,19 @@ fun interface Backtrack2<R> : Maybe<R>, NonDetermined {
   }
 }
 
-suspend fun <R> backtrack(block: suspend NonDetermined.() -> R): Option<R> = handle(::Backtrack2) {
+suspend fun <R> backtrack2(block: suspend NonDetermined.() -> R): Option<R> = handle(::Backtrack2) {
   Some(block())
 }
 
-interface Generator<A> {
+interface Generator2<A> {
   suspend fun yield(value: A)
 }
 
-private suspend fun Generator<Int>.numbers(upto: Int) {
+private suspend fun Generator2<Int>.numbers(upto: Int) {
   for (i in 0..upto) yield(i)
 }
 
-interface Iterate<A> : Generator<A>, Handler<EffectfulIterator<A>> {
+interface Iterate2<A> : Generator2<A>, Handler<EffectfulIterator2<A>> {
   val nextValue: StateScope.Field<(suspend (Unit) -> A)?>
   override suspend fun yield(value: A) = use { resume ->
     nextValue.set {
@@ -157,18 +157,17 @@ interface Iterate<A> : Generator<A>, Handler<EffectfulIterator<A>> {
   }
 
   private class EffectfulIteratorImpl<A>(private val nextValue: StateScope.Field<(suspend (Unit) -> A)?>) :
-    EffectfulIterator<A> {
+    EffectfulIterator2<A> {
     override suspend fun hasNext(): Boolean = nextValue.get() != null
     override suspend fun next(): A = nextValue.get()!!.also { nextValue.set(null) }.invoke(Unit)
   }
 }
 
-suspend fun <A> StateScope.iterate(block: suspend Generator<A>.() -> Unit): EffectfulIterator<A> {
+suspend fun <A> StateScope.iterate2(block: suspend Generator2<A>.() -> Unit): EffectfulIterator2<A> {
   val nextValue = field<(suspend (Unit) -> A)?>(null)
   return handle({
-    object : Iterate<A> {
+    object : Iterate2<A>, Handler<EffectfulIterator2<A>> by it() {
       override val nextValue = nextValue
-      override fun prompt(): HandlerPrompt<EffectfulIterator<A>> = it()
     }
   }) {
     block()
@@ -176,14 +175,14 @@ suspend fun <A> StateScope.iterate(block: suspend Generator<A>.() -> Unit): Effe
   }
 }
 
-private object EmptyEffectfulIterator : EffectfulIterator<Nothing> {
+private object EmptyEffectfulIterator : EffectfulIterator2<Nothing> {
   override suspend fun hasNext(): Boolean = false
   override suspend fun next(): Nothing = throw NoSuchElementException()
 }
 
-interface EffectfulIterator<out A> {
+interface EffectfulIterator2<out A> {
   suspend operator fun hasNext(): Boolean
   suspend operator fun next(): A
 }
 
-suspend operator fun <A> EffectfulIterator<A>.iterator() = this
+suspend operator fun <A> EffectfulIterator2<A>.iterator() = this

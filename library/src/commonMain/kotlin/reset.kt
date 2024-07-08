@@ -12,6 +12,7 @@ public value class SubCont<in T, out R> internal constructor(
   private val subchain: Subchain<T, R>,
 ) {
   private val prompt get() = subchain.hole.prompt
+  public val extraContext: CoroutineContext get() = subchain.hole.extraContext
   private fun composedWith(
     k: Continuation<R>, isDelimiting: Boolean, extraContext: CoroutineContext, rewindHandler: RewindHandler?
   ) = subchain.replace(Hole(k, prompt.takeIf { isDelimiting }, extraContext, rewindHandler))
@@ -111,7 +112,7 @@ public suspend fun <T, R> Prompt<R>.takeSubCont(
 ): T = suspendCoroutineUnintercepted { k ->
   val subchain = k.collectSubchain(this)
   val hole = subchain.hole
-  body.startCoroutine(SubCont(subchain), if(deleteDelimiter) hole.completion else hole)
+  body.startCoroutine(SubCont(subchain), if (deleteDelimiter) hole.completion else hole)
 }
 
 // Acts like shift0/shift { it(body()) }

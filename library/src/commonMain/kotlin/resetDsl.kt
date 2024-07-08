@@ -1,7 +1,7 @@
 public fun interface Cont<in T, out R> {
-  public suspend fun with(value: Result<T>): R
-  public suspend operator fun invoke(value: T): R = with(Result.success(value))
-  public suspend fun withException(exception: Throwable): R = with(Result.failure(exception))
+  public suspend fun resumeWith(value: Result<T>): R
+  public suspend operator fun invoke(value: T): R = resumeWith(Result.success(value))
+  public suspend fun resumeWithException(exception: Throwable): R = resumeWith(Result.failure(exception))
 }
 
 @ResetDsl
@@ -20,9 +20,10 @@ public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Con
 public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (Cont<T, R>) -> R): T =
   takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it) } }
 
+// TODO should we be reinstating context like that? Should we reinstate more stuff?
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushSubContWith(it, isDelimiting = true) } }
+  takeSubCont { sk -> block { sk.pushSubContWith(it, isDelimiting = true, extraContext = sk.extraContext) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control0(crossinline block: suspend (Cont<T, R>) -> R): T =
