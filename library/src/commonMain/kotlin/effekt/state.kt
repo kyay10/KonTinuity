@@ -1,10 +1,8 @@
 package effekt
 
-import get
-import newReset
 import pushState
+import get
 import set
-import shift0
 
 public interface StateScope {
   public suspend fun <T> field(init: T): Field<T>
@@ -18,13 +16,13 @@ public suspend inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
   set(f(get()))
 }
 
-public suspend fun <R> region(body: suspend StateScope.() -> R): R = newReset {
+public suspend fun <R> region(body: suspend StateScope.() -> R): R = handle {
   body(StateScopeImpl(this))
 }
 
-private class StateScopeImpl<R>(val prompt: Prompt<R>) : StateScope {
+private class StateScopeImpl<R>(prompt: HandlerPrompt<R>) : StateScope, Handler<R> by prompt {
   override suspend fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().apply {
-    prompt.shift0 {
+    use {
       pushState(init) {
         it(Unit)
       }

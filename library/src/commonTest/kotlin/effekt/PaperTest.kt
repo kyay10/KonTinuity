@@ -1,16 +1,12 @@
 package effekt
 
-import Reader
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
-import ask
-import context
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import runCC
 import kotlin.collections.plus
-import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 
 class PaperTest {
@@ -198,42 +194,32 @@ suspend fun <R> firstResult(block: suspend NonDetermined.() -> R): Option<R> = h
   Some(block())
 }
 
-interface Scheduler : Fiber, Handler<Unit> {
-  val queue: Reader<Queue>
+fun interface Scheduler : Fiber, StatefulHandler<Unit, Queue> {
   override suspend fun exit(): Nothing = discard {}
-  override suspend fun fork(): Boolean {
-    val q = queue.ask()
-    return useStateful { resume ->
-      run(listOf<suspend (CoroutineContext) -> Unit>({ resume(true, it) }, { resume(false, it) }) + q)
-    }
+  override suspend fun fork(): Boolean = useStateful { resume, queue ->
+    run(listOf(QueueItem { resume(true, it) }, QueueItem { resume(false, it) }) + queue)
   }
 
-  override suspend fun suspend() {
-    val q = queue.ask()
-    useStateful { resume ->
-      run(q + { resume(Unit, it) })
-    }
+  override suspend fun suspend() = useStateful { resume, queue ->
+    run(queue + QueueItem { resume(Unit, it) })
   }
 }
 
-suspend fun scheduler(block: suspend Fiber.() -> Unit) {
-  val queue = Reader<Queue>()
-  handleStateful<Unit, Fiber>({
-    object : Scheduler, Handler<Unit> by it() {
-      override val queue = queue
-    }
-  }, queue.context(emptyList()), block)
-}
+suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(::Scheduler, emptyList(), block)
 
-private suspend fun Scheduler.run(q: Queue) {
+private suspend fun run(q: Queue) {
   if (q.isNotEmpty()) {
-    val p = q.first()
-    val newQ = q.drop(1)
-    p(queue.context(newQ))
+    q.first()(q.drop(1))
   }
 }
 
-typealias Queue = List<suspend (CoroutineContext) -> Unit>
+// Needed because recursive type
+// Queue = List<suspend (Queue) -> Unit>
+fun interface QueueItem {
+  suspend operator fun invoke(queue: Queue)
+}
+
+typealias Queue = List<QueueItem>
 
 interface Input {
   suspend fun read(): Char

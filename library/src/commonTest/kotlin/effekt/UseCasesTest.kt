@@ -1,11 +1,8 @@
 package effekt
 
-import Reader
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
-import ask
-import context
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -48,23 +45,20 @@ suspend fun Parser2.number(): Int {
   return res
 }
 
-class StringReader<R>(val input: String, val exc: Exc, val pos: Reader<Int>, prompt: HandlerPrompt<R>) : Receive<Char>,
-  Handler<R> by prompt {
+class StringReader<R>(val input: String, val exc: Exc, prompt: HandlerPrompt<R>) : Receive<Char>,
+  StatefulHandler<R, Int>, Handler<R> by prompt {
   override suspend fun receive(): Char {
-    val curPos = pos.ask()
-    return if (curPos >= input.length) exc.raise("Unexpected EOS")
-    else useStateful {
-      it(input[curPos], pos.context(curPos + 1))
-    }
+    val curPos = get()
+    if (curPos >= input.length) exc.raise("Unexpected EOS")
+    set(curPos + 1)
+    return input[curPos]
   }
 }
 
-suspend fun <R> Exc.stringReader(input: String, block: suspend StringReader<R>.() -> R): R {
-  val pos = Reader<Int>()
-  return handleStateful<R, StringReader<R>>({
-    StringReader(input, this, pos, it())
-  }, pos.context(0), block)
-}
+suspend fun <R> Exc.stringReader(input: String, block: suspend StringReader<R>.() -> R): R =
+  with(StringReader(input, this, HandlerPrompt<R>())) {
+    handleStateful(0) { block() }
+  }
 
 interface AmbExc : Amb, Exc
 

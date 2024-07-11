@@ -1,12 +1,9 @@
 package effekt
 
-import Reader
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
-import ask
-import context
 import io.kotest.matchers.shouldBe
 import runTestCC
 import kotlin.test.Test
@@ -145,12 +142,12 @@ interface Parser3<S> {
   suspend fun <A> nonterminal(name: String, body: suspend () -> A): A
 
   companion object {
-    suspend fun <A> parse(input: String, parser: suspend CharParsers.() -> A): Option<A> {
-      val pos = Reader<Int>()
-      return handleStateful(pos.context(0)) {
-        Some(StringParser<A>(input, this, pos).parser())
+    suspend fun <A> parse(input: String, parser: suspend CharParsers.() -> A): Option<A> =
+      with(StringParser<A>(input, HandlerPrompt())) {
+        return handleStateful(0) {
+          Some(parser())
+        }
       }
-    }
   }
 }
 
@@ -168,24 +165,20 @@ suspend fun Parser3<*>.alternatives(n: Int): Int {
   return 0
 }
 
-class StringParser<R>(val input: String, prompt: HandlerPrompt<Option<R>>, private val pos: Reader<Int>) :
-  CharParsers, Handler<Option<R>> by prompt {
+class StringParser<R>(val input: String, prompt: HandlerPrompt<Option<R>>) : CharParsers, Handler<Option<R>> by prompt,
+  StatefulHandler<Option<R>, Int> {
   private val cache = mutableMapOf<Pair<Int, String>, Pair<Int, Any?>>()
 
   override suspend fun any(): Char {
-    val p = pos.ask()
+    val p = get()
     if (p >= input.length) fail("Unexpected EOS")
-    return useStateful {
-      it(input[p], pos.context(p + 1))
-    }
+    set(p + 1)
+    return input[p]
   }
 
-  override suspend fun alternative(): Boolean {
-    val before = pos.ask()
-    return useStateful { k ->
-      // does this lead to left biased choice?
-      k(true, pos.context(before)).recover { k(false, pos.context(before)).bind() }
-    }
+  override suspend fun alternative(): Boolean = useStateful { k, before ->
+    // does this lead to left biased choice?
+    k(true, before).recover { k(false, before).bind() }
   }
 
   override suspend fun fail(explanation: String): Nothing {
@@ -194,12 +187,13 @@ class StringParser<R>(val input: String, prompt: HandlerPrompt<Option<R>>, priva
 
   override suspend fun <A> nonterminal(name: String, body: suspend () -> A): A {
     // We could as well use body.getClass().getCanonicalName() as key.
-    val key = Pair(pos.ask(), name)
+    val key = Pair(get(), name)
     val (p, res) = cache.getOrPut(key) {
       val res = body()
-      pos.ask() to res
+      get() to res
     }
-    @Suppress("UNCHECKED_CAST") return useStateful { it(res as A, pos.context(p)) }
+    set(p)
+    @Suppress("UNCHECKED_CAST") return res as A
   }
 
 }

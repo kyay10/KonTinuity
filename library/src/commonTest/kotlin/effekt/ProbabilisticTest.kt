@@ -1,8 +1,5 @@
 package effekt
 
-import Reader
-import ask
-import context
 import io.kotest.matchers.ranges.shouldBeIn
 import io.kotest.matchers.shouldBe
 import runTestCC
@@ -38,38 +35,31 @@ class ProbabilisticTest {
 
   @Test
   fun falsePositive() = runTestCC {
-     probabilistic {
+    probabilistic {
       falsePositive()
     } shouldBe listOf(
-      Weighted(false, 0.099),
-      Weighted(true, 0.0099)
+      Weighted(false, 0.099), Weighted(true, 0.0099)
     )
   }
 }
 
-class ProbHandler<R>(val weight: Reader<Double>, prompt: HandlerPrompt<List<Weighted<R>>>) : Prob,
-  Handler<List<Weighted<R>>> by prompt {
+class ProbHandler<R>(prompt: HandlerPrompt<List<Weighted<R>>>) : Prob, Handler<List<Weighted<R>>> by prompt,
+  StatefulHandler<List<Weighted<R>>, Double> {
   override suspend fun flip(): Boolean = use { k ->
     k(false) + k(true)
   }
 
   override suspend fun fail(): Nothing = discard { emptyList() }
 
-  override suspend fun factor(p: Double) {
-    val w = weight.ask()
-    useStateful {
-      it(Unit, weight.context(p * w))
-    }
-  }
+  override suspend fun factor(p: Double) = set(p * get())
 }
 
-suspend fun <R> probabilistic(body: suspend ProbHandler<R>.() -> R): List<Weighted<R>> {
-  val weight = Reader<Double>()
-  return handleStateful(weight.context(1.0)) {
-    val res = ProbHandler(weight, this).body()
-    listOf(Weighted(res, weight.ask()))
+suspend fun <R> probabilistic(body: suspend ProbHandler<R>.() -> R): List<Weighted<R>> =
+  with(ProbHandler<R>(HandlerPrompt())) {
+    handleStateful(1.0) {
+      listOf(Weighted(body(), get()))
+    }
   }
-}
 
 data class Weighted<T>(val value: T, val weight: Double)
 
