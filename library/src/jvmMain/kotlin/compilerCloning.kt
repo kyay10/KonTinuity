@@ -18,14 +18,20 @@ internal actual val Continuation<*>.isCompilerGenerated: Boolean
 internal actual val Continuation<*>.completion: Continuation<*>
   get() = if (baseContClass.isInstance(this)) completionField.get(this) as Continuation<*>
   else delegateField.get(this) as Continuation<*>
+private val cache = hashMapOf<Class<*>, Array<java.lang.reflect.Field>>()
 
 private tailrec fun <T> copyDeclaredFields(
   obj: T, copy: T, clazz: Class<out T>
 ) {
-  for (field in clazz.declaredFields) {
-    field.isAccessible = true
-    val v = field.get(obj)
-    field.set(copy, if (v === obj) copy else v)
+  val fields = cache.getOrPut(clazz) {
+    clazz.declaredFields.also { it.forEach { it.isAccessible = true } }
+  }
+  for (i in fields.indices) {
+    val field = fields[i]
+    when (field.type) {
+      Int::class.java -> field.setInt(copy, field.getInt(obj))
+      else -> field.set(copy, field.get(obj))
+    }
   }
   val superclass = clazz.superclass
   if (superclass != null && superclass != contClass && superclass != baseContClass)

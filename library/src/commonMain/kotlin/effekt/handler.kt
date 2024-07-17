@@ -27,10 +27,18 @@ public suspend fun <A, E, S> StatefulHandler<E, S>.useStateful(body: suspend (su
   }
 
 public suspend fun <A, E> Handler<E>.use(body: suspend (Cont<A, E>) -> E): A = prompt().prompt.shift0(body)
+public suspend fun <A, E> Handler<E>.useOnce(body: suspend (Cont<A, E>) -> E): A = prompt().prompt.takeSubCont { sk ->
+  body { a -> sk.pushSubContWithFinal(a, isDelimiting = true) }
+}
+
 public fun <E> Handler<E>.discard(body: suspend () -> E): Nothing = prompt().prompt.abortS0(body)
 public suspend fun <A, E> Handler<E>.useWithContext(body: suspend (suspend (A, CoroutineContext) -> E, CoroutineContext) -> E): A =
   prompt().prompt.takeSubCont { sk ->
     body({ a, ctx -> sk.pushSubContWith(Result.success(a), isDelimiting = true, extraContext = ctx) }, sk.extraContext)
+  }
+public suspend fun <A, E> Handler<E>.useWithContextOnce(body: suspend (suspend (A, CoroutineContext) -> E, CoroutineContext) -> E): A =
+  prompt().prompt.takeSubCont { sk ->
+    body({ a, ctx -> sk.pushSubContWithFinal(Result.success(a), isDelimiting = true, extraContext = ctx) }, sk.extraContext)
   }
 
 public suspend fun <E, H> handle(

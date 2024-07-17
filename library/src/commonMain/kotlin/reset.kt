@@ -28,6 +28,16 @@ public value class SubCont<in T, out R> internal constructor(
   }
 
   @ResetDsl
+  public suspend fun pushSubContWithFinal(
+    value: Result<T>,
+    isDelimiting: Boolean = false,
+    extraContext: CoroutineContext = EmptyCoroutineContext,
+    rewindHandler: RewindHandler? = null
+  ): R = suspendCoroutineUnintercepted { k ->
+    composedWith(k, isDelimiting, extraContext, rewindHandler).also { subchain.clear() }.resumeWith(value)
+  }
+
+  @ResetDsl
   public suspend fun pushSubCont(
     isDelimiting: Boolean = false,
     extraContext: CoroutineContext = EmptyCoroutineContext,
@@ -35,6 +45,16 @@ public value class SubCont<in T, out R> internal constructor(
     value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
     value.startCoroutine(composedWith(k, isDelimiting, extraContext, rewindHandler))
+  }
+
+  @ResetDsl
+  public suspend fun pushSubContFinal(
+    isDelimiting: Boolean = false,
+    extraContext: CoroutineContext = EmptyCoroutineContext,
+    rewindHandler: RewindHandler? = null,
+    value: suspend () -> T
+  ): R = suspendCoroutineUnintercepted { k ->
+    value.startCoroutine(composedWith(k, isDelimiting, extraContext, rewindHandler).also { subchain.clear() })
   }
 }
 

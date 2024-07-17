@@ -1,5 +1,6 @@
 package effekt
 
+import context
 import io.kotest.matchers.shouldBe
 import pushReader
 import runTestCC
@@ -36,7 +37,7 @@ class StateTest {
       return flip()
     }
 
-    val init = 100 // TODO fix OOM then increase to 1_000
+    val init = 1_000
     val res = ambList {
       specialState(init) s1@{
         specialState(init) s2@{
@@ -170,20 +171,22 @@ suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R =
 fun interface SpecialState<R, S> : State<S>, StatefulHandler<R, S> {
   override suspend fun get(): S = (this as Reader<S>).get()
 
-  override suspend fun put(value: S) = (this as Reader<S>).set(value)
+  override suspend fun put(value: S) = useWithContextOnce { k, _ ->
+    k(Unit, context(value))
+  }
 }
 
 suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
   handleStateful(::SpecialState, init, block)
 
 fun interface StateFun<R, S> : State<S>, Handler<suspend (S) -> R> {
-  override suspend fun get(): S = use { k ->
+  override suspend fun get(): S = useOnce { k ->
     { s ->
       k(s)(s)
     }
   }
 
-  override suspend fun put(value: S) = use { k ->
+  override suspend fun put(value: S) = useOnce { k ->
     {
       k(Unit)(value)
     }
