@@ -25,6 +25,7 @@ class AutomaticDifferentiationTest {
 
     forwards(0.0) { progExp(it) } shouldBe mathExp(1.0)
     backwards(0.0) { progExp(it) } shouldBe mathExp(1.0)
+    val one = 1.0
 
     showString { x ->
       forwardsHigher(x) { x ->
@@ -32,7 +33,7 @@ class AutomaticDifferentiationTest {
           forwardsHigher(y) { z -> prog(z) }
         }
       }
-    } shouldBe "(((${1.0} + ${1.0}) + ((${1.0} + ${1.0}) * ${1.0})) + ((${1.0} + ${1.0}) * ${1.0}))"
+    } shouldBe "((($one + $one) + (($one + $one) * $one)) + (($one + $one) * $one))"
 
 
     // we have the same pertubation confusion as in Lantern
@@ -90,14 +91,14 @@ suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend AD<NumH<N>>.(NumH<N>) -
 suspend fun showString(prog: suspend AD<String>.(String) -> String) = object : AD<String> {
   override val Double.num: String get() = toString()
   override suspend fun String.plus(other: String) = when {
-    this == "${0.0}" -> other
-    other == "${0.0}" -> this
+    this == 0.0.toString() -> other
+    other == 0.0.toString() -> this
     else -> "($this + $other)"
   }
 
   override suspend fun String.times(other: String) = when {
-    this == "${0.0}" || other == "${0.0}" -> "${0.0}"
-    this == "${1.0}" -> other
+    this == 0.0.toString() || other == 0.0.toString() -> 0.0.toString()
+    this == 1.0.toString() -> other
     else -> "($this * $other)"
   }
 
