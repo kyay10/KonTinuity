@@ -36,9 +36,12 @@ public suspend fun <A, E> Handler<E>.useWithContext(body: suspend (suspend (A, C
   prompt().prompt.takeSubCont { sk ->
     body({ a, ctx -> sk.pushSubContWith(Result.success(a), isDelimiting = true, extraContext = ctx) }, sk.extraContext)
   }
+
 public suspend fun <A, E> Handler<E>.useWithContextOnce(body: suspend (suspend (A, CoroutineContext) -> E, CoroutineContext) -> E): A =
   prompt().prompt.takeSubCont { sk ->
-    body({ a, ctx -> sk.pushSubContWithFinal(Result.success(a), isDelimiting = true, extraContext = ctx) }, sk.extraContext)
+    body(
+      { a, ctx -> sk.pushSubContWithFinal(Result.success(a), isDelimiting = true, extraContext = ctx) }, sk.extraContext
+    )
   }
 
 public suspend fun <E, H> handle(
@@ -72,6 +75,12 @@ public suspend fun <E, H : StatefulHandler<E, S>, S> handleStateful(
   return h.handleStateful(value) { h.body() }
 }
 
+public suspend fun <E, S> handleStateful(
+  value: S, body: suspend StatefulHandler<E, S>.() -> E
+): E = with(StatefulPrompt<E, S>()) {
+  handleStateful(value) { body() }
+}
+
 public suspend fun <E, S> StatefulHandler<E, S>.handleStateful(
   value: S, body: suspend () -> E
 ): E = handleWithContext(context(value), body)
@@ -82,3 +91,6 @@ public value class HandlerPrompt<E> private constructor(internal val prompt: Pro
 
   override fun prompt(): HandlerPrompt<E> = this
 }
+
+public class StatefulPrompt<E, S>(prompt: HandlerPrompt<E> = HandlerPrompt()) : StatefulHandler<E, S>,
+  Handler<E> by prompt

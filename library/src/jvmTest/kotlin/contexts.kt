@@ -1,0 +1,1 @@
+context(T) fun <T> given(): T = this@T
