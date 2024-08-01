@@ -54,7 +54,7 @@ class AwaitTest {
 }
 
 interface Await {
-  suspend fun <A> await(body: suspend (Cont<A, Unit>) -> Unit): A
+  suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A
   suspend fun fork(): Boolean
 }
 
@@ -75,9 +75,9 @@ suspend fun <A> Await.await(d: Deferred<A>): A {
 
 class MutableAwait(prompt: HandlerPrompt<Unit>) : Await, Handler<Unit> by prompt {
   internal val processes = mutableListOf<suspend () -> Unit>()
-  override suspend fun <A> await(body: suspend (Cont<A, Unit>) -> Unit): A = use { k ->
+  override suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A = use { k ->
     body {
-      processes.add { k.resumeWith(it) }
+      processes.add { k(it) }
       processes.removeFirst()()
     }
   }

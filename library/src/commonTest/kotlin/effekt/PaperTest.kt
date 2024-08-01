@@ -196,20 +196,20 @@ suspend fun <R> firstResult(block: suspend NonDetermined.() -> R): Option<R> = h
 
 fun interface Scheduler : Fiber, StatefulHandler<Unit, Queue> {
   override suspend fun exit(): Nothing = discard {}
-  override suspend fun fork(): Boolean = useStateful { resume, queue ->
-    run(listOf(QueueItem { resume(true, it) }, QueueItem { resume(false, it) }) + queue)
+  override suspend fun fork(): Boolean = use { resume ->
+    run(Queue(listOf(QueueItem { resume(true, it) }, QueueItem { resume(false, it) }) + resume.state))
   }
 
-  override suspend fun suspend() = useStateful { resume, queue ->
-    run(queue + QueueItem { resume(Unit, it) })
+  override suspend fun suspend() = use { resume ->
+    run(Queue(resume.state + QueueItem { resume(Unit, it) }))
   }
 }
 
-suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(::Scheduler, emptyList(), block)
+suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(::Scheduler, Queue(emptyList()), block)
 
 private suspend fun run(q: Queue) {
   if (q.isNotEmpty()) {
-    q.first()(q.drop(1))
+    q.first()(Queue(q.drop(1)))
   }
 }
 
@@ -219,7 +219,9 @@ fun interface QueueItem {
   suspend operator fun invoke(queue: Queue)
 }
 
-typealias Queue = List<QueueItem>
+data class Queue(val items: List<QueueItem>) : List<QueueItem> by items, Stateful<Queue> {
+  override fun fork(): Queue = copy()
+}
 
 interface Input {
   suspend fun read(): Char

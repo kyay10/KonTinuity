@@ -1,7 +1,7 @@
 package effekt.casestudies
 
 import effekt.handleStateful
-import effekt.useStateful
+import effekt.use
 import io.kotest.matchers.shouldBe
 import runTestCC
 import kotlin.reflect.KProperty
@@ -70,12 +70,16 @@ suspend fun Quantification.every(who: Predicate) = quantify(who)
 
 suspend fun s2() = scoped { John said { every(Woman) loves me() } }
 
+data class ScopedState(var i: Int) : Stateful<ScopedState> {
+  override fun fork(): ScopedState = copy()
+}
+
 //TODO: weird compiler bug. Removing suspend here still compiles s2, but ends up with null continuation
-suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence = handleStateful(0) {
+suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence = handleStateful(ScopedState(0)) {
   s { who ->
-    useStateful { resume, tmp ->
-      val x = Person("x$tmp")
-      ForAll(x, Implies(Is(x, who), resume(x, tmp + 1)))
+    use { resume ->
+      val x = Person("x${resume.state.i++}")
+      ForAll(x, Implies(Is(x, who), resume(x)))
     }
   }
 }

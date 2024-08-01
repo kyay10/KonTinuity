@@ -9,10 +9,10 @@ import arrow.core.getOrElse
 import arrow.core.raise.SingletonRaise
 import arrow.core.recover
 import arrow.core.some
+import effekt.get
 import effekt.handle
 import effekt.handleStateful
 import effekt.use
-import effekt.useStateful
 import given
 import io.kotest.matchers.shouldBe
 import runTestCC
@@ -303,32 +303,40 @@ suspend fun <R> searchLayout(p: suspend context(SingletonRaise<Unit>, LayoutChoi
   }.some()
 }
 
-suspend fun writer(p: suspend context(Emit) () -> Unit): String = handleStateful("") {
+data class WriterData(var content: String) : Stateful<WriterData> {
+  override fun fork() = copy()
+}
+suspend fun writer(p: suspend context(Emit) () -> Unit): String = handleStateful(WriterData("")) {
   p { text ->
-    set(get() + text)
+    get().content += text
   }
-  get()
+  get().content
+}
+
+data class PrinterData(var pos: Int) : Stateful<PrinterData> {
+  override fun fork() = copy()
 }
 
 context(Emit, LayoutChoice, SingletonRaise<Unit>)
 suspend fun printer(
   width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit
-) = handleStateful(0) {
+) = handleStateful(PrinterData(0)) {
   val outerEmit = given<Emit>()
   block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(::choice), object : Emit {
-    override suspend fun emitText(text: String) = useStateful { k, p ->
-      val pos = p + text.length
-      if (pos > width) {
+    override suspend fun emitText(text: String) = use { k ->
+      k.state.pos += text.length
+      if (k.state.pos > width) {
         raise()
       } else {
         outerEmit.emitText(text)
-        k(Unit, pos)
+        k(Unit)
       }
     }
 
-    override suspend fun emitNewline() = useStateful { k, _ ->
+    override suspend fun emitNewline() = use { k ->
       outerEmit.emitNewline()
-      k(Unit, 0)
+      k.state.pos = 0
+      k(Unit)
     }
   })
 }

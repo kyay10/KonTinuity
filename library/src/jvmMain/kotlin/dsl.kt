@@ -27,20 +27,24 @@ public suspend fun <R> runChoice(
   }, handler)
 }
 
+private data class StatefulMutableList<E>(val mutableList: MutableList<E>): Stateful<StatefulMutableList<E>>, MutableList<E> by mutableList {
+  override fun fork(): StatefulMutableList<E> = copy(mutableList.toMutableList())
+}
+
 public suspend fun <R> Choose.pushList(body: suspend () -> R): List<R> =
-  runForkingReader(mutableListOf(), MutableList<R>::toMutableList) {
+  runStatefulReader(StatefulMutableList<R>(mutableListOf())) {
     pushChoice(body) {
       ask().add(it)
     }
-    ask()
+    ask().mutableList
   }
 
 public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =
-  runForkingReader(mutableListOf(), MutableList<R>::toMutableList) {
+  runStatefulReader(StatefulMutableList<R>(mutableListOf())) {
     runChoice(body) {
       ask().add(it)
     }
-    ask()
+    ask().mutableList
   }
 
 public suspend fun <R> listReset(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =

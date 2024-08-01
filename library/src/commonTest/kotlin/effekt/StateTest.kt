@@ -1,8 +1,6 @@
 package effekt
 
-import context
 import io.kotest.matchers.shouldBe
-import pushReader
 import runTestCC
 import kotlin.test.Test
 
@@ -139,13 +137,15 @@ interface CrazyState : State<Int> {
   suspend fun bar()
 }
 
-class MyState<R>(prompt: HandlerPrompt<Pair<R, Int>>) : CrazyState, SpecialState<Pair<R, Int>, Int>,
-  Handler<Pair<R, Int>> by prompt {
+class MyState<R>(prompt: StatefulHandler<Pair<R, Int>, SpecialState.Data<Int>>) : CrazyState,
+  SpecialState<Pair<R, Int>, Int>, StatefulHandler<Pair<R, Int>, SpecialState.Data<Int>> by prompt {
   override suspend fun foo() {
     put(2)
     use { k ->
+      val previous = k.state.state
       k(Unit)
-      pushReader(13) { // doesn't affect the continuation call since the state will be restored.
+      k.state.state = previous
+      handleStateful(SpecialState.Data(13)) { // doesn't affect the continuation call since the state will be restored.
         k(Unit)
       }
     }
@@ -153,42 +153,44 @@ class MyState<R>(prompt: HandlerPrompt<Pair<R, Int>>) : CrazyState, SpecialState
 
   override suspend fun bar() {
     put(2)
-    useStateful { k, s ->
-      val (_, s) = k(Unit, s + 1)
-      k(Unit, s + 1)
+    use { k ->
+      k.state.state++
+      val (_, s) = k(Unit)
+      k.state.state = s + 1
+      k(Unit)
     }
   }
 }
 
-suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R =
-  with(MyState<R>(HandlerPrompt())) {
-    handleStateful(init) {
-      val res = block()
-      res to get()
-    }.first
+suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R = handleStateful(SpecialState.Data(init)) {
+  val res = block(MyState<R>(this))
+  res to get().state
+}.first
+
+fun interface SpecialState<R, S> : State<S>, StatefulHandler<R, SpecialState.Data<S>> {
+  data class Data<S>(var state: S) : Stateful<Data<S>> {
+    override fun fork(): Data<S> = copy()
   }
 
-fun interface SpecialState<R, S> : State<S>, StatefulHandler<R, S> {
-  override suspend fun get(): S = (this as Reader<S>).get()
-
-  override suspend fun put(value: S) = useWithContextOnce { k, _ ->
-    k(Unit, context(value))
+  override suspend fun get(): S = (this as StatefulHandler<R, Data<S>>).get().state
+  override suspend fun put(value: S) {
+    (this as StatefulHandler<R, Data<S>>).get().state = value
   }
 }
 
 suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
-  handleStateful(::SpecialState, init, block)
+  handleStateful(::SpecialState, SpecialState.Data(init), block)
 
 fun interface StateFun<R, S> : State<S>, Handler<suspend (S) -> R> {
-  override suspend fun get(): S = useOnce { k ->
+  override suspend fun get(): S = use { k ->
     { s ->
-      k(s)(s)
+      k(s, isFinal = true)(s)
     }
   }
 
-  override suspend fun put(value: S) = useOnce { k ->
+  override suspend fun put(value: S) = use { k ->
     {
-      k(Unit)(value)
+      k(Unit, isFinal = true)(value)
     }
   }
 }

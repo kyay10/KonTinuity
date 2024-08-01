@@ -43,22 +43,27 @@ class ProbabilisticTest {
   }
 }
 
-class ProbHandler<R>(prompt: HandlerPrompt<List<Weighted<R>>>) : Prob, Handler<List<Weighted<R>>> by prompt,
-  StatefulHandler<List<Weighted<R>>, Double> {
+class ProbHandler<R>(prompt: StatefulHandler<List<Weighted<R>>, Data>) : Prob,
+  StatefulHandler<List<Weighted<R>>, ProbHandler.Data> by prompt {
+  data class Data(var p: Double = 1.0) : Stateful<Data> {
+    override fun fork(): Data = copy()
+  }
+
   override suspend fun flip(): Boolean = use { k ->
-    k(false) + k(true)
+    val previous = k.state.p
+    k(false).also { k.state.p = previous } + k(true)
   }
 
   override suspend fun fail(): Nothing = discard { emptyList() }
 
-  override suspend fun factor(p: Double) = set(p * get())
+  override suspend fun factor(p: Double) {
+    get().p = p * get().p
+  }
 }
 
 suspend fun <R> probabilistic(body: suspend ProbHandler<R>.() -> R): List<Weighted<R>> =
-  with(ProbHandler<R>(HandlerPrompt())) {
-    handleStateful(1.0) {
-      listOf(Weighted(body(), get()))
-    }
+  handleStateful(ProbHandler.Data()) {
+    listOf(Weighted(body(ProbHandler(this)), get().p))
   }
 
 data class Weighted<T>(val value: T, val weight: Double)

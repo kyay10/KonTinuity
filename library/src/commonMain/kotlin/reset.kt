@@ -8,100 +8,98 @@ import kotlin.jvm.JvmInline
 public annotation class ResetDsl
 
 @JvmInline
-public value class SubCont<in T, out R> internal constructor(
-  private val subchain: Subchain<T, R>,
+public value class StateSubCont<in T, out R, S : Stateful<S>> internal constructor(
+  private val subchain: StateSubchain<T, R, S>,
 ) {
   private val prompt get() = subchain.hole.prompt
-  public val extraContext: CoroutineContext get() = subchain.hole.extraContext
+  public val state: S get() = subchain.hole.state
+
   private fun composedWith(
-    k: Continuation<R>, isDelimiting: Boolean, extraContext: CoroutineContext, rewindHandler: RewindHandler?
-  ) = subchain.replace(Hole(k, prompt.takeIf { isDelimiting }, extraContext, rewindHandler))
+    k: Continuation<R>
+  ) = subchain.replace(Hole(k, null, UnitState))
+
+  private fun composedWith(
+    k: Continuation<R>, state: S
+  ) = subchain.replace(Hole(k, prompt, state))
 
   @ResetDsl
   public suspend fun pushSubContWith(
     value: Result<T>,
-    isDelimiting: Boolean = false,
-    extraContext: CoroutineContext = EmptyCoroutineContext,
-    rewindHandler: RewindHandler? = null
+    isFinal: Boolean = false,
   ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting, extraContext, rewindHandler).resumeWith(value)
+    composedWith(k).also { if (isFinal) subchain.clear() }.resumeWith(value)
   }
 
   @ResetDsl
-  public suspend fun pushSubContWithFinal(
+  public suspend fun pushDelimSubContWith(
     value: Result<T>,
-    isDelimiting: Boolean = false,
-    extraContext: CoroutineContext = EmptyCoroutineContext,
-    rewindHandler: RewindHandler? = null
+    state: S,
+    isFinal: Boolean = false,
   ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting, extraContext, rewindHandler).also { subchain.clear() }.resumeWith(value)
+    composedWith(k, state).also { if (isFinal) subchain.clear() }.resumeWith(value)
   }
 
   @ResetDsl
   public suspend fun pushSubCont(
-    isDelimiting: Boolean = false,
-    extraContext: CoroutineContext = EmptyCoroutineContext,
-    rewindHandler: RewindHandler? = null,
-    value: suspend () -> T
+    isFinal: Boolean = false, value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutine(composedWith(k, isDelimiting, extraContext, rewindHandler))
+    value.startCoroutine(composedWith(k).also { if (isFinal) subchain.clear() })
   }
 
   @ResetDsl
-  public suspend fun pushSubContFinal(
-    isDelimiting: Boolean = false,
-    extraContext: CoroutineContext = EmptyCoroutineContext,
-    rewindHandler: RewindHandler? = null,
-    value: suspend () -> T
+  public suspend fun pushDelimSubCont(
+    state: S, isFinal: Boolean = false, value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutine(composedWith(k, isDelimiting, extraContext, rewindHandler).also { subchain.clear() })
+    value.startCoroutine(composedWith(k, state).also { if (isFinal) subchain.clear() })
   }
 }
 
+public typealias SubCont<T, R> = StateSubCont<T, R, UnitState>
+
+public suspend fun <T, R> SubCont<T, R>.pushDelimSubContWith(value: Result<T>, isFinal: Boolean = false): R =
+  pushDelimSubContWith(value, UnitState, isFinal)
+
+public suspend fun <T, R> SubCont<T, R>.pushDelimSubCont(isFinal: Boolean = false, value: suspend () -> T): R =
+  pushDelimSubCont(UnitState, isFinal, value)
+
 @ResetDsl
 public suspend fun <R> Prompt<R>.pushPrompt(
-  extraContext: CoroutineContext = EmptyCoroutineContext, rewindHandler: RewindHandler? = null, body: suspend () -> R
+  body: suspend () -> R
 ): R = suspendCoroutineUnintercepted { k ->
-  body.startCoroutine(Hole(k, this, extraContext, rewindHandler))
+  body.startCoroutine(Hole(k, this, UnitState))
 }
 
 @ResetDsl
-public suspend fun <R> pushContext(
-  context: CoroutineContext, rewindHandler: RewindHandler? = null, body: suspend () -> R
+public suspend fun <R, S : Stateful<S>> StatePrompt<R, S>.pushPrompt(
+  state: S, body: suspend () -> R
 ): R = suspendCoroutineUnintercepted { k ->
-  body.startCoroutine(Hole(k, null, context, rewindHandler))
+  body.startCoroutine(Hole(k, this, state))
 }
 
-public fun interface RewindHandler {
-  public fun onRewind(oldProducedContext: CoroutineContext, newParentContext: CoroutineContext): CoroutineContext
-}
-
-@ResetDsl
-public suspend fun <R> withRewindHandler(
-  rewindHandler: RewindHandler, extraContext: CoroutineContext = EmptyCoroutineContext, body: suspend () -> R
-): R = suspendCoroutineUnintercepted { k ->
-  body.startCoroutine(Hole(k, null, extraContext, rewindHandler))
+public fun interface Stateful<S : Stateful<S>> {
+  public fun fork(): S
 }
 
 @ResetDsl
 public suspend fun <R> nonReentrant(
   body: suspend () -> R
-): R = withRewindHandler(NonReentrant, body = body)
-
-private object NonReentrant : RewindHandler {
-  override fun onRewind(oldProducedContext: CoroutineContext, newParentContext: CoroutineContext): CoroutineContext =
-    throw IllegalStateException("Non-reentrant context")
+): R = suspendCoroutineUnintercepted { k ->
+  body.startCoroutine(Hole(k, null, NonReentrant))
 }
 
-internal data class Hole<T>(
+private data object NonReentrant : Stateful<NonReentrant> {
+  override fun fork(): NonReentrant = throw IllegalStateException("Non-reentrant context")
+}
+
+internal data class Hole<T, S : Stateful<S>>(
   override val completion: Continuation<T>,
-  val prompt: Prompt<T>?,
-  val extraContext: CoroutineContext,
-  private val rewindHandler: RewindHandler?,
+  val prompt: StatePrompt<T, S>?,
+  val state: S,
 ) : CopyableContinuation<T>, CoroutineContext.Element {
-  override val key: Prompt<T> get() = prompt ?: error("should never happen")
-  override val context: CoroutineContext =
-    (if (prompt != null) completion.context + this else completion.context) + extraContext
+  override val key get() = prompt ?: error("should never happen")
+  override val context: CoroutineContext = if (prompt != null) {
+    completion.context + this
+  } else completion.context
 
   override fun resumeWith(result: Result<T>) {
     val exception = result.exceptionOrNull()
@@ -110,10 +108,8 @@ internal data class Hole<T>(
   }
 
   @Suppress("UNCHECKED_CAST")
-  override fun copy(completion: Continuation<*>): Hole<T> {
-    val extraContext = rewindHandler?.onRewind(extraContext, completion.context) ?: extraContext
-    return copy(completion = completion as Continuation<T>, extraContext = extraContext)
-  }
+  override fun copy(completion: Continuation<*>): Hole<T, S> =
+    copy(completion = completion as Continuation<T>, state = state.fork())
 }
 
 public fun CoroutineContext.promptParentContext(prompt: Prompt<*>): CoroutineContext? =
@@ -121,18 +117,16 @@ public fun CoroutineContext.promptParentContext(prompt: Prompt<*>): CoroutineCon
 
 public fun CoroutineContext.promptContext(prompt: Prompt<*>): CoroutineContext? = this[prompt]?.context
 
-private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Continuation<T> {
-  val hole = this[prompt] ?: error("Prompt $prompt not set")
-  return if (deleteDelimiter) hole.completion else hole
-}
+private fun <T, S : Stateful<S>> CoroutineContext.holeFor(prompt: StatePrompt<T, S>) =
+  this[prompt] ?: error("Prompt $prompt not set")
 
 @ResetDsl
-public suspend fun <T, R> Prompt<R>.takeSubCont(
-  deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
+public suspend fun <T, R, S : Stateful<S>> StatePrompt<R, S>.takeSubCont(
+  deleteDelimiter: Boolean = true, body: suspend (StateSubCont<T, R, S>) -> R
 ): T = suspendCoroutineUnintercepted { k ->
   val subchain = k.collectSubchain(this)
   val hole = subchain.hole
-  body.startCoroutine(SubCont(subchain), if (deleteDelimiter) hole.completion else hole)
+  body.startCoroutine(StateSubCont(subchain), if (deleteDelimiter) hole.completion else hole)
 }
 
 // Acts like shift0/shift { it(body()) }
@@ -141,22 +135,27 @@ public suspend fun <T, R> Prompt<R>.takeSubCont(
 public suspend fun <T> Prompt<*>.inHandlingContext(
   includeBodyContext: Boolean = false, body: suspend () -> T
 ): T = suspendCoroutineUnintercepted { k ->
-  val hole = k.context.holeFor(this, !includeBodyContext)
-  body.startCoroutine(Continuation(hole.context) {
+  val hole = k.context.holeFor(this)
+  val context = if (includeBodyContext) hole.context else hole.completion.context
+  // TODO make it a CopyableContinuation
+  body.startCoroutine(Continuation(context) {
     val exception = it.exceptionOrNull()
-    if (exception is SeekingCoroutineContextException) exception.use(hole.context)
+    if (exception is SeekingCoroutineContextException) exception.use(context)
     else k.resumeWith(it)
   })
 }
 
 @Suppress("UNCHECKED_CAST")
-internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>): Nothing =
+internal fun <R> StatePrompt<R, *>.abortWith(deleteDelimiter: Boolean, value: Result<R>): Nothing =
   throw AbortWithValueException(this as Prompt<Any?>, value, deleteDelimiter)
 
 private class AbortWithValueException(
   private val prompt: Prompt<Any?>, private val value: Result<Any?>, private val deleteDelimiter: Boolean
 ) : SeekingCoroutineContextException() {
-  override fun use(context: CoroutineContext) = context.holeFor(prompt, deleteDelimiter).resumeWith(value)
+  override fun use(context: CoroutineContext) {
+    val hole = context.holeFor(prompt)
+    (if (deleteDelimiter) hole.completion else hole).resumeWith(value)
+  }
 }
 
 @Suppress("UNCHECKED_CAST")
@@ -166,12 +165,41 @@ internal fun <R> Prompt<R>.abortS(deleteDelimiter: Boolean = false, value: suspe
 private class AbortWithProducerException(
   private val prompt: Prompt<Any?>, private val value: suspend () -> Any?, private val deleteDelimiter: Boolean
 ) : SeekingCoroutineContextException() {
-  override fun use(context: CoroutineContext) = value.startCoroutine(context.holeFor(prompt, deleteDelimiter))
+  override fun use(context: CoroutineContext) {
+    val hole = context.holeFor(prompt)
+    value.startCoroutine(if (deleteDelimiter) hole.completion else hole)
+  }
 }
 
-public suspend fun Prompt<*>.isSet(): Boolean = coroutineContext[this] != null
+@Suppress("UNCHECKED_CAST")
+internal fun <R, S : Stateful<S>> StatePrompt<R, S>.abortS(
+  deleteDelimiter: Boolean = false, value: suspend (S) -> R
+): Nothing =
+  throw AbortWithStateProducerException(this as StatePrompt<Any?, *>, value as suspend (Any?) -> Any?, deleteDelimiter)
 
-public class Prompt<R> : CoroutineContext.Key<Hole<R>>
+private class AbortWithStateProducerException(
+  private val prompt: StatePrompt<Any?, *>,
+  private val value: suspend (Any?) -> Any?,
+  private val deleteDelimiter: Boolean
+) : SeekingCoroutineContextException() {
+  override fun use(context: CoroutineContext) {
+    val hole = context.holeFor(prompt)
+    value.startCoroutine(hole.state, if (deleteDelimiter) hole.completion else hole)
+  }
+}
+
+public suspend fun StatePrompt<*, *>.isSet(): Boolean = coroutineContext[this] != null
+
+public suspend fun <S : Stateful<S>> StatePrompt<*, S>.getState(): S = coroutineContext.holeFor(this).state
+public suspend fun <S : Stateful<S>> StatePrompt<*, S>.getStateOrNull(): S? = coroutineContext[this]?.state
+
+public data object UnitState : Stateful<UnitState> {
+  override fun fork(): UnitState = this
+}
+
+public typealias Prompt<R> = StatePrompt<R, UnitState>
+
+public class StatePrompt<R, S : Stateful<S>> : CoroutineContext.Key<Hole<R, S>>
 
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
 internal expect abstract class SeekingCoroutineContextException() : CancellationException {

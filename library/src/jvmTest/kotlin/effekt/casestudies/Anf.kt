@@ -1,6 +1,7 @@
 package effekt.casestudies
 
 import arrow.core.Either
+import effekt.get
 import effekt.handle
 import effekt.handleStateful
 import effekt.use
@@ -63,11 +64,13 @@ fun interface Fresh {
   suspend fun fresh(): String
 }
 
-suspend fun <R> freshVars(block: suspend context(Fresh) () -> R): R = handleStateful(0) {
+private data class FreshVarsData(var i: Int): Stateful<FreshVarsData> {
+  override fun fork(): FreshVarsData = copy()
+}
+
+suspend fun <R> freshVars(block: suspend context(Fresh) () -> R): R = handleStateful(FreshVarsData(0)) {
   block {
-    val i = get() + 1
-    set(i)
-    "x$i"
+    "x${++(get().i)}"
   }
 }
 

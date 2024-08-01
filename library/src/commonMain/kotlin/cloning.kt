@@ -5,11 +5,11 @@ internal expect val Continuation<*>.isCompilerGenerated: Boolean
 internal expect val Continuation<*>.completion: Continuation<*>
 internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>
 
-internal fun <T, R> Continuation<T>.collectSubchain(prompt: Prompt<R>): Subchain<T, R> =
-  Subchain(mutableListOf<Continuation<*>>().apply {
+internal fun <T, R, S: Stateful<S>> Continuation<T>.collectSubchain(prompt: StatePrompt<R, S>): StateSubchain<T, R, S> =
+  StateSubchain(mutableListOf<Continuation<*>>().apply {
     this@collectSubchain.forEach {
       add(it)
-      if (it is Hole<*> && it.prompt == prompt) return@apply
+      if (it is Hole<*, *> && it.prompt == prompt) return@apply
     }
   })
 
@@ -29,7 +29,7 @@ internal inline fun Continuation<*>.forEach(block: (Continuation<*>) -> Unit) {
 // The last element is the hole itself, the first element is the current continuation
 @Suppress("UNCHECKED_CAST")
 @JvmInline
-internal value class Subchain<T, R>(private val list: MutableList<Continuation<*>>) {
+internal value class StateSubchain<T, R, S: Stateful<S>>(private val list: MutableList<Continuation<*>>) {
   fun replace(replacement: Continuation<R>): Continuation<T> {
     var result: Continuation<*> = replacement
     for (i in list.lastIndex - 1 downTo 0) result = when (val cont = list[i]) {
@@ -40,7 +40,7 @@ internal value class Subchain<T, R>(private val list: MutableList<Continuation<*
     return result as Continuation<T>
   }
 
-  val hole: Hole<R> get() = list.last() as Hole<R>
+  val hole: Hole<R, S> get() = list.last() as Hole<R, S>
   fun clear() = list.clear()
 }
 

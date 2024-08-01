@@ -14,32 +14,31 @@ public suspend fun <R> topReset(body: suspend Prompt<R>.() -> R): R = runCC { ne
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it, isDelimiting = true) } }
+  takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushDelimSubContWith(it) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (Cont<T, R>) -> R): T =
   takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it) } }
 
-// TODO should we be reinstating context like that? Should we reinstate more stuff?
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushSubContWith(it, isDelimiting = true, extraContext = sk.extraContext) } }
+  takeSubCont { sk -> block { sk.pushDelimSubContWith(it) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control0(crossinline block: suspend (Cont<T, R>) -> R): T =
   takeSubCont { sk -> block { sk.pushSubContWith(it) } }
 
 @ResetDsl
-public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing = abortWith(deleteDelimiter = false, value)
+public fun <R> StatePrompt<R, *>.abortWith(value: Result<R>): Nothing = abortWith(deleteDelimiter = false, value)
 
 @ResetDsl
-public fun <R> Prompt<R>.abortWith0(value: Result<R>): Nothing = abortWith(deleteDelimiter = true, value)
+public fun <R> StatePrompt<R, *>.abortWith0(value: Result<R>): Nothing = abortWith(deleteDelimiter = true, value)
 
 @ResetDsl
-public fun <R> Prompt<R>.abort(value: R): Nothing = abortWith(Result.success(value))
+public fun <R> StatePrompt<R, *>.abort(value: R): Nothing = abortWith(Result.success(value))
 
 @ResetDsl
-public fun <R> Prompt<R>.abort0(value: R): Nothing = abortWith0(Result.success(value))
+public fun <R> StatePrompt<R, *>.abort0(value: R): Nothing = abortWith0(Result.success(value))
 
 @ResetDsl
 public fun <R> Prompt<R>.abortS(value: suspend () -> R): Nothing = abortS(deleteDelimiter = false, value)

@@ -1,18 +1,25 @@
 import kotlin.jvm.JvmInline
 
+private fun interface FcontrolHandler<Error, T> : Stateful<FcontrolHandler<Error, T>> {
+  suspend fun handle(error: Error): T
+  override fun fork(): FcontrolHandler<Error, T> = this
+}
+
 @JvmInline
-public value class Fcontrol<Error, T> internal constructor(private val reader: Reader<suspend (Error) -> T>) {
-  public constructor() : this(Reader())
+public value class Fcontrol<Error, T> private constructor(private val reader: StatefulReader<FcontrolHandler<Error, T>>) {
+  public constructor() : this(StatefulReader())
 
   @ResetDsl
-  public suspend fun fcontrol(error: Error): T = reader.ask()(error)
+  public suspend fun fcontrol(error: Error): T = reader.ask().handle(error)
 
   @ResetDsl
   public suspend fun <R> resetFcontrol(
     handler: suspend (Error, SubCont<T, R>) -> R, body: suspend () -> R
   ): R {
     val prompt = Prompt<R>()
-    return prompt.pushPrompt(extraContext = reader.context { prompt.takeSubCont(false) { k -> handler(it, k) } }, body = body)
+    return reader.pushReader(FcontrolHandler { prompt.takeSubCont(false) { k -> handler(it, k) } }) {
+      prompt.pushPrompt(body)
+    }
   }
 
   @ResetDsl
@@ -20,7 +27,14 @@ public value class Fcontrol<Error, T> internal constructor(private val reader: R
     handler: suspend (Error, SubCont<T, R>) -> R, body: suspend () -> R
   ): R {
     val prompt = Prompt<R>()
-    return prompt.pushPrompt(extraContext = reader.context { prompt.takeSubCont { k -> handler(it, k) } }, body = body)
+    return reader.pushReader(FcontrolHandler {
+      prompt.takeSubCont { k ->
+        reader.deleteBinding()
+        handler(it, k)
+      }
+    }) {
+      prompt.pushPrompt(body)
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 package effekt
 
+import State
 import pushState
 import get
 import set
@@ -20,17 +21,18 @@ public suspend fun <R> region(body: suspend StateScope.() -> R): R = handle {
   body(StateScopeImpl(this))
 }
 
+// TODO use map implementation
 private class StateScopeImpl<R>(prompt: HandlerPrompt<R>) : StateScope, Handler<R> by prompt {
-  override suspend fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().apply {
+  override suspend fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>(State()).apply {
     use {
-      pushState(init) {
+      state.pushState(init) {
         it(Unit)
       }
     }
   }
 
-  private class FieldImpl<T> : StateScope.Field<T>, State<T> {
-    override suspend fun get(): T = (this as State<T>).get()
-    override suspend fun set(value: T) = (this as State<T>).set(value)
+  private data class FieldImpl<T>(val state: State<T>) : StateScope.Field<T> {
+    override suspend fun get(): T = state.get()
+    override suspend fun set(value: T) = state.set(value)
   }
 }

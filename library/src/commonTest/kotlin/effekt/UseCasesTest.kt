@@ -45,20 +45,21 @@ suspend fun Parser2.number(): Int {
   return res
 }
 
-class StringReader<R>(val input: String, val exc: Exc, prompt: HandlerPrompt<R>) : Receive<Char>,
-  StatefulHandler<R, Int>, Handler<R> by prompt {
+class StringReader<R>(val input: String, val exc: Exc, prompt: StatefulPrompt<R, Data>) : Receive<Char>,
+  StatefulHandler<R, StringReader.Data> by prompt {
+  data class Data(var pos: Int = 0) : Stateful<Data> {
+    override fun fork(): Data = copy()
+  }
+
   override suspend fun receive(): Char {
-    val curPos = get()
-    if (curPos >= input.length) exc.raise("Unexpected EOS")
-    set(curPos + 1)
-    return input[curPos]
+    val state = get()
+    if (state.pos >= input.length) exc.raise("Unexpected EOS")
+    return input[state.pos++]
   }
 }
 
-suspend fun <R> Exc.stringReader(input: String, block: suspend StringReader<R>.() -> R): R =
-  with(StringReader(input, this, HandlerPrompt<R>())) {
-    handleStateful(0) { block() }
-  }
+suspend fun <R> Exc.stringReader(input: String, block: suspend Receive<Char>.() -> R): R =
+  handleStateful(StringReader.Data()) { block(StringReader(input, this@stringReader, this)) }
 
 interface AmbExc : Amb, Exc
 
