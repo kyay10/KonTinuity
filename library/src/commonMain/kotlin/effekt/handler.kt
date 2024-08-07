@@ -14,7 +14,6 @@ public interface Handler<E> {
 }
 
 public interface StatefulHandler<E, S> : Handler<E> {
-  override fun prompt(): HandlerPrompt<E>
   public val reader: Reader<S>
 }
 
