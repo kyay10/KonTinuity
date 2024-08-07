@@ -1,3 +1,5 @@
+@file:Suppress("CONTEXT_RECEIVERS_DEPRECATED")
+
 import arrow.core.raise.Raise
 import arrow.core.raise.SingletonRaise
 import kotlinx.coroutines.ExperimentalCoroutinesApi
