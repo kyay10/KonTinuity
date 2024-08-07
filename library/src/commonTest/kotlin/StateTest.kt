@@ -33,11 +33,11 @@ class StateTest {
     data class CounterState(val count: Int)
 
     suspend fun StackState<CounterState>.incrementCounter() {
-      modify<CounterState> { state -> state.copy(count = state.count + 1) }
+      modifyLast<CounterState> { state -> state.copy(count = state.count + 1) }
     }
 
     suspend fun StackState<CounterState>.doubleCounter() {
-      modify<CounterState> { state -> state.copy(count = state.count * 2) }
+      modifyLast<CounterState> { state -> state.copy(count = state.count * 2) }
     }
 
     val result = runCC {

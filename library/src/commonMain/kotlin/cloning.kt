@@ -5,11 +5,11 @@ internal expect val Continuation<*>.isCompilerGenerated: Boolean
 internal expect val Continuation<*>.completion: Continuation<*>
 internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>
 
-internal fun <T, R> Continuation<T>.collectSubchain(prompt: Prompt<R>): Subchain<T, R> =
+internal fun <T, R> Continuation<T>.collectSubchain(hole: Continuation<R>): Subchain<T, R> =
   Subchain(mutableListOf<Continuation<*>>().apply {
     this@collectSubchain.forEach {
+      if (it == hole) return@apply
       add(it)
-      if (it is Hole<*> && it.prompt == prompt) return@apply
     }
   })
 
@@ -32,7 +32,7 @@ internal inline fun Continuation<*>.forEach(block: (Continuation<*>) -> Unit) {
 internal value class Subchain<T, R>(private val list: MutableList<Continuation<*>>) {
   fun replace(replacement: Continuation<R>): Continuation<T> {
     var result: Continuation<*> = replacement
-    for (i in list.lastIndex - 1 downTo 0) result = when (val cont = list[i]) {
+    for (i in list.lastIndex downTo 0) result = when (val cont = list[i]) {
       in CompilerGenerated -> cont.copy(result)
       is CopyableContinuation -> cont.copy(result)
       else -> error("Continuation $this is not cloneable")
@@ -40,7 +40,6 @@ internal value class Subchain<T, R>(private val list: MutableList<Continuation<*
     return result as Continuation<T>
   }
 
-  val hole: Hole<R> get() = list.last() as Hole<R>
   fun clear() = list.clear()
 }
 

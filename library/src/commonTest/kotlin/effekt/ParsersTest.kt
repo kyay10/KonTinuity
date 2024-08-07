@@ -143,10 +143,8 @@ interface Parser3<S> {
 
   companion object {
     suspend fun <A> parse(input: String, parser: suspend CharParsers.() -> A): Option<A> =
-      with(StringParser<A>(input, HandlerPrompt())) {
-        return handleStateful(0) {
-          Some(parser())
-        }
+      handleStateful(StringParser.Data(0)) {
+        Some(parser(StringParser(input, this)))
       }
   }
 }
@@ -165,20 +163,27 @@ suspend fun Parser3<*>.alternatives(n: Int): Int {
   return 0
 }
 
-class StringParser<R>(val input: String, prompt: HandlerPrompt<Option<R>>) : CharParsers, Handler<Option<R>> by prompt,
-  StatefulHandler<Option<R>, Int> {
+class StringParser<R>(val input: String, prompt: StatefulPrompt<Option<R>, Data>) : CharParsers,
+  StatefulHandler<Option<R>, StringParser.Data> by prompt {
+  data class Data(var index: Int) : Stateful<Data> {
+    override fun fork() = copy()
+  }
+
   private val cache = mutableMapOf<Pair<Int, String>, Pair<Int, Any?>>()
 
   override suspend fun any(): Char {
-    val p = get()
-    if (p >= input.length) fail("Unexpected EOS")
-    set(p + 1)
-    return input[p]
+    if (get().index >= input.length) fail("Unexpected EOS")
+    return input[get().index++]
   }
 
-  override suspend fun alternative(): Boolean = useStateful { k, before ->
+  override suspend fun alternative(): Boolean = use { k ->
+    // Note: our state is above us here, so we need to save and update
+    val before = get().index
     // does this lead to left biased choice?
-    k(true, before).recover { k(false, before).bind() }
+    k(true).recover {
+      get().index = before
+      k(false).bind()
+    }
   }
 
   override suspend fun fail(explanation: String): Nothing {
@@ -187,15 +192,14 @@ class StringParser<R>(val input: String, prompt: HandlerPrompt<Option<R>>) : Cha
 
   override suspend fun <A> nonterminal(name: String, body: suspend () -> A): A {
     // We could as well use body.getClass().getCanonicalName() as key.
-    val key = Pair(get(), name)
+    val key = Pair(get().index, name)
     val (p, res) = cache.getOrPut(key) {
       val res = body()
-      get() to res
+      get().index to res
     }
-    set(p)
+    get().index = p
     @Suppress("UNCHECKED_CAST") return res as A
   }
-
 }
 
 class ToPush<R>(val outer: CharParsers, prompt: HandlerPrompt<PushParser<R>>) : Handler<PushParser<R>> by prompt,

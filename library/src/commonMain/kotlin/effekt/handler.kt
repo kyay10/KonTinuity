@@ -1,48 +1,30 @@
 package effekt
 
 import Prompt
+import Reader
 import abortS0
 import ask
-import context
-import pushPrompt
+import pushReader
 import reset
-import shift0
 import takeSubCont
-import kotlin.coroutines.CoroutineContext
 import kotlin.jvm.JvmInline
 
 public interface Handler<E> {
   public fun prompt(): HandlerPrompt<E>
-  public suspend fun <T> Reader<T>.get(): T = ask()
-  public suspend fun <T> Reader<T>.set(value: T): Unit = useWithContext { k, _ ->
-    k(Unit, context(value))
-  }
 }
 
-public interface StatefulHandler<E, S> : Handler<E>, Reader<S>
+public interface StatefulHandler<E, S> : Handler<E> {
+  override fun prompt(): HandlerPrompt<E>
+  public val reader: Reader<S>
+}
 
-public suspend fun <A, E, S> StatefulHandler<E, S>.useStateful(body: suspend (suspend (A, S) -> E, S) -> E): A =
-  useWithContext { k, ctx ->
-    body({ a, s -> k(a, context(s)) }, ctx[this]!!.value)
-  }
+public suspend fun <E, S> StatefulHandler<E, S>.get(): S = reader.ask()
 
-public suspend fun <A, E> Handler<E>.use(body: suspend (Cont<A, E>) -> E): A = prompt().prompt.shift0(body)
-public suspend fun <A, E> Handler<E>.useOnce(body: suspend (Cont<A, E>) -> E): A = prompt().prompt.takeSubCont { sk ->
-  body { a -> sk.pushSubContWithFinal(a, isDelimiting = true) }
+public suspend fun <A, E> Handler<E>.use(body: suspend (Cont<A, E>) -> E): A = prompt().prompt.takeSubCont { sk ->
+  body(Cont(sk))
 }
 
 public fun <E> Handler<E>.discard(body: suspend () -> E): Nothing = prompt().prompt.abortS0(body)
-public suspend fun <A, E> Handler<E>.useWithContext(body: suspend (suspend (A, CoroutineContext) -> E, CoroutineContext) -> E): A =
-  prompt().prompt.takeSubCont { sk ->
-    body({ a, ctx -> sk.pushSubContWith(Result.success(a), isDelimiting = true, extraContext = ctx) }, sk.extraContext)
-  }
-
-public suspend fun <A, E> Handler<E>.useWithContextOnce(body: suspend (suspend (A, CoroutineContext) -> E, CoroutineContext) -> E): A =
-  prompt().prompt.takeSubCont { sk ->
-    body(
-      { a, ctx -> sk.pushSubContWithFinal(Result.success(a), isDelimiting = true, extraContext = ctx) }, sk.extraContext
-    )
-  }
 
 public suspend fun <E, H> handle(
   handler: ((() -> HandlerPrompt<E>) -> H), body: suspend H.() -> E
@@ -54,36 +36,27 @@ public suspend fun <E> handle(body: suspend HandlerPrompt<E>.() -> E): E = with(
 
 public suspend fun <E> Handler<E>.handle(body: suspend () -> E): E = prompt().prompt.reset(body)
 
-public suspend fun <E, H> handleWithContext(
-  handler: ((() -> HandlerPrompt<E>) -> H), extraContext: CoroutineContext, body: suspend H.() -> E
-): E = handleWithContext(extraContext) { handler { this }.body() }
-
-public suspend fun <E> handleWithContext(extraContext: CoroutineContext, body: suspend HandlerPrompt<E>.() -> E): E =
-  with(HandlerPrompt<E>()) {
-    handleWithContext(extraContext) { body() }
-  }
-
-public suspend fun <E> Handler<E>.handleWithContext(
-  extraContext: CoroutineContext, body: suspend () -> E
-): E = prompt().prompt.pushPrompt(extraContext, body = body)
-
 public suspend fun <E, H : StatefulHandler<E, S>, S> handleStateful(
-  handler: ((() -> HandlerPrompt<E>) -> H), value: S, body: suspend H.() -> E
+  handler: ((() -> StatefulPrompt<E, S>) -> H), value: S, fork: S.() -> S,
+  body: suspend H.() -> E
 ): E {
-  val p = HandlerPrompt<E>()
+  val p = StatefulPrompt<E, S>()
   val h = handler { p }
-  return h.handleStateful(value) { h.body() }
+  return h.handleStateful(value, fork) { h.body() }
 }
 
 public suspend fun <E, S> handleStateful(
-  value: S, body: suspend StatefulHandler<E, S>.() -> E
+  value: S, fork: S.() -> S, body: suspend StatefulPrompt<E, S>.() -> E
 ): E = with(StatefulPrompt<E, S>()) {
-  handleStateful(value) { body() }
+  handleStateful(value, fork) { body() }
 }
 
 public suspend fun <E, S> StatefulHandler<E, S>.handleStateful(
-  value: S, body: suspend () -> E
-): E = handleWithContext(context(value), body)
+  value: S, fork: S.() -> S,
+  body: suspend () -> E
+): E = reader.pushReader(value, fork) {
+  prompt().prompt.reset(body)
+}
 
 @JvmInline
 public value class HandlerPrompt<E> private constructor(internal val prompt: Prompt<E>) : Handler<E> {
@@ -92,5 +65,17 @@ public value class HandlerPrompt<E> private constructor(internal val prompt: Pro
   override fun prompt(): HandlerPrompt<E> = this
 }
 
-public class StatefulPrompt<E, S>(prompt: HandlerPrompt<E> = HandlerPrompt()) : StatefulHandler<E, S>,
-  Handler<E> by prompt
+public class StatefulPrompt<E, S>(
+  private val prompt: HandlerPrompt<E> = HandlerPrompt(), override val reader: Reader<S> = Reader()
+) : StatefulHandler<E, S>, Handler<E> by prompt
+
+@JvmInline
+public value class Cont<in T, out R> internal constructor(internal val subCont: SubCont<T, R>) {
+  public suspend fun resumeWith(value: Result<T>, isFinal: Boolean = false): R =
+    subCont.pushSubContWith(value, isDelimiting = true, isFinal)
+
+  public suspend operator fun invoke(value: T, isFinal: Boolean = false): R = resumeWith(Result.success(value), isFinal)
+
+  public suspend fun resumeWithException(exception: Throwable, isFinal: Boolean = false): R =
+    resumeWith(Result.failure(exception), isFinal)
+}

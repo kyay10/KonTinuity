@@ -20,10 +20,9 @@ public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Con
 public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (Cont<T, R>) -> R): T =
   takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it) } }
 
-// TODO should we be reinstating context like that? Should we reinstate more stuff?
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift0(crossinline block: suspend (Cont<T, R>) -> R): T =
-  takeSubCont { sk -> block { sk.pushSubContWith(it, isDelimiting = true, extraContext = sk.extraContext) } }
+  takeSubCont { sk -> block { sk.pushSubContWith(it, isDelimiting = true) } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control0(crossinline block: suspend (Cont<T, R>) -> R): T =

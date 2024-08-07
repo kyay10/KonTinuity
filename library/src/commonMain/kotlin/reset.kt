@@ -1,107 +1,62 @@
+import arrow.core.identity
 import kotlinx.coroutines.CancellationException
 import kotlin.coroutines.*
 import kotlin.coroutines.intrinsics.*
-import kotlin.jvm.JvmInline
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
 @DslMarker
 public annotation class ResetDsl
 
-@JvmInline
-public value class SubCont<in T, out R> internal constructor(
+public class SubCont<in T, out R> internal constructor(
   private val subchain: Subchain<T, R>,
+  private val prompt: Prompt<R>, // can be extracted from subchain.last().key but needs cast
 ) {
-  private val prompt get() = subchain.hole.prompt
-  public val extraContext: CoroutineContext get() = subchain.hole.extraContext
   private fun composedWith(
-    k: Continuation<R>, isDelimiting: Boolean, extraContext: CoroutineContext, rewindHandler: RewindHandler?
-  ) = subchain.replace(Hole(k, prompt.takeIf { isDelimiting }, extraContext, rewindHandler))
+    k: Continuation<R>, isDelimiting: Boolean
+  ) = subchain.replace(if (isDelimiting) PromptHole(k, prompt) else InterceptedHole(k))
 
   @ResetDsl
   public suspend fun pushSubContWith(
     value: Result<T>,
     isDelimiting: Boolean = false,
-    extraContext: CoroutineContext = EmptyCoroutineContext,
-    rewindHandler: RewindHandler? = null
+    isFinal: Boolean = false,
   ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting, extraContext, rewindHandler).resumeWith(value)
-  }
-
-  @ResetDsl
-  public suspend fun pushSubContWithFinal(
-    value: Result<T>,
-    isDelimiting: Boolean = false,
-    extraContext: CoroutineContext = EmptyCoroutineContext,
-    rewindHandler: RewindHandler? = null
-  ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting, extraContext, rewindHandler).also { subchain.clear() }.resumeWith(value)
+    composedWith(k, isDelimiting).also { if (isFinal) subchain.clear() }.resumeWith(value)
   }
 
   @ResetDsl
   public suspend fun pushSubCont(
     isDelimiting: Boolean = false,
-    extraContext: CoroutineContext = EmptyCoroutineContext,
-    rewindHandler: RewindHandler? = null,
+    isFinal: Boolean = false,
     value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutine(composedWith(k, isDelimiting, extraContext, rewindHandler))
-  }
-
-  @ResetDsl
-  public suspend fun pushSubContFinal(
-    isDelimiting: Boolean = false,
-    extraContext: CoroutineContext = EmptyCoroutineContext,
-    rewindHandler: RewindHandler? = null,
-    value: suspend () -> T
-  ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutine(composedWith(k, isDelimiting, extraContext, rewindHandler).also { subchain.clear() })
+    value.startCoroutine(composedWith(k, isDelimiting).also { if (isFinal) subchain.clear() })
   }
 }
 
 @ResetDsl
 public suspend fun <R> Prompt<R>.pushPrompt(
-  extraContext: CoroutineContext = EmptyCoroutineContext, rewindHandler: RewindHandler? = null, body: suspend () -> R
+  body: suspend () -> R
 ): R = suspendCoroutineUnintercepted { k ->
-  body.startCoroutine(Hole(k, this, extraContext, rewindHandler))
+  body.startCoroutine(PromptHole(k, this))
 }
 
-@ResetDsl
-public suspend fun <R> pushContext(
-  context: CoroutineContext, rewindHandler: RewindHandler? = null, body: suspend () -> R
-): R = suspendCoroutineUnintercepted { k ->
-  body.startCoroutine(Hole(k, null, context, rewindHandler))
-}
+public suspend fun <T, R> Reader<T>.pushReader(value: T, fork: T.() -> T = ::identity, body: suspend () -> R): R =
+  suspendCoroutineUnintercepted { k ->
+    body.startCoroutine(ReaderHole(k, this, value, fork))
+  }
 
-public fun interface RewindHandler {
-  public fun onRewind(oldProducedContext: CoroutineContext, newParentContext: CoroutineContext): CoroutineContext
-}
-
-@ResetDsl
-public suspend fun <R> withRewindHandler(
-  rewindHandler: RewindHandler, extraContext: CoroutineContext = EmptyCoroutineContext, body: suspend () -> R
-): R = suspendCoroutineUnintercepted { k ->
-  body.startCoroutine(Hole(k, null, extraContext, rewindHandler))
-}
 
 @ResetDsl
 public suspend fun <R> nonReentrant(
   body: suspend () -> R
-): R = withRewindHandler(NonReentrant, body = body)
+): R = Reader<Unit>().pushReader(Unit, { throw IllegalStateException("Non-reentrant context") }, body)
 
-private object NonReentrant : RewindHandler {
-  override fun onRewind(oldProducedContext: CoroutineContext, newParentContext: CoroutineContext): CoroutineContext =
-    throw IllegalStateException("Non-reentrant context")
-}
-
-internal data class Hole<T>(
+internal data class PromptHole<T>(
   override val completion: Continuation<T>,
-  val prompt: Prompt<T>?,
-  val extraContext: CoroutineContext,
-  private val rewindHandler: RewindHandler?,
+  override val key: Prompt<T>,
 ) : CopyableContinuation<T>, CoroutineContext.Element {
-  override val key: Prompt<T> get() = prompt ?: error("should never happen")
-  override val context: CoroutineContext =
-    (if (prompt != null) completion.context + this else completion.context) + extraContext
+  override val context: CoroutineContext = completion.context + this
 
   override fun resumeWith(result: Result<T>) {
     val exception = result.exceptionOrNull()
@@ -110,29 +65,64 @@ internal data class Hole<T>(
   }
 
   @Suppress("UNCHECKED_CAST")
-  override fun copy(completion: Continuation<*>): Hole<T> {
-    val extraContext = rewindHandler?.onRewind(extraContext, completion.context) ?: extraContext
-    return copy(completion = completion as Continuation<T>, extraContext = extraContext)
-  }
+  override fun copy(completion: Continuation<*>): PromptHole<T> = copy(completion = completion as Continuation<T>)
 }
 
-public fun CoroutineContext.promptParentContext(prompt: Prompt<*>): CoroutineContext? =
-  this[prompt]?.completion?.context
+internal class InterceptedHole<T>(
+  override val completion: Continuation<T>,
+) : CopyableContinuation<T> {
+  override val context: CoroutineContext = completion.context
 
-public fun CoroutineContext.promptContext(prompt: Prompt<*>): CoroutineContext? = this[prompt]?.context
+  override fun resumeWith(result: Result<T>) {
+    val exception = result.exceptionOrNull()
+    if (exception is SeekingCoroutineContextException) exception.use(context)
+    else completion.intercepted().resumeWith(result)
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  override fun copy(completion: Continuation<*>): InterceptedHole<T> = InterceptedHole(completion as Continuation<T>)
+}
+
+internal data class ReaderHole<T, S>(
+  override val completion: Continuation<T>,
+  override val key: Reader<S>,
+  val state: S,
+  val fork: S.() -> S,
+) : CopyableContinuation<T>, CoroutineContext.Element {
+  override val context: CoroutineContext = completion.context + this
+
+  override fun resumeWith(result: Result<T>) {
+    val exception = result.exceptionOrNull()
+    if (exception is SeekingCoroutineContextException) exception.use(context)
+    else completion.resumeWith(result)
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  override fun copy(completion: Continuation<*>): ReaderHole<T, S> =
+    copy(completion = completion as Continuation<T>, state = state.fork())
+}
+
+public suspend fun <S> Reader<S>.deleteBinding(): S = suspendCoroutineUnintercepted { k ->
+  val hole = k.context[this] ?: error("Reader $this not set")
+  hole.deleteBinding(k)
+}
+
+private fun <T, S> ReaderHole<T, S>.deleteBinding(k: Continuation<S>) =
+  k.collectSubchain(this).replace(InterceptedHole(completion)).resumeWith(Result.success(state))
 
 private fun <T> CoroutineContext.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Continuation<T> {
   val hole = this[prompt] ?: error("Prompt $prompt not set")
   return if (deleteDelimiter) hole.completion else hole
 }
 
+@Suppress("UNCHECKED_CAST")
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineUnintercepted { k ->
-  val subchain = k.collectSubchain(this)
-  val hole = subchain.hole
-  body.startCoroutine(SubCont(subchain), if (deleteDelimiter) hole.completion else hole)
+  val hole = k.context[this] ?: error("Prompt $this not set")
+  val subchain = k.collectSubchain(hole)
+  body.startCoroutine(SubCont(subchain, hole.key), if (deleteDelimiter) hole.completion else hole)
 }
 
 // Acts like shift0/shift { it(body()) }
@@ -142,6 +132,7 @@ public suspend fun <T> Prompt<*>.inHandlingContext(
   includeBodyContext: Boolean = false, body: suspend () -> T
 ): T = suspendCoroutineUnintercepted { k ->
   val hole = k.context.holeFor(this, !includeBodyContext)
+  // TODO make it a CopyableContinuation
   body.startCoroutine(Continuation(hole.context) {
     val exception = it.exceptionOrNull()
     if (exception is SeekingCoroutineContextException) exception.use(hole.context)
@@ -171,7 +162,8 @@ private class AbortWithProducerException(
 
 public suspend fun Prompt<*>.isSet(): Boolean = coroutineContext[this] != null
 
-public class Prompt<R> : CoroutineContext.Key<Hole<R>>
+public class Prompt<R> : CoroutineContext.Key<PromptHole<R>>
+public class Reader<S> : CoroutineContext.Key<ReaderHole<*, S>>
 
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
 internal expect abstract class SeekingCoroutineContextException() : CancellationException {

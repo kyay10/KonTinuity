@@ -1,7 +1,7 @@
 import kotlin.jvm.JvmInline
 
 @JvmInline
-public value class Fcontrol<Error, T> internal constructor(private val reader: Reader<suspend (Error) -> T>) {
+public value class Fcontrol<Error, T> private constructor(private val reader: Reader<suspend (Error) -> T>) {
   public constructor() : this(Reader())
 
   @ResetDsl
@@ -12,7 +12,9 @@ public value class Fcontrol<Error, T> internal constructor(private val reader: R
     handler: suspend (Error, SubCont<T, R>) -> R, body: suspend () -> R
   ): R {
     val prompt = Prompt<R>()
-    return prompt.pushPrompt(extraContext = reader.context { prompt.takeSubCont(false) { k -> handler(it, k) } }, body = body)
+    return reader.pushReader({ prompt.takeSubCont(false) { k -> handler(it, k) } }) {
+      prompt.pushPrompt(body)
+    }
   }
 
   @ResetDsl
@@ -20,7 +22,14 @@ public value class Fcontrol<Error, T> internal constructor(private val reader: R
     handler: suspend (Error, SubCont<T, R>) -> R, body: suspend () -> R
   ): R {
     val prompt = Prompt<R>()
-    return prompt.pushPrompt(extraContext = reader.context { prompt.takeSubCont { k -> handler(it, k) } }, body = body)
+    return reader.pushReader({
+      prompt.takeSubCont { k ->
+        reader.deleteBinding()
+        handler(it, k)
+      }
+    }) {
+      prompt.pushPrompt(body)
+    }
   }
 }
 
