@@ -30,7 +30,12 @@ private tailrec fun <T> copyDeclaredFields(
     val field = fields[i]
     when (field.type) {
       Int::class.java -> field.setInt(copy, field.getInt(obj))
-      else -> field.set(copy, field.get(obj))
+      else -> {
+        val v = field.get(obj)
+        // Sometimes generated continuations contain references to themselves
+        // hence we need to change that immediate reference (or else we run into memory leaks)
+        field.set(copy, if (v === obj) copy else v)
+      }
     }
   }
   val superclass = clazz.superclass

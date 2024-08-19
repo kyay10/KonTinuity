@@ -3,6 +3,7 @@ package effekt
 import Prompt
 import Reader
 import abortS0
+import abortWith0
 import ask
 import pushReader
 import reset
@@ -19,11 +20,13 @@ public interface StatefulHandler<E, S> : Handler<E> {
 
 public suspend fun <E, S> StatefulHandler<E, S>.get(): S = reader.ask()
 
-public suspend fun <A, E> Handler<E>.use(body: suspend (Cont<A, E>) -> E): A = prompt().prompt.takeSubCont { sk ->
+public suspend inline fun <A, E> Handler<E>.use(crossinline body: suspend (Cont<A, E>) -> E): A = prompt().prompt.takeSubCont { sk ->
   body(Cont(sk))
 }
 
 public fun <E> Handler<E>.discard(body: suspend () -> E): Nothing = prompt().prompt.abortS0(body)
+
+public fun <E> Handler<E>.discardWith(value: Result<E>): Nothing = prompt().prompt.abortWith0(value)
 
 public suspend fun <E, H> handle(
   handler: ((() -> HandlerPrompt<E>) -> H), body: suspend H.() -> E
@@ -58,7 +61,7 @@ public suspend fun <E, S> StatefulHandler<E, S>.handleStateful(
 }
 
 @JvmInline
-public value class HandlerPrompt<E> private constructor(internal val prompt: Prompt<E>) : Handler<E> {
+public value class HandlerPrompt<E> private constructor(@PublishedApi internal val prompt: Prompt<E>) : Handler<E> {
   public constructor() : this(Prompt())
 
   override fun prompt(): HandlerPrompt<E> = this
@@ -69,7 +72,7 @@ public class StatefulPrompt<E, S>(
 ) : StatefulHandler<E, S>, Handler<E> by prompt
 
 @JvmInline
-public value class Cont<in T, out R> internal constructor(internal val subCont: SubCont<T, R>) {
+public value class Cont<in T, out R> @PublishedApi internal constructor(internal val subCont: SubCont<T, R>) {
   public suspend fun resumeWith(value: Result<T>, isFinal: Boolean = false): R =
     subCont.pushSubContWith(value, isDelimiting = true, isFinal)
 
@@ -77,4 +80,5 @@ public value class Cont<in T, out R> internal constructor(internal val subCont: 
 
   public suspend fun resumeWithException(exception: Throwable, isFinal: Boolean = false): R =
     resumeWith(Result.failure(exception), isFinal)
+  public fun copy(): Cont<T, R> = Cont(subCont.copy())
 }

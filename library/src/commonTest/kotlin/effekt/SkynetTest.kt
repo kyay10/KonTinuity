@@ -3,6 +3,7 @@ package effekt
 import io.kotest.matchers.shouldBe
 import runTestCC
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.minutes
 
 // skynet benchmark:
 //    https://github.com/atemerev/skynet
@@ -50,8 +51,8 @@ class SkynetTest {
   //
   // we also perform "busy waiting" which is pretty slow since it captures the
   // continuation on every wait cycle ...
-  // @Test TODO throws OutOfMemoryError
-  fun skynetScheduler() = runTestCC {
+  @Test
+  fun skynetScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
@@ -72,7 +73,7 @@ class SkynetTest {
       return data.sum
     }
 
-    scheduler2 { skynet(0, 1_000_000, 10) } shouldBe 499_999_500_000L
+    scheduler2 { skynet(0, 1_000_000, 10) shouldBe 499_999_500_000L }
   }
 
   // every fiber suspends once before returning the result.

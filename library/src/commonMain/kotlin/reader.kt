@@ -1,9 +1,12 @@
-import kotlin.coroutines.coroutineContext
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 
-public suspend fun <T> Reader<T>.ask(): T = (coroutineContext[this] ?: error("Reader $this not set")).state
-public suspend fun <T> Reader<T>.askOrNull(): T? = coroutineContext[this]?.state
+public suspend fun <T> Reader<T>.ask(): T = suspendCoroutineUninterceptedOrReturn {
+  findNearestSplitSeq(it).find(this)
+}
 
-public suspend fun Reader<*>.isSet(): Boolean = coroutineContext[this] != null
+public suspend fun <T> Reader<T>.askOrNull(): T? = suspendCoroutineUninterceptedOrReturn {
+  findNearestSplitSeq(it).findOrNull(this)
+}
 
 public suspend fun <T, R> runReader(value: T, fork: T.() -> T = { this }, body: suspend Reader<T>.() -> R): R =
   with(Reader<T>()) {

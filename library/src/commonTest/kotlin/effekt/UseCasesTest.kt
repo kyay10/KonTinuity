@@ -4,7 +4,7 @@ import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
+import runTestCC
 import kotlin.test.Test
 
 class UseCasesTest {
@@ -21,7 +21,7 @@ class UseCasesTest {
   }
 
   @Test
-  fun example() = runTest {
+  fun example() = runTestCC {
     "123".parseAll(Parser2::number) shouldBe listOf(123, 12, 1)
     "123".parseBacktrack { number() } shouldBe Some(123)
   }
