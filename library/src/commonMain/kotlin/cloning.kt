@@ -1,4 +1,3 @@
-import arrow.core.tail
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.intercepted
@@ -29,10 +28,12 @@ internal value class Frame<in A, out B>(val cont: Continuation<A>) {
 }
 
 @JvmInline
-internal value class FrameList<in Start, First, out End>(val list: List<Continuation<*>>) {
+internal value class FrameList<in Start, First, out End>(val frame: Frame<Start, First>) {
   @Suppress("UNCHECKED_CAST")
-  fun head() = Frame<_, First>(list.first() as Continuation<Start>)
-  fun tail(): FrameList<First, *, End>? = if (list.size == 1) null else FrameList<First, Nothing, End>(list.tail())
+  private val completion: Continuation<First> get() = frame.cont.completion as Continuation<First>
+  fun head() = frame
+  fun tail(): FrameList<First, *, End>? =
+    if (completion is EmptyContinuation) null else FrameList<First, Nothing, End>(Frame(completion))
 }
 
 internal sealed interface SplitSeq<in Start, First, out End> : Continuation<Start> {
@@ -197,6 +198,7 @@ internal tailrec infix fun <Start, First, End, FurtherEnd> Segment<Start, First,
       // Start == End
       stack as SplitSeq<Start, *, FurtherEnd>
     }
+
     is FramesSegment<Start, First, *, *, End> -> init prependTo FramesCont(frames, stack)
 
     is PromptSegment<Start, First, End> -> init prependTo PromptCont(prompt, stack)
@@ -229,12 +231,15 @@ internal fun <R> collectStack(continuation: Continuation<R>): SplitSeq<R, *, *> 
       if (it is SplitSeq<*, *, *>) {
         return@run it
       }
-      // instead of copying every continuation, we could also just copy the last one
-      list.add(it.copy(EmptyContinuation(it.context)))
+      list.add(it)
     }
     error("No SplitSeq found in stack")
   }
-  return FrameList<R, Any?, Nothing>(list).asFramesCont(last)
+  var current: Continuation<*> = EmptyContinuation(last.context)
+  for (i in list.lastIndex downTo 1) {
+    current = list[i].copy(current)
+  }
+  return FrameList<R, Any?, Nothing>(Frame(continuation.copy(current))).asFramesCont(last)
 }
 
 internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*, *, *> {
@@ -244,27 +249,6 @@ internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*, *, 
     }
   }
   error("No SplitSeq found in stack")
-}
-
-private fun <R> collectStack2(continuation: Continuation<R>): SplitSeq<R, *, *> {
-  val list = mutableListOf<Continuation<*>>()
-  val last: SplitSeq<*, *, *> = run {
-    continuation.forEach {
-      if (it is SplitSeq<*, *, *>) {
-        return@run it
-      }
-      list.add(it.copy(EmptyContinuation(it.context)))
-    }
-    error("No SplitSeq found in stack")
-  }
-  return when {
-    last is FramesCont<*, *, *, *> -> {
-      list.addAll(last.frames.list)
-      FrameList<R, Any?, Nothing>(list).asFramesCont(last.rest)
-    }
-
-    else -> FrameList<R, Any?, Nothing>(list).asFramesCont(last)
-  }
 }
 
 private data class EmptyContinuation(override val context: CoroutineContext) : Continuation<Any?> {
