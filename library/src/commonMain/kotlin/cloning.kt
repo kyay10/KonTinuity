@@ -30,9 +30,9 @@ internal value class Frame<in A, out B>(val cont: Continuation<A>) {
 
 @JvmInline
 internal value class FrameList<in Start, First, out End>(val list: List<Continuation<*>>) {
-  fun isEmpty() = list.isEmpty()
+  @Suppress("UNCHECKED_CAST")
   fun head() = Frame<_, First>(list.first() as Continuation<Start>)
-  fun tail() = FrameList<First, Nothing, End>(list.tail()) as FrameList<First, *, End>
+  fun tail(): FrameList<First, *, End>? = if (list.size == 1) null else FrameList<First, Nothing, End>(list.tail())
 }
 
 internal sealed interface SplitSeq<in Start, First, out End> : Continuation<Start> {
@@ -57,15 +57,17 @@ internal tailrec fun <Start, First, End, P, FurtherStart, FurtherFirst> SplitSeq
   is PromptCont -> if (p === this.p) {
     // Start and P are now unified, but the compiler doesn't get it
     val pair: Pair<Segment<FurtherStart, FurtherFirst, Start>, SplitSeq<Start, *, End>> = seg to rest
+    @Suppress("UNCHECKED_CAST")
     pair as Pair<Segment<FurtherStart, FurtherFirst, P>, SplitSeq<P, *, End>>
   } else {
     rest.splitAtAux(p, PromptSegment(this.p, seg))
   }
 
-  is ReaderCont<*, Start, First, End> -> rest.splitAtAux(
-    p, ReaderSegment(this.p as Reader<Any?>, state, fork as (Any?.() -> Any?), seg)
-  )
+  is ReaderCont<*, Start, First, End> -> rest.splitAtAux(p, toSegment(seg))
 }
+
+private fun <State, Start, First, End, FurtherStart, FurtherFirst> ReaderCont<State, Start, First, End>.toSegment(seg: Segment<FurtherStart, FurtherFirst, Start>): ReaderSegment<State, FurtherStart, FurtherFirst, Start> =
+  ReaderSegment(p, state, fork, seg)
 
 internal tailrec fun <Start, First, End, FurtherStart, FurtherFirst> SplitSeq<Start, First, End>.splitAtAux(
   p: Reader<*>, seg: Segment<FurtherStart, FurtherFirst, Start>
@@ -75,16 +77,19 @@ internal tailrec fun <Start, First, End, FurtherStart, FurtherFirst> SplitSeq<St
   is PromptCont -> rest.splitAtAux(p, PromptSegment(this.p, seg))
   is ReaderCont<*, Start, First, End> -> if (p === this.p) {
     seg to rest
-  } else rest.splitAtAux(
-    p, ReaderSegment(this.p as Reader<Any?>, state, fork as (Any?.() -> Any?), seg)
-  )
+  } else rest.splitAtAux(p, toSegment(seg))
 }
 
 internal tailrec fun <Start, End, P> SplitSeq<Start, *, End>.find(p: Prompt<P>): SplitSeq<P, *, End> = when (this) {
   is EmptyCont -> error("Prompt not found $p")
 
   is FramesCont<Start, *, *, End> -> rest.find(p)
-  is PromptCont -> if (p === this.p) rest as SplitSeq<P, *, End> else rest.find(p)
+  is PromptCont -> if (p === this.p) {
+    // Start and P are now unified, but the compiler doesn't get it
+    @Suppress("UNCHECKED_CAST")
+    this.rest as SplitSeq<P, *, End>
+  } else rest.find(p)
+
   is ReaderCont<*, Start, *, End> -> rest.find(p)
 }
 
@@ -92,27 +97,36 @@ internal tailrec fun <Start, End, S> SplitSeq<Start, *, End>.find(p: Reader<S>):
   is EmptyCont -> error("Reader not found $p")
   is FramesCont<Start, *, *, End> -> rest.find(p)
   is PromptCont -> rest.find(p)
-  is ReaderCont<*, Start, *, End> -> if (p === this.p) state as S else rest.find(p)
+  is ReaderCont<*, Start, *, End> -> if (p === this.p) {
+    @Suppress("UNCHECKED_CAST")
+    this.state as S
+  } else rest.find(p)
 }
 
 internal tailrec fun <Start, End, S> SplitSeq<Start, *, End>.findOrNull(p: Reader<S>): S? = when (this) {
   is EmptyCont -> null
   is FramesCont<Start, *, *, End> -> rest.findOrNull(p)
   is PromptCont -> rest.findOrNull(p)
-  is ReaderCont<*, Start, *, End> -> if (p === this.p) state as S else rest.findOrNull(p)
+  is ReaderCont<*, Start, *, End> -> if (p === this.p) {
+    @Suppress("UNCHECKED_CAST")
+    this.state as S
+  } else rest.find(p)
 }
 
 internal val SplitSeq<*, *, *>.nonEmpty get() = !isEmpty
 
-internal fun <Start, First, End, P> SplitSeq<Start, First, End>.splitAt(p: Prompt<P>): Pair<Segment<Start, First, P>, SplitSeq<P, *, End>> =
+internal fun <Start, First, End, P> SplitSeq<Start, First, End>.splitAt(p: Prompt<P>): Pair<Segment<Start, *, P>, SplitSeq<P, *, End>> =
   splitAtAux(p, emptySegment())
 
-internal fun <Start, First, End> SplitSeq<Start, First, End>.splitAt(p: Reader<*>): Pair<Segment<Start, First, *>, SplitSeq<*, *, End>> =
+internal fun <Start, First, End> SplitSeq<Start, First, End>.splitAt(p: Reader<*>): Pair<Segment<Start, *, *>, SplitSeq<*, *, End>> =
   splitAtAux(p, emptySegment())
 
-internal fun <P, First, End> SplitSeq<P, First, End>.pushPrompt(p: Prompt<P>): PromptCont<P, First, End> = PromptCont(p, this)
-internal fun <S, P, First, End> SplitSeq<P, First, End>.pushReader(p: Reader<S>, value: S, fork: S.() -> S): ReaderCont<S, P, First, End> =
-  ReaderCont(p, value, fork, this)
+internal fun <P, First, End> SplitSeq<P, First, End>.pushPrompt(p: Prompt<P>): PromptCont<P, First, End> =
+  PromptCont(p, this)
+
+internal fun <S, P, First, End> SplitSeq<P, First, End>.pushReader(
+  p: Reader<S>, value: S, fork: S.() -> S
+): ReaderCont<S, P, First, End> = ReaderCont(p, value, fork, this)
 
 internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : SplitSeq<Start, Nothing, Nothing> {
   override val isEmpty = true
@@ -126,7 +140,7 @@ internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : Spli
 }
 
 internal fun <Start, First, End, FurtherEnd> FrameList<Start, First, End>.asFramesCont(rest: SplitSeq<End, *, FurtherEnd>): SplitSeq<Start, First, FurtherEnd> =
-  if(isEmpty()) rest as SplitSeq<Start, First, FurtherEnd> else FramesCont(this, rest)
+  FramesCont(this, rest)
 
 // frame :: frames ::: rest
 internal data class FramesCont<Start, First, Last, End>(
@@ -134,9 +148,10 @@ internal data class FramesCont<Start, First, Last, End>(
 ) : SplitSeq<Start, First, End> {
   override val isEmpty get() = false
   override val head get() = frames.head()
-  override val tail get() = frames.tail().asFramesCont(rest)
 
-  //override fun <FurtherStart> push(f: Frame<FurtherStart, Start>) = FramesCont(f, frame prependTo frames, rest)
+  @Suppress("UNCHECKED_CAST")
+  override val tail: SplitSeq<First, *, End> = frames.tail()?.asFramesCont(rest)
+    ?: rest as SplitSeq<First, *, End> // First == Last, but the compiler doesn't get it
 
   override val context: CoroutineContext = rest.context
 }
@@ -176,26 +191,22 @@ internal data class ReaderCont<State, Start, First, End>(
 // stored in the current prompt
 internal sealed interface Segment<in Start, First, out End>
 
-internal infix fun <Start, First, End, FurtherEnd> Segment<Start, First, End>.prependTo(stack: SplitSeq<End, *, FurtherEnd>): SplitSeq<Start, First, FurtherEnd> =
-  prependTo2(stack) as SplitSeq<Start, First, FurtherEnd>
-
-private tailrec infix fun <Start, First, End, FurtherEnd> Segment<Start, First, End>.prependTo2(stack: SplitSeq<End, *, FurtherEnd>): SplitSeq<*, *, *> =
+internal tailrec infix fun <Start, First, End, FurtherEnd> Segment<Start, First, End>.prependTo(stack: SplitSeq<End, *, FurtherEnd>): SplitSeq<Start, *, FurtherEnd> =
   when (this) {
-    is EmptySegment -> stack
-    is FramesSegment<Start, First, *, *, End> -> init.prependTo2(
-      FramesCont(
-        frames as FrameList<Any?, Any?, Any?>, stack as SplitSeq<Any?, *, *>
-      )
-    )
-
-    is PromptSegment<Start, First, End> -> init.prependTo2(PromptCont(prompt, stack))
-    is ReaderSegment<*, Start, First, End> -> {
-      val f = fork as (Any?.() -> Any?)
-      init.prependTo2(ReaderCont(prompt as Reader<Any?>, f(state), f, stack))
+    is EmptySegment -> {
+      // Start == End
+      stack as SplitSeq<Start, *, FurtherEnd>
     }
+    is FramesSegment<Start, First, *, *, End> -> init prependTo FramesCont(frames, stack)
+
+    is PromptSegment<Start, First, End> -> init prependTo PromptCont(prompt, stack)
+    is ReaderSegment<*, Start, First, End> -> init prependTo toCont(stack)
   }
 
-internal fun <T, First> emptySegment(): Segment<T, First, T> = EmptySegment as Segment<T, First, T>
+private fun <State, Start, First, End, FurtherEnd> ReaderSegment<State, Start, First, End>.toCont(stack: SplitSeq<End, *, FurtherEnd>): ReaderCont<State, End, *, FurtherEnd> =
+  ReaderCont(prompt, fork(state), fork, stack)
+
+internal fun <T> emptySegment(): Segment<T, *, T> = EmptySegment as Segment<T, *, T>
 
 internal data object EmptySegment : Segment<Any?, Nothing, Any?>
 
@@ -223,7 +234,7 @@ internal fun <R> collectStack(continuation: Continuation<R>): SplitSeq<R, *, *> 
     }
     error("No SplitSeq found in stack")
   }
-  return FrameList<R, Any?, Any?>(list).asFramesCont(last as SplitSeq<Any?, *, *>)
+  return FrameList<R, Any?, Nothing>(list).asFramesCont(last)
 }
 
 internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*, *, *> {
@@ -247,13 +258,12 @@ private fun <R> collectStack2(continuation: Continuation<R>): SplitSeq<R, *, *> 
     error("No SplitSeq found in stack")
   }
   return when {
-    list.isEmpty() -> last as SplitSeq<R, *, *>
     last is FramesCont<*, *, *, *> -> {
       list.addAll(last.frames.list)
-      FrameList<R, Any?, Any?>(list).asFramesCont(last.rest as SplitSeq<Any?, *, *>)
+      FrameList<R, Any?, Nothing>(list).asFramesCont(last.rest)
     }
 
-    else -> FrameList<R, Any?, Any?>(list).asFramesCont(last as SplitSeq<Any?, *, *>)
+    else -> FrameList<R, Any?, Nothing>(list).asFramesCont(last)
   }
 }
 
