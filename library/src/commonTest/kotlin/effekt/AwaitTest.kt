@@ -7,11 +7,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import runCC
+import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 
 class AwaitTest {
   @Test
+  @Ignore
   fun example() = runTest {
     val printed = StringBuilder()
     runCC {

@@ -13,7 +13,7 @@ public class SubCont<in T, out R> internal constructor(
 ) {
   private fun composedWith(
     k: Continuation<R>, isDelimiting: Boolean, isFinal: Boolean
-  ) = (init!! prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it }).also {
+  ) = (init!! prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it.intercepted() }).also {
     if (isFinal) init = null
   }
 

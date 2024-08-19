@@ -24,7 +24,8 @@ internal object CompilerGenerated {
 
 @JvmInline
 internal value class Frame<in A, out B>(val cont: Continuation<A>) {
-  fun resumeWith(value: Result<A>, into: Continuation<B>) = cont.copy(into).intercepted().resumeWith(value)
+  fun resumeWith(value: Result<A>, into: Continuation<B>) = cont.copy(into).resumeWith(value)
+  fun resumeWithIntercepted(value: Result<A>, into: Continuation<B>) = cont.copy(into).intercepted().resumeWith(value)
 }
 
 @JvmInline
@@ -37,17 +38,42 @@ internal value class FrameList<in Start, First, out End>(val frame: Frame<Start,
 }
 
 internal sealed interface SplitSeq<in Start, First, out End> : Continuation<Start> {
-  val isEmpty: Boolean
-  val head: Frame<Start, First>
-  val tail: SplitSeq<First, *, End>
-
-  override fun resumeWith(result: Result<Start>) = if (nonEmpty) {
+  override fun resumeWith(result: Result<Start>) {
     val exception = result.exceptionOrNull()
     if (exception is SeekingStackException) exception.use(this)
-    else {
-      head.resumeWith(result, tail)
+    else resumeWithImpl(
+      result, isIntercepted = when (this) {
+        is InterceptedCont -> true
+        is PromptCont -> true
+        else -> false
+      }
+    )
+  }
+}
+
+private fun <Start> SplitSeq<Start, *, *>.resumeWithImpl(result: Result<Start>, isIntercepted: Boolean) {
+  var current: SplitSeq<Start, *, *> = this
+  var isIntercepted = isIntercepted
+  while (true) {
+    when (current) {
+      is EmptyCont -> return (if (isIntercepted) current.underlying.intercepted() else current.underlying).resumeWith(
+        result
+      )
+
+      is FramesCont<Start, *, *, *> -> return current.resumeWithImpl(result, isIntercepted)
+      is InterceptedCont -> {
+        current = current.rest
+        isIntercepted = true
+      }
+
+      is PromptCont -> {
+        current = current.rest
+        isIntercepted = true
+      }
+
+      is ReaderCont<*, Start, *, *> -> current = current.rest
     }
-  } else error("No continuation to resume with $result")
+  }
 }
 
 internal tailrec fun <Start, First, End, P, FurtherStart, FurtherFirst> SplitSeq<Start, First, End>.splitAtAux(
@@ -65,6 +91,7 @@ internal tailrec fun <Start, First, End, P, FurtherStart, FurtherFirst> SplitSeq
   }
 
   is ReaderCont<*, Start, First, End> -> rest.splitAtAux(p, toSegment(seg))
+  is InterceptedCont -> rest.splitAtAux(p, InterceptedSegment(seg))
 }
 
 private fun <State, Start, First, End, FurtherStart, FurtherFirst> ReaderCont<State, Start, First, End>.toSegment(seg: Segment<FurtherStart, FurtherFirst, Start>): ReaderSegment<State, FurtherStart, FurtherFirst, Start> =
@@ -79,6 +106,8 @@ internal tailrec fun <Start, First, End, FurtherStart, FurtherFirst> SplitSeq<St
   is ReaderCont<*, Start, First, End> -> if (p === this.p) {
     seg to rest
   } else rest.splitAtAux(p, toSegment(seg))
+
+  is InterceptedCont -> rest.splitAtAux(p, InterceptedSegment(seg))
 }
 
 internal tailrec fun <Start, End, P> SplitSeq<Start, *, End>.find(p: Prompt<P>): SplitSeq<P, *, End> = when (this) {
@@ -92,6 +121,7 @@ internal tailrec fun <Start, End, P> SplitSeq<Start, *, End>.find(p: Prompt<P>):
   } else rest.find(p)
 
   is ReaderCont<*, Start, *, End> -> rest.find(p)
+  is InterceptedCont -> rest.find(p)
 }
 
 internal tailrec fun <Start, End, S> SplitSeq<Start, *, End>.find(p: Reader<S>): S = when (this) {
@@ -102,6 +132,8 @@ internal tailrec fun <Start, End, S> SplitSeq<Start, *, End>.find(p: Reader<S>):
     @Suppress("UNCHECKED_CAST")
     this.state as S
   } else rest.find(p)
+
+  is InterceptedCont -> rest.find(p)
 }
 
 internal tailrec fun <Start, End, S> SplitSeq<Start, *, End>.findOrNull(p: Reader<S>): S? = when (this) {
@@ -112,9 +144,9 @@ internal tailrec fun <Start, End, S> SplitSeq<Start, *, End>.findOrNull(p: Reade
     @Suppress("UNCHECKED_CAST")
     this.state as S
   } else rest.find(p)
-}
 
-internal val SplitSeq<*, *, *>.nonEmpty get() = !isEmpty
+  is InterceptedCont -> rest.findOrNull(p)
+}
 
 internal fun <Start, First, End, P> SplitSeq<Start, First, End>.splitAt(p: Prompt<P>): Pair<Segment<Start, *, P>, SplitSeq<P, *, End>> =
   splitAtAux(p, emptySegment())
@@ -129,15 +161,11 @@ internal fun <S, P, First, End> SplitSeq<P, First, End>.pushReader(
   p: Reader<S>, value: S, fork: S.() -> S
 ): ReaderCont<S, P, First, End> = ReaderCont(p, value, fork, this)
 
+internal fun <P, First, End> SplitSeq<P, First, End>.intercepted(): SplitSeq<P, First, End> =
+  if (this is InterceptedCont || this is PromptCont) this else InterceptedCont(this)
+
 internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : SplitSeq<Start, Nothing, Nothing> {
-  override val isEmpty = true
-  override val head get() = error("No head on EmptyCont")
-  override val tail get() = error("No tail on EmptyCont")
-
-  override val context: CoroutineContext
-    get() = underlying.context
-
-  override fun resumeWith(result: Result<Start>) = underlying.resumeWith(result)
+  override val context: CoroutineContext = underlying.context
 }
 
 internal fun <Start, First, End, FurtherEnd> FrameList<Start, First, End>.asFramesCont(rest: SplitSeq<End, *, FurtherEnd>): SplitSeq<Start, First, FurtherEnd> =
@@ -147,12 +175,17 @@ internal fun <Start, First, End, FurtherEnd> FrameList<Start, First, End>.asFram
 internal data class FramesCont<Start, First, Last, End>(
   val frames: FrameList<Start, First, Last>, val rest: SplitSeq<Last, *, End>
 ) : SplitSeq<Start, First, End> {
-  override val isEmpty get() = false
-  override val head get() = frames.head()
+  val head get() = frames.head()
 
   @Suppress("UNCHECKED_CAST")
-  override val tail: SplitSeq<First, *, End> = frames.tail()?.asFramesCont(rest)
+  val tail: SplitSeq<First, *, End> = frames.tail()?.asFramesCont(rest)
     ?: rest as SplitSeq<First, *, End> // First == Last, but the compiler doesn't get it
+
+  fun resumeWithImpl(result: Result<Start>, isIntercepted: Boolean) = if (isIntercepted) {
+    head.resumeWithIntercepted(result, tail)
+  } else {
+    head.resumeWith(result, tail)
+  }
 
   override val context: CoroutineContext = rest.context
 }
@@ -160,31 +193,20 @@ internal data class FramesCont<Start, First, Last, End>(
 internal data class PromptCont<Start, First, End>(
   val p: Prompt<Start>, val rest: SplitSeq<Start, First, End>
 ) : SplitSeq<Start, First, End> {
-  override val isEmpty get() = rest.isEmpty
-  override val head get() = rest.head
-  override val tail get() = rest.tail
-  override val context get() = rest.context
-
-  override fun resumeWith(result: Result<Start>) {
-    val exception = result.exceptionOrNull()
-    if (exception is SeekingStackException) exception.use(this)
-    else rest.resumeWith(result)
-  }
+  override val context = rest.context
 }
 
 internal data class ReaderCont<State, Start, First, End>(
   val p: Reader<State>, val state: State, val fork: State.() -> State, val rest: SplitSeq<Start, First, End>
 ) : SplitSeq<Start, First, End> {
-  override val isEmpty get() = rest.isEmpty
-  override val head get() = rest.head
-  override val tail get() = rest.tail
-  override val context get() = rest.context
+  override val context = rest.context
+}
 
-  override fun resumeWith(result: Result<Start>) {
-    val exception = result.exceptionOrNull()
-    if (exception is SeekingStackException) exception.use(this)
-    else rest.resumeWith(result)
-  }
+// TODO: flatten down by instead making a special version of FramesCont and EmptyCont
+internal data class InterceptedCont<Start, First, End>(
+  val rest: SplitSeq<Start, First, End>
+) : SplitSeq<Start, First, End> {
+  override val context = rest.context
 }
 
 // sub continuations / stack segments
@@ -203,6 +225,7 @@ internal tailrec infix fun <Start, First, End, FurtherEnd> Segment<Start, First,
 
     is PromptSegment<Start, First, End> -> init prependTo PromptCont(prompt, stack)
     is ReaderSegment<*, Start, First, End> -> init prependTo toCont(stack)
+    is InterceptedSegment<Start, First, End> -> init prependTo InterceptedCont(stack)
   }
 
 private fun <State, Start, First, End, FurtherEnd> ReaderSegment<State, Start, First, End>.toCont(stack: SplitSeq<End, *, FurtherEnd>): ReaderCont<State, End, *, FurtherEnd> =
@@ -215,6 +238,10 @@ internal data object EmptySegment : Segment<Any?, Nothing, Any?>
 internal data class FramesSegment<FurtherStart, FurtherFirst, Start, First, End>(
   val frames: FrameList<Start, First, End>, val init: Segment<FurtherStart, FurtherFirst, Start>
 ) : Segment<FurtherStart, FurtherFirst, End>
+
+internal data class InterceptedSegment<Start, First, End>(
+  val init: Segment<Start, First, End>
+) : Segment<Start, First, End>
 
 internal data class PromptSegment<Start, First, End>(
   val prompt: Prompt<End>, val init: Segment<Start, First, End>

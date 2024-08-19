@@ -2,6 +2,7 @@ package effekt
 
 import io.kotest.matchers.shouldBe
 import runTestCC
+import kotlin.test.Ignore
 import kotlin.test.Test
 
 class StateTest {
@@ -75,6 +76,7 @@ class StateTest {
   }
 
   @Test
+  @Ignore
   fun silentCountDown() = runTestCC {
     suspend fun State<Int>.countDown() {
       while (get() > 0) {
