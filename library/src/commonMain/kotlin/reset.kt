@@ -8,7 +8,7 @@ import kotlin.coroutines.intrinsics.*
 public annotation class ResetDsl
 
 public class SubCont<in T, out R> internal constructor(
-  private var init: Segment<T, R>?,
+  private var init: Segment<T, *, R>?,
   private val prompt: Prompt<R>
 ) {
   private fun composedWith(
@@ -61,10 +61,10 @@ public suspend fun <R> nonReentrant(
 public suspend fun <S> Reader<S>.deleteBinding(): Unit = suspendCoroutineUnintercepted { k ->
   val stack = collectStack(k)
   val (init, rest) = stack.splitAt(this)
-  (init as Segment<Any?, Any?> prependTo rest as SplitSeq<Any?, Any?>).resume(Unit)
+  (init as Segment<Any?, *, Any?> prependTo rest as SplitSeq<Any?, *, Any?>).resume(Unit)
 }
 
-private fun <T> SplitSeq<*, *>.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Continuation<T> {
+private fun <T> SplitSeq<*, *, *>.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): Continuation<T> {
   val splitSeq = find(prompt)
   return if (deleteDelimiter) splitSeq else splitSeq.pushPrompt(prompt)
 }
@@ -95,7 +95,7 @@ internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>)
 private class AbortWithValueException(
   private val prompt: Prompt<Any?>, private val value: Result<Any?>, private val deleteDelimiter: Boolean
 ) : SeekingStackException() {
-  override fun use(stack: SplitSeq<*, *>) = stack.holeFor(prompt, deleteDelimiter).resumeWith(value)
+  override fun use(stack: SplitSeq<*, *, *>) = stack.holeFor(prompt, deleteDelimiter).resumeWith(value)
 }
 
 @Suppress("UNCHECKED_CAST")
@@ -105,7 +105,7 @@ internal fun <R> Prompt<R>.abortS(deleteDelimiter: Boolean = false, value: suspe
 private class AbortWithProducerException(
   private val prompt: Prompt<Any?>, private val value: suspend () -> Any?, private val deleteDelimiter: Boolean
 ) : SeekingStackException() {
-  override fun use(stack: SplitSeq<*, *>) = value.startCoroutine(stack.holeFor(prompt, deleteDelimiter))
+  override fun use(stack: SplitSeq<*, *, *>) = value.startCoroutine(stack.holeFor(prompt, deleteDelimiter))
 }
 
 public class Prompt<R>
@@ -113,7 +113,7 @@ public class Reader<S>
 
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
 internal expect abstract class SeekingStackException() : CancellationException {
-  abstract fun use(stack: SplitSeq<*, *>)
+  abstract fun use(stack: SplitSeq<*, *, *>)
 }
 
 public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
