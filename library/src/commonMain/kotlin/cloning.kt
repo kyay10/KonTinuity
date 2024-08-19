@@ -53,7 +53,7 @@ internal tailrec fun <Start, End, P, FurtherStart> SplitSeq<Start, End>.splitAtA
   p: Prompt<P>, seg: Segment<FurtherStart, Start>
 ): Pair<Segment<FurtherStart, P>, SplitSeq<P, End>> = when (this) {
   is EmptyCont -> error("Prompt not found $p in $seg")
-  is FramesCont<Start, *, *, End> -> rest.splitAtAux(p, FramesSegment(frame, frames, seg))
+  is FramesCont<Start, *, *, End> -> rest.splitAtAux(p, FramesSegment(frames, seg))
   is PromptCont -> if (p === this.p) {
     // Start and P are now unified, but the compiler doesn't get it
     val pair: Pair<Segment<FurtherStart, Start>, SplitSeq<Start, End>> = seg to rest
@@ -71,7 +71,7 @@ internal tailrec fun <Start, End, FurtherStart> SplitSeq<Start, End>.splitAtAux(
   p: Reader<*>, seg: Segment<FurtherStart, Start>
 ): Pair<Segment<FurtherStart, *>, SplitSeq<*, End>> = when (this) {
   is EmptyCont -> error("Prompt not found $p in $seg")
-  is FramesCont<Start, *, *, End> -> rest.splitAtAux(p, FramesSegment(frame, frames, seg))
+  is FramesCont<Start, *, *, End> -> rest.splitAtAux(p, FramesSegment(frames, seg))
   is PromptCont -> rest.splitAtAux(p, PromptSegment(this.p, seg))
   is ReaderCont<*, Start, End> -> if (p === this.p) {
     seg to rest
@@ -125,18 +125,17 @@ internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : Spli
   override fun resumeWith(result: Result<Start>) = underlying.resumeWith(result)
 }
 
-internal fun <Start, First, End, FurtherEnd> FrameList<Start, First, End>.asFramesCont(rest: SplitSeq<End, FurtherEnd>): FramesCont<Start, First, End, FurtherEnd> =
-  FramesCont(head(), tail(), rest)
+internal fun <Start, First, End, FurtherEnd> FrameList<Start, First, End>.asFramesCont(rest: SplitSeq<End, FurtherEnd>): SplitSeq<Start, FurtherEnd> =
+  if(isEmpty()) rest as SplitSeq<Start, FurtherEnd> else FramesCont(this, rest)
 
 // frame :: frames ::: rest
 internal data class FramesCont<Start, First, Last, End>(
-  val frame: Frame<Start, First>, val frames: FrameList<First, *, Last>, val rest: SplitSeq<Last, End>
+  val frames: FrameList<Start, First, Last>, val rest: SplitSeq<Last, End>
 ) : SplitSeq<Start, End> {
   override val isEmpty get() = false
-  override val head: Frame<Start, *> get() = frame
+  override val head: Frame<Start, *> get() = frames.head()
   override val tail: SplitSeq<*, End>
-    get() = if (frames.isEmpty()) rest
-    else frames.asFramesCont(rest)
+    get() = frames.tail().asFramesCont(rest)
 
   //override fun <FurtherStart> push(f: Frame<FurtherStart, Start>) = FramesCont(f, frame prependTo frames, rest)
 
@@ -176,7 +175,7 @@ private tailrec infix fun <Start, End, FurtherEnd> Segment<Start, End>.prependTo
     is EmptySegment -> stack
     is FramesSegment<Start, *, *, End> -> init.prependTo2(
       FramesCont(
-        frame as Frame<Any?, Any?>, frames as FrameList<Any?, Any?, Any?>, stack as SplitSeq<Any?, *>
+        frames as FrameList<Any?, Any?, Any?>, stack as SplitSeq<Any?, *>
       )
     )
 
@@ -192,7 +191,7 @@ internal fun <T> emptySegment(): Segment<T, T> = EmptySegment as Segment<T, T>
 internal data object EmptySegment : Segment<Any?, Any?>
 
 internal data class FramesSegment<FurtherStart, Start, First, End>(
-  val frame: Frame<Start, First>, val frames: FrameList<First, *, End>, val init: Segment<FurtherStart, Start>
+  val frames: FrameList<Start, First, End>, val init: Segment<FurtherStart, Start>
 ) : Segment<FurtherStart, End>
 
 internal data class PromptSegment<Start, End>(
@@ -241,7 +240,6 @@ private fun <R> collectStack2(continuation: Continuation<R>): SplitSeq<R, *> {
   return when {
     list.isEmpty() -> last as SplitSeq<R, *>
     last is FramesCont<*, *, *, *> -> {
-      list.add(last.frame.cont)
       list.addAll(last.frames.list)
       FrameList<R, Any?, Any?>(list).asFramesCont(last.rest as SplitSeq<Any?, *>)
     }
