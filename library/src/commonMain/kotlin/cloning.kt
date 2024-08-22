@@ -7,9 +7,13 @@ internal expect val Continuation<*>.isCompilerGenerated: Boolean
 internal expect val Continuation<*>.completion: Continuation<*>
 internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>
 
-internal inline fun Continuation<*>.forEach(block: (Continuation<*>) -> Unit) {
+private inline fun Continuation<*>.forEach(block: (Continuation<*>) -> Unit) {
   var current: Continuation<*> = this
   while (true) {
+    if (current is WrapperCont) {
+      current = current.cont
+      continue
+    }
     block(current)
     current = when (current) {
       in CompilerGenerated -> current.completion
@@ -51,28 +55,42 @@ internal sealed interface SplitSeq<in Start, First, out End> : Continuation<Star
   }
 }
 
-private fun <Start> SplitSeq<Start, *, *>.resumeWithImpl(result: Result<Start>, isIntercepted: Boolean) {
-  var current: SplitSeq<Start, *, *> = this
-  var isIntercepted = isIntercepted
-  while (true) {
-    when (current) {
-      is EmptyCont -> return (if (isIntercepted) current.underlying.intercepted() else current.underlying).resumeWith(
-        result
-      )
+private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithImpl(
+  result: Result<Start>, isIntercepted: Boolean
+) {
+  when (this) {
+    is EmptyCont -> (if (isIntercepted) underlying.intercepted() else underlying).resumeWith(
+      result
+    )
 
-      is FramesCont<Start, *, *, *> -> return current.resumeWithImpl(result, isIntercepted)
-      is InterceptedCont -> {
-        current = current.rest
-        isIntercepted = true
+    is FramesCont<Start, First, *, End> -> if (isIntercepted) {
+      head.resumeWithIntercepted(result, tail)
+    } else {
+      val tail = tail
+      val wrapper = WrapperCont(tail)
+      head.resumeWith(result, wrapper)
+      val res = wrapper.result
+      if (res != Result.success(WaitingForValue) && res != Result.success(HasBeenIntercepted)) {
+        res as Result<First>
+        val exception = result.exceptionOrNull()
+        if (exception is SeekingStackException) exception.use(tail)
+        else tail.resumeWithImpl(
+          res, isIntercepted = when (tail) {
+            is InterceptedCont -> true
+            is PromptCont -> true
+            else -> false
+          }
+        )
+      } else {
+        wrapper.result = Result.success(HasBeenIntercepted)
       }
-
-      is PromptCont -> {
-        current = current.rest
-        isIntercepted = true
-      }
-
-      is ReaderCont<*, Start, *, *> -> current = current.rest
     }
+
+    is InterceptedCont -> rest.resumeWithImpl(result, isIntercepted = true)
+
+    is PromptCont -> rest.resumeWithImpl(result, isIntercepted = true)
+
+    is ReaderCont<*, Start, First, End> -> rest.resumeWithImpl(result, isIntercepted = isIntercepted)
   }
 }
 
@@ -181,14 +199,24 @@ internal data class FramesCont<Start, First, Last, End>(
   val tail: SplitSeq<First, *, End> = frames.tail()?.asFramesCont(rest)
     ?: rest as SplitSeq<First, *, End> // First == Last, but the compiler doesn't get it
 
-  fun resumeWithImpl(result: Result<Start>, isIntercepted: Boolean) = if (isIntercepted) {
-    head.resumeWithIntercepted(result, tail)
-  } else {
-    head.resumeWith(result, tail)
-  }
-
   override val context: CoroutineContext = rest.context
 }
+
+private data class WrapperCont<T>(val cont: Continuation<T>) : Continuation<T> {
+  var result: Result<Any?> = Result.success(WaitingForValue)
+  override val context: CoroutineContext = cont.context
+
+  override fun resumeWith(result: Result<T>) {
+    if (this.result == Result.success(WaitingForValue)) {
+      this.result = result
+    } else {
+      cont.resumeWith(result)
+    }
+  }
+}
+
+private data object WaitingForValue
+private data object HasBeenIntercepted
 
 internal data class PromptCont<Start, First, End>(
   val p: Prompt<Start>, val rest: SplitSeq<Start, First, End>
