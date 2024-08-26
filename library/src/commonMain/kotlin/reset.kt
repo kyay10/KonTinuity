@@ -12,27 +12,27 @@ public class SubCont<in T, out R> internal constructor(
   private val prompt: Prompt<R>
 ) {
   private fun composedWith(
-    k: Continuation<R>, isDelimiting: Boolean, isFinal: Boolean
+    k: Continuation<R>, isDelimiting: Boolean, shouldClear: Boolean
   ) = (init!! prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it }).also {
-    if (isFinal) init = null
+    if (shouldClear) init = null
   }
 
   @ResetDsl
   public suspend fun pushSubContWith(
     value: Result<T>,
     isDelimiting: Boolean = false,
-    isFinal: Boolean = false,
+    shouldClear: Boolean = false,
   ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting, isFinal).resumeWith(value, isIntercepted = true)
+    composedWith(k, isDelimiting, shouldClear).resumeWith(value, isIntercepted = true)
   }
 
   @ResetDsl
   public suspend fun pushSubCont(
     isDelimiting: Boolean = false,
-    isFinal: Boolean = false,
+    shouldClear: Boolean = false,
     value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutine(composedWith(k, isDelimiting, isFinal))
+    value.startCoroutine(composedWith(k, isDelimiting, shouldClear))
   }
 
   public fun copy(): SubCont<T, R> = SubCont(init, prompt)

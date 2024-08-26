@@ -66,13 +66,12 @@ private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIm
       val wrapper = WrapperCont(tail)
       head.resumeWith(result, wrapper)
       val res = wrapper.result
-      if (res != Result.success(WaitingForValue) && res != Result.success(HasBeenIntercepted)) {
-        res as Result<First>
-        val exception = result.exceptionOrNull()
+      if (res != waitingForValue && res != hasBeenIntercepted) {
+        val exception = res.exceptionOrNull()
         if (exception is SeekingStackException) exception.use(tail)
         else tail.resumeWithImpl(res, false)
       } else {
-        wrapper.result = Result.success(HasBeenIntercepted)
+        wrapper.result = hasBeenIntercepted
       }
     }
 
@@ -180,11 +179,11 @@ internal data class FramesCont<Start, First, Last, End>(
 }
 
 private data class WrapperCont<T>(val cont: SplitSeq<T, *, *>) : Continuation<T> {
-  var result: Result<Any?> = Result.success(WaitingForValue)
+  var result: Result<T> = Result.failure(WaitingForValue)
   override val context: CoroutineContext = cont.context
 
   override fun resumeWith(result: Result<T>) {
-    if (this.result == Result.success(WaitingForValue)) {
+    if (this.result == waitingForValue) {
       this.result = result
     } else {
       cont.resumeWith(result, isIntercepted = false)
@@ -192,8 +191,13 @@ private data class WrapperCont<T>(val cont: SplitSeq<T, *, *>) : Continuation<T>
   }
 }
 
-private data object WaitingForValue
-private data object HasBeenIntercepted
+private data object WaitingForValue : Throwable()
+
+private val waitingForValue = Result.failure<Nothing>(WaitingForValue)
+
+private data object HasBeenIntercepted : Throwable()
+
+private val hasBeenIntercepted = Result.failure<Nothing>(HasBeenIntercepted)
 
 internal data class PromptCont<Start, First, End>(
   val p: Prompt<Start>, val rest: SplitSeq<Start, First, End>

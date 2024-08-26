@@ -120,7 +120,7 @@ class CanSuspend<A>(prompt: HandlerPrompt<Unit>, private val fiber: CanResume<A>
 
 private fun makeTask(k: Cont<Boolean, Unit>): Task {
   val newK = k.copy()
-  return { newK(true, isFinal = true) }
+  return { newK(true, shouldClear = true) }
 }
 
 class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
@@ -128,8 +128,8 @@ class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
   suspend fun fork(): Boolean = use { k ->
     tasks.addLast(makeTask(k))
     // Kotlin compiler doesn't null the fields used for parameters,
-    // hence the `isFinal` is necessary to prevent memory leaks
-    k(false, isFinal = true)
+    // hence the `shouldClear` is necessary to prevent memory leaks
+    k(false, shouldClear = true)
   }
 
   suspend inline fun fork(task: Task) {
@@ -142,7 +142,7 @@ class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
   // Since we only run on one thread, we also need yield in the scheduler
   // to allow cooperative multitasking
   suspend fun yield() = use {
-    tasks.addLast { it(Unit, isFinal = true) }
+    tasks.addLast { it(Unit, shouldClear = true) }
   }
 
   // we can't run the scheduler in pure since the continuation that contains

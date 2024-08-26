@@ -73,12 +73,12 @@ public class StatefulPrompt<E, S>(
 
 @JvmInline
 public value class Cont<in T, out R> @PublishedApi internal constructor(internal val subCont: SubCont<T, R>) {
-  public suspend fun resumeWith(value: Result<T>, isFinal: Boolean = false): R =
-    subCont.pushSubContWith(value, isDelimiting = true, isFinal)
+  public suspend fun resumeWith(value: Result<T>, shouldClear: Boolean = false): R =
+    subCont.pushSubContWith(value, isDelimiting = true, shouldClear)
 
-  public suspend operator fun invoke(value: T, isFinal: Boolean = false): R = resumeWith(Result.success(value), isFinal)
+  public suspend operator fun invoke(value: T, shouldClear: Boolean = false): R = resumeWith(Result.success(value), shouldClear)
 
-  public suspend fun resumeWithException(exception: Throwable, isFinal: Boolean = false): R =
-    resumeWith(Result.failure(exception), isFinal)
+  public suspend fun resumeWithException(exception: Throwable, shouldClear: Boolean = false): R =
+    resumeWith(Result.failure(exception), shouldClear)
   public fun copy(): Cont<T, R> = Cont(subCont.copy())
 }
