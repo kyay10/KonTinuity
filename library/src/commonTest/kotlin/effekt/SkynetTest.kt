@@ -10,8 +10,8 @@ import kotlin.time.Duration.Companion.minutes
 //    https://github.com/atemerev/skynet
 class SkynetTest {
   // not using effects at all
-  // @Test TODO times out on JS
-  fun skynetNoEffects() = runTestCC {
+  @Test
+  fun skynetNoEffects() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val children = Array(div) {
@@ -78,8 +78,8 @@ class SkynetTest {
   }
 
   // every fiber suspends once before returning the result.
-  // @Test TODO times out on JS
-  fun skynetSuspend() = runTestCC {
+  @Test
+  fun skynetSuspend() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
     suspend fun Suspendable.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong().also { suspend() }
       val children = Array(div) {
