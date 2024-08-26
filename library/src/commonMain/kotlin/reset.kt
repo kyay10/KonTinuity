@@ -13,7 +13,7 @@ public class SubCont<in T, out R> internal constructor(
 ) {
   private fun composedWith(
     k: Continuation<R>, isDelimiting: Boolean, isFinal: Boolean
-  ) = (init!! prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it.intercepted() }).also {
+  ) = (init!! prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it }).also {
     if (isFinal) init = null
   }
 
@@ -23,7 +23,7 @@ public class SubCont<in T, out R> internal constructor(
     isDelimiting: Boolean = false,
     isFinal: Boolean = false,
   ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting, isFinal).resumeWith(value)
+    composedWith(k, isDelimiting, isFinal).resumeWith(value, isIntercepted = true)
   }
 
   @ResetDsl

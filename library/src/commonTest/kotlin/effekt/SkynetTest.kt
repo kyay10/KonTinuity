@@ -1,6 +1,7 @@
 package effekt
 
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import runTestCC
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
@@ -52,7 +53,7 @@ class SkynetTest {
   // we also perform "busy waiting" which is pretty slow since it captures the
   // continuation on every wait cycle ...
   @Test
-  fun skynetScheduler() = runTestCC(timeout = 10.minutes) {
+  fun skynetScheduler() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
