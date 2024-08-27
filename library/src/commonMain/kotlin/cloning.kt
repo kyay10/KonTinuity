@@ -146,10 +146,10 @@ internal tailrec fun <Start, End, S> SplitSeq<Start, *, End>.findOrNull(p: Reade
 }
 
 internal fun <Start, First, End, P> SplitSeq<Start, First, End>.splitAt(p: Prompt<P>): Pair<Segment<Start, *, P>, SplitSeq<P, *, End>> =
-  splitAtAux(p, emptySegment())
+  splitAtAux(p, EmptySegment)
 
 internal fun <Start, First, End> SplitSeq<Start, First, End>.splitAt(p: Reader<*>): Pair<Segment<Start, *, *>, SplitSeq<*, *, End>> =
-  splitAtAux(p, emptySegment())
+  splitAtAux(p, EmptySegment)
 
 internal fun <P, First, End> SplitSeq<P, First, End>.pushPrompt(p: Prompt<P>): PromptCont<P, First, End> =
   PromptCont(p, this)
@@ -226,15 +226,10 @@ internal tailrec infix fun <Start, First, End, FurtherEnd> Segment<Start, First,
     is FramesSegment<Start, First, *, *, End> -> init prependTo FramesCont(frames, stack)
 
     is PromptSegment<Start, First, End> -> init prependTo PromptCont(prompt, stack)
-    is ReaderSegment<*, Start, First, End> -> init prependTo toCont(stack)
+    is ReaderSegment<*, Start, First, End> -> init prependTo ReaderCont(prompt, fork(state), fork, stack)
   }
 
-private fun <State, Start, First, End, FurtherEnd> ReaderSegment<State, Start, First, End>.toCont(stack: SplitSeq<End, *, FurtherEnd>): ReaderCont<State, End, *, FurtherEnd> =
-  ReaderCont(prompt, fork(state), fork, stack)
-
-internal fun <T> emptySegment(): Segment<T, *, T> = EmptySegment as Segment<T, *, T>
-
-internal data object EmptySegment : Segment<Any?, Nothing, Any?>
+internal data object EmptySegment : Segment<Any?, Nothing, Nothing>
 
 internal data class FramesSegment<FurtherStart, FurtherFirst, Start, First, End>(
   val frames: FrameList<Start, First, End>, val init: Segment<FurtherStart, FurtherFirst, Start>
