@@ -1,5 +1,6 @@
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.intrinsics.intercepted
 import kotlin.jvm.JvmInline
 
@@ -10,10 +11,6 @@ internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Conti
 private inline fun Continuation<*>.forEach(block: (Continuation<*>) -> Unit) {
   var current: Continuation<*> = this
   while (true) {
-    if (current is WrapperCont) {
-      current = current.cont
-      continue
-    }
     block(current)
     current = when (current) {
       in CompilerGenerated -> current.completion
@@ -38,11 +35,11 @@ internal value class FrameList<in Start, First, out End>(val frame: Frame<Start,
   private val completion: Continuation<First> get() = frame.cont.completion as Continuation<First>
   fun head() = frame
   fun tail(): FrameList<First, *, End>? =
-    if (completion is EmptyContinuation) null else FrameList<First, Nothing, End>(Frame(completion))
+    if (this.completion is WrapperCont) null else FrameList<First, Nothing, End>(Frame(this.completion))
 }
 
-internal sealed interface SplitSeq<in Start, First, out End> : Continuation<Start> {
-  override fun resumeWith(result: Result<Start>) = resumeWith(result, isIntercepted = false)
+internal sealed interface SplitSeq<in Start, First, out End> {
+  val context: CoroutineContext
 }
 
 internal fun <Start, First, End> SplitSeq<Start, First, End>.resumeWith(result: Result<Start>, isIntercepted: Boolean) {
@@ -60,10 +57,10 @@ private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIm
     )
 
     is FramesCont<Start, First, *, End> -> if (isIntercepted) {
-      head.resumeWithIntercepted(result, tail)
+      head.resumeWithIntercepted(result, WrapperCont(tail))
     } else {
       val tail = tail
-      val wrapper = WrapperCont(tail)
+      val wrapper = WrapperCont(tail, isWaitingForValue = true)
       head.resumeWith(result, wrapper)
       val res = wrapper.result
       if (res != waitingForValue && res != hasBeenIntercepted) {
@@ -178,15 +175,15 @@ internal data class FramesCont<Start, First, Last, End>(
   override val context: CoroutineContext = rest.context
 }
 
-private data class WrapperCont<T>(val cont: SplitSeq<T, *, *>) : Continuation<T> {
-  var result: Result<T> = Result.failure(WaitingForValue)
-  override val context: CoroutineContext = cont.context
+internal class WrapperCont<T>(var seq: SplitSeq<T, *, *>?, isWaitingForValue: Boolean = false) : Continuation<T> {
+  var result: Result<T> = if (isWaitingForValue) waitingForValue else hasBeenIntercepted
+  override val context: CoroutineContext get() = seq?.context ?: EmptyCoroutineContext
 
   override fun resumeWith(result: Result<T>) {
     if (this.result == waitingForValue) {
       this.result = result
     } else {
-      cont.resumeWith(result, isIntercepted = false)
+      seq!!.resumeWith(result, isIntercepted = false)
     }
   }
 }
@@ -244,32 +241,20 @@ internal data class ReaderSegment<State, Start, First, End>(
 ) : Segment<Start, First, End>
 
 internal fun <R> collectStack(continuation: Continuation<R>): SplitSeq<R, *, *> {
-  val list = mutableListOf<Continuation<*>>()
-  val last: SplitSeq<*, *, *> = run {
-    continuation.forEach {
-      if (it is SplitSeq<*, *, *>) {
-        return@run it
-      }
-      list.add(it)
-    }
-    error("No SplitSeq found in stack")
-  }
-  var current: Continuation<*> = EmptyContinuation(last.context)
-  for (i in list.lastIndex downTo 1) {
-    current = list[i].copy(current)
-  }
-  return FrameList<R, Any?, Nothing>(Frame(continuation.copy(current))).asFramesCont(last)
+  val wrapper: WrapperCont<*> = findNearestWrapperCont(continuation)
+  val seq = wrapper.seq!!
+  wrapper.seq = null
+  return FrameList<R, Any?, Nothing>(Frame(continuation)).asFramesCont(seq)
 }
 
-internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*, *, *> {
+internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*, *, *> =
+  findNearestWrapperCont(continuation).seq!!
+
+private fun findNearestWrapperCont(continuation: Continuation<*>): WrapperCont<*> {
   continuation.forEach {
-    if (it is SplitSeq<*, *, *>) {
+    if (it is WrapperCont<*>) {
       return it
     }
   }
   error("No SplitSeq found in stack")
-}
-
-private data class EmptyContinuation(override val context: CoroutineContext) : Continuation<Any?> {
-  override fun resumeWith(result: Result<Any?>) = error("No continuation to resume with $result")
 }
