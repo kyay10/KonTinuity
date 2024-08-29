@@ -56,19 +56,39 @@ private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIm
       result
     )
 
-    is FramesCont<Start, First, *, End> -> if (isIntercepted) {
-      head.resumeWithIntercepted(result, WrapperCont(tail))
-    } else {
-      val tail = tail
-      val wrapper = WrapperCont(tail, isWaitingForValue = true)
-      head.resumeWith(result, wrapper)
-      val res = wrapper.result
-      if (res != waitingForValue && res != hasBeenIntercepted) {
-        val exception = res.exceptionOrNull()
-        if (exception is SeekingStackException) exception.use(tail)
-        else tail.resumeWithImpl(res, false)
+    is FramesCont<Start, First, *, End> -> if (wrapperCont == null) {
+      if (isIntercepted) {
+        head.resumeWithIntercepted(result, WrapperCont(tail))
       } else {
+        val tail = tail
+        val wrapper = WrapperCont(tail, isWaitingForValue = true)
+        head.resumeWith(result, wrapper)
+        val res = wrapper.result
+        if (res != waitingForValue && res != hasBeenIntercepted) {
+          val exception = res.exceptionOrNull()
+          if (exception is SeekingStackException) exception.use(tail)
+          else tail.resumeWithImpl(res, false)
+        } else {
+          wrapper.result = hasBeenIntercepted
+        }
+      }
+    } else {
+      val wrapper = wrapperCont
+      wrapper.seq = rest as SplitSeq<Any?, *, *>?
+      if (isIntercepted) {
         wrapper.result = hasBeenIntercepted
+        frames.head().cont.intercepted().resumeWith(result)
+      } else {
+        wrapper.result = waitingForValue
+        frames.head().cont.resumeWith(result)
+        val res = wrapper.result
+        if (res != waitingForValue && res != hasBeenIntercepted) {
+          val exception = res.exceptionOrNull()
+          if (exception is SeekingStackException) exception.use(rest)
+          else rest.resumeWithImpl(res, false)
+        } else {
+          wrapper.result = hasBeenIntercepted
+        }
       }
     }
 
@@ -159,18 +179,17 @@ internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : Spli
   override val context: CoroutineContext = underlying.context
 }
 
-internal fun <Start, First, End, FurtherEnd> FrameList<Start, First, End>.asFramesCont(rest: SplitSeq<End, *, FurtherEnd>): SplitSeq<Start, First, FurtherEnd> =
-  FramesCont(this, rest)
-
 // frame :: frames ::: rest
 internal data class FramesCont<Start, First, Last, End>(
-  val frames: FrameList<Start, First, Last>, val rest: SplitSeq<Last, *, End>
+  val frames: FrameList<Start, First, Last>, val rest: SplitSeq<Last, *, End>,
+  val wrapperCont: WrapperCont<*>?,
 ) : SplitSeq<Start, First, End> {
   val head get() = frames.head()
 
   @Suppress("UNCHECKED_CAST")
-  val tail: SplitSeq<First, *, End> = frames.tail()?.asFramesCont(rest)
-    ?: rest as SplitSeq<First, *, End> // First == Last, but the compiler doesn't get it
+  val tail: SplitSeq<First, *, End>
+    get() = frames.tail()?.let { FramesCont(it, rest, wrapperCont) }
+      ?: rest as SplitSeq<First, *, End> // First == Last, but the compiler doesn't get it
 
   override val context: CoroutineContext = rest.context
 }
@@ -220,7 +239,7 @@ internal tailrec infix fun <Start, First, End, FurtherEnd> Segment<Start, First,
       stack as SplitSeq<Start, *, FurtherEnd>
     }
 
-    is FramesSegment<Start, First, *, *, End> -> init prependTo FramesCont(frames, stack)
+    is FramesSegment<Start, First, *, *, End> -> init prependTo FramesCont(frames, stack, null)
 
     is PromptSegment<Start, First, End> -> init prependTo PromptCont(prompt, stack)
     is ReaderSegment<*, Start, First, End> -> init prependTo ReaderCont(prompt, fork(state), fork, stack)
@@ -244,7 +263,7 @@ internal fun <R> collectStack(continuation: Continuation<R>): SplitSeq<R, *, *> 
   val wrapper: WrapperCont<*> = findNearestWrapperCont(continuation)
   val seq = wrapper.seq!!
   wrapper.seq = null
-  return FrameList<R, Any?, Nothing>(Frame(continuation)).asFramesCont(seq)
+  return FramesCont(FrameList<R, Any?, Nothing>(Frame(continuation)), seq, wrapper)
 }
 
 internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*, *, *> =

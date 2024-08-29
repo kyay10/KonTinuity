@@ -1,6 +1,7 @@
 package effekt
 
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import runTestCC
 import kotlin.test.Test
 
@@ -75,7 +76,7 @@ class StateTest {
   }
 
   @Test
-  fun silentCountDown() = runTestCC {
+  fun silentCountDown() = runTestCC(UnconfinedTestDispatcher()) {
     suspend fun State<Int>.countDown() {
       while (get() > 0) {
         put(get() - 1)
