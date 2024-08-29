@@ -1,6 +1,5 @@
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.intrinsics.intercepted
 import kotlin.jvm.JvmInline
 
@@ -75,6 +74,7 @@ private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIm
     } else {
       val wrapper = wrapperCont
       wrapper.seq = rest as SplitSeq<Any?, *, *>?
+      wrapper.realContext = rest.context
       if (isIntercepted) {
         wrapper.result = hasBeenIntercepted
         frames.head().cont.intercepted().resumeWith(result)
@@ -194,9 +194,29 @@ internal data class FramesCont<Start, First, Last, End>(
   override val context: CoroutineContext = rest.context
 }
 
-internal class WrapperCont<T>(var seq: SplitSeq<T, *, *>?, isWaitingForValue: Boolean = false) : Continuation<T> {
+internal class WrapperContContext(val wrapper: WrapperCont<*>) : CoroutineContext {
+  private val context get() = wrapper.realContext
+  // TODO improve these implementations
+  override fun <R> fold(initial: R, operation: (R, CoroutineContext.Element) -> R): R =
+    this.context.fold(initial, operation)
+
+  override fun plus(context: CoroutineContext): CoroutineContext = this.context.plus(context)
+
+  override fun minusKey(key: CoroutineContext.Key<*>): CoroutineContext =
+    this.context.minusKey(key)
+
+  override fun <E : CoroutineContext.Element> get(key: CoroutineContext.Key<E>): E? =
+    this.context.get(key)
+
+  override fun equals(other: Any?): Boolean = context == other
+  override fun hashCode(): Int = context.hashCode()
+}
+
+internal class WrapperCont<T>(seq: SplitSeq<T, *, *>, isWaitingForValue: Boolean = false) : Continuation<T> {
+  var seq: SplitSeq<T, *, *>? = seq
   var result: Result<T> = if (isWaitingForValue) waitingForValue else hasBeenIntercepted
-  override val context: CoroutineContext get() = seq?.context ?: EmptyCoroutineContext
+  var realContext = seq.context
+  override val context: CoroutineContext = WrapperContContext(this)
 
   override fun resumeWith(result: Result<T>) {
     if (this.result == waitingForValue) {
@@ -269,11 +289,5 @@ internal fun <R> collectStack(continuation: Continuation<R>): SplitSeq<R, *, *> 
 internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*, *, *> =
   findNearestWrapperCont(continuation).seq!!
 
-private fun findNearestWrapperCont(continuation: Continuation<*>): WrapperCont<*> {
-  continuation.forEach {
-    if (it is WrapperCont<*>) {
-      return it
-    }
-  }
-  error("No SplitSeq found in stack")
-}
+private fun findNearestWrapperCont(continuation: Continuation<*>): WrapperCont<*> =
+  (continuation.context as? WrapperContContext)?.wrapper ?: error("No WrapperCont found in stack")
