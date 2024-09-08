@@ -11,10 +11,14 @@ public class SubCont<in T, out R> internal constructor(
   private var init: Segment<T, *, R>?,
   private val prompt: Prompt<R>
 ) {
+  public fun clear() {
+    init = null
+  }
+
   private fun composedWith(
     k: Continuation<R>, isDelimiting: Boolean, shouldClear: Boolean
   ) = (init!! prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it }).also {
-    if (shouldClear) init = null
+    if (shouldClear) clear()
   }
 
   @ResetDsl
@@ -46,6 +50,17 @@ public suspend fun <R> Prompt<R>.pushPrompt(
   body.startCoroutine(WrapperCont(stack.pushPrompt(this)))
 }
 
+/*
+suspendCoroutineUnintercepted { k ->
+  val stack = collectStack(k).pushPrompt(this)
+  stack.resumeWith(runCatching {
+    body.startCoroutineUninterceptedOrReturn(WrapperCont(stack)).also {
+      if (it == COROUTINE_SUSPENDED) return@suspendCoroutineUnintercepted
+    } as R
+  }, isIntercepted = true)
+}
+ */
+
 public suspend fun <T, R> Reader<T>.pushReader(value: T, fork: T.() -> T = ::identity, body: suspend () -> R): R =
   suspendCoroutineUnintercepted { k ->
     val stack = collectStack(k)
@@ -60,8 +75,28 @@ public suspend fun <R> nonReentrant(
 
 public suspend fun <S> Reader<S>.deleteBinding(): Unit = suspendCoroutineUnintercepted { k ->
   val stack = collectStack(k)
-  val (init, rest) = stack.splitAt(this)
-  (init as Segment<Any?, *, Any?> prependTo rest as SplitSeq<Any?, *, Any?>).resumeWith(Result.success(Unit), isIntercepted = true)
+  val toResume: SplitSeq<Unit, *, *> = when (stack) {
+    is EmptyCont -> error("Reader not found $this")
+    is FramesCont<*, *, *, *> -> {
+      stack.rest!!.deleteReader(this, stack)
+      stack
+    }
+
+    is PromptCont -> {
+      stack.rest!!.deleteReader(this, stack)
+      stack
+    }
+
+    is ReaderCont<*, Unit, *, *> -> {
+      if (this === stack.p) {
+        stack.rest!!
+      } else {
+        stack.rest!!.deleteReader(this, stack)
+        stack
+      }
+    }
+  }
+  toResume.resumeWith(Result.success(Unit), isIntercepted = true)
 }
 
 private fun <T> SplitSeq<*, *, *>.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): SplitSeq<T, *, *> {
@@ -69,7 +104,6 @@ private fun <T> SplitSeq<*, *, *>.holeFor(prompt: Prompt<T>, deleteDelimiter: Bo
   return if (deleteDelimiter) splitSeq else splitSeq.pushPrompt(prompt)
 }
 
-@Suppress("UNCHECKED_CAST")
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
@@ -77,6 +111,28 @@ public suspend fun <T, R> Prompt<R>.takeSubCont(
   val stack = collectStack(k)
   val (init, rest) = stack.splitAt(this)
   body.startCoroutine(SubCont(init, this), WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this)))
+}
+
+@ResetDsl
+public suspend fun <T, R> Prompt<R>.takeSubContOnce(
+  deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
+): T = suspendCoroutineUnintercepted { k ->
+  val stack = collectStack(k)
+  val (init, rest) = stack.splitAtOnce(this)
+  body.startCoroutine(SubCont(init, this), WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this)))
+}
+
+@ResetDsl
+public suspend fun <T, R> Prompt<R>.takeSubContWithFinal(
+  deleteDelimiter: Boolean = true, body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
+): T = suspendCoroutineUnintercepted { k ->
+  val stack = collectStack(k)
+  val (reusableInit, _) = stack.splitAt(this)
+  val (init, rest) = stack.splitAtOnce(this)
+  body.startCoroutine(
+    SubCont(reusableInit, this) to SubCont(init, this),
+    WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this))
+  )
 }
 
 // Acts like shift0/control { it(body()) }
@@ -92,10 +148,17 @@ public suspend fun <T, P> Prompt<P>.inHandlingContext(
 internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>): Nothing =
   throw AbortWithValueException(this as Prompt<Any?>, value, deleteDelimiter)
 
+@Suppress("UNCHECKED_CAST")
+internal suspend fun <R> Prompt<R>.abortWithFast(deleteDelimiter: Boolean, value: Result<R>): Nothing =
+  suspendCoroutineUnintercepted { k ->
+    collectStack(k).holeFor(this, deleteDelimiter).resumeWith(value, isIntercepted = true)
+  }
+
 private class AbortWithValueException(
   private val prompt: Prompt<Any?>, private val value: Result<Any?>, private val deleteDelimiter: Boolean
 ) : SeekingStackException() {
-  override fun use(stack: SplitSeq<*, *, *>) = stack.holeFor(prompt, deleteDelimiter).resumeWith(value, isIntercepted = true)
+  override fun use(stack: SplitSeq<*, *, *>) =
+    stack.holeFor(prompt, deleteDelimiter).resumeWith(value, isIntercepted = true)
 }
 
 @Suppress("UNCHECKED_CAST")

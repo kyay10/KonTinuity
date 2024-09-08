@@ -185,13 +185,13 @@ suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
   }
 
 fun interface StateFun<R, S> : State<S>, Handler<suspend (S) -> R> {
-  override suspend fun get(): S = use { k ->
+  override suspend fun get(): S = useOnce { k ->
     { s ->
       k(s, shouldClear = true)(s)
     }
   }
 
-  override suspend fun put(value: S) = use { k ->
+  override suspend fun put(value: S) = useOnce { k ->
     {
       k(Unit, shouldClear = true)(value)
     }

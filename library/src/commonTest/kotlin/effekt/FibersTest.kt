@@ -75,10 +75,15 @@ interface Fibre<A> {
     fun <A> create(block: suspend Suspendable.() -> A): Fibre<A> {
       // set up the communication channel between the two components
       val fiber = CanResume<A>()
-      val suspend = CanSuspend(HandlerPrompt(), fiber)
       // create first continuation by installing a ScheduledSuspendable handler
       fiber.next {
-        suspend.prompt().handle { fiber.returnWith(suspend.block()) }
+        handle {
+          fiber.returnWith(block {
+            useOnce { k ->
+              fiber.next { k(Unit) }
+            }
+          })
+        }
       }
       return fiber
     }
@@ -111,13 +116,6 @@ class CanResume<A> : Fibre<A> {
   }
 }
 
-class CanSuspend<A>(prompt: HandlerPrompt<Unit>, private val fiber: CanResume<A>) : Handler<Unit> by prompt,
-  Suspendable {
-  override suspend fun suspend() = use { k ->
-    fiber.next { k(Unit) }
-  }
-}
-
 private fun makeTask(k: Cont<Boolean, Unit>): Task {
   val newK = k.copy()
   return { newK(true, shouldClear = true) }
@@ -125,8 +123,9 @@ private fun makeTask(k: Cont<Boolean, Unit>): Task {
 
 class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
   private val tasks = ArrayDeque<Task>()
-  suspend fun fork(): Boolean = use { k ->
-    tasks.addLast(makeTask(k))
+  suspend fun fork(): Boolean = useWithFinal { (k, final) ->
+    tasks.addLast(makeTask(final))
+    final.clear()
     // Kotlin compiler doesn't null the fields used for parameters,
     // hence the `shouldClear` is necessary to prevent memory leaks
     k(false, shouldClear = true)
@@ -135,13 +134,17 @@ class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
   suspend inline fun fork(task: Task) {
     if (fork()) {
       task()
-      discardWith(Result.success(Unit))
+      discardWithFast(Result.success(Unit))
     }
+  }
+
+  fun fastFork(task: Task) {
+    tasks.addLast { handle(task) }
   }
 
   // Since we only run on one thread, we also need yield in the scheduler
   // to allow cooperative multitasking
-  suspend fun yield() = use {
+  suspend fun yield() = useOnce {
     tasks.addLast { it(Unit, shouldClear = true) }
   }
 
@@ -162,7 +165,7 @@ suspend fun scheduler2(block: suspend Scheduler2.() -> Unit) {
   s.run()
 }
 
-interface Suspendable {
+fun interface Suspendable {
   suspend fun suspend()
 }
 

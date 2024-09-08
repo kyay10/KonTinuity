@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.flattenConcat
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
@@ -153,7 +154,7 @@ class FlowTest {
   }
 
   @Test
-  fun forLoops() = runTest {
+  fun forLoops() = runTest(UnconfinedTestDispatcher()) {
     val result = flowReset {
       for (i in 1..10) {
         flowOfWithDelay(i, i).bind()

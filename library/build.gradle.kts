@@ -1,5 +1,4 @@
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
@@ -18,6 +17,8 @@ kotlin {
     browser()
     nodejs {
       testTask {
+//        nodeJsArgs += "--prof-sampling-interval=10"
+//        nodeJsArgs += "--prof"
         useMocha {
           timeout = "600s"
         }
@@ -55,4 +56,13 @@ kotlin {
       dependsOn(nonJvmMain)
     }
   }
+}
+
+tasks.withType<Test> {
+  jvmArgs = listOf(
+    "-XX:+HeapDumpOnOutOfMemoryError",
+    "-Xmx600m",
+    // results in lots of thread name setting, which slows tests and throws off profiling, so we turn it off
+    "-Dkotlinx.coroutines.debug=off",
+  )
 }

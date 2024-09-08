@@ -17,6 +17,10 @@ public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Con
   takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it, isDelimiting = true) } }
 
 @ResetDsl
+public suspend inline fun <T, R> Prompt<R>.shiftOnce(crossinline block: suspend (Cont<T, R>) -> R): T =
+  takeSubContOnce(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it, isDelimiting = true) } }
+
+@ResetDsl
 public suspend inline fun <T, R> Prompt<R>.control(crossinline block: suspend (Cont<T, R>) -> R): T =
   takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it) } }
 
