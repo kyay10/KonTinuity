@@ -102,7 +102,7 @@ internal tailrec fun <Start, First, End, P, FurtherStart, FurtherFirst> SplitSeq
 }
 
 private fun <State, Start, First, End, FurtherStart, FurtherFirst> ReaderCont<State, Start, First, End>.toSegment(seg: Segment<FurtherStart, FurtherFirst, Start>): ReaderSegment<State, FurtherStart, FurtherFirst, Start> =
-  ReaderSegment(p, state, fork, seg)
+  ReaderSegment(p, _state, fork, seg)
 
 internal tailrec fun <Start, First, End> SplitSeq<Start, First, End>.deleteReader(
   p: Reader<*>, previous: ExpectsSequenceStartingWith<*>
@@ -263,9 +263,18 @@ internal data class PromptCont<Start, First, End>(
 }
 
 internal data class ReaderCont<State, Start, First, End>(
-  val p: Reader<State>, val state: State, val fork: State.() -> State, var rest: SplitSeq<Start, First, End>?
+  val p: Reader<State>, var _state: State, val fork: State.() -> State, var rest: SplitSeq<Start, First, End>?,
+  private var forkOnFirstRead: Boolean = false
 ) : SplitSeq<Start, First, End>, ExpectsSequenceStartingWith<Start> {
   override val context = rest!!.context
+  val state: State
+    get() {
+      if (forkOnFirstRead) {
+        forkOnFirstRead = false
+        _state = fork(_state)
+      }
+      return _state
+    }
 
   override var sequence: SplitSeq<Start, *, *>?
     get() = rest
@@ -289,7 +298,7 @@ internal tailrec infix fun <Start, First, End, FurtherEnd> Segment<Start, First,
     is FramesSegment<Start, First, *, *, End> -> init prependTo FramesCont(frames, stack, null)
 
     is PromptSegment<Start, First, End> -> init prependTo PromptCont(prompt, stack)
-    is ReaderSegment<*, Start, First, End> -> init prependTo ReaderCont(prompt, fork(state), fork, stack)
+    is ReaderSegment<*, Start, First, End> -> init prependTo ReaderCont(prompt, state, fork, stack, forkOnFirstRead = true)
 
     is SingleUseSegment<Start, First, End> -> {
       box.sequence = stack
