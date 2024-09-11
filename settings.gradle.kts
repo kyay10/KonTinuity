@@ -15,5 +15,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "comprehension"
+rootProject.name = "KonTinuity"
 include(":library")
