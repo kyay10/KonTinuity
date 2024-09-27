@@ -1,3 +1,4 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 
 plugins {
@@ -12,7 +13,11 @@ kotlin {
   }
   explicitApi()
   applyDefaultHierarchyTemplate()
-  jvm()
+  jvm {
+    compilerOptions {
+      jvmTarget = JvmTarget.JVM_1_8
+    }
+  }
   js {
     browser()
     nodejs {
@@ -65,4 +70,14 @@ tasks.withType<Test> {
     // results in lots of thread name setting, which slows tests and throws off profiling, so we turn it off
     "-Dkotlinx.coroutines.debug=off",
   )
+}
+
+publishing {
+  publications.withType<MavenPublication> {
+    artifactId = if (name == "kotlinMultiplatform") {
+      "kontinuity"
+    } else {
+      "kontinuity-$name"
+    }
+  }
 }

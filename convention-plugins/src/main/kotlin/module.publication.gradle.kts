@@ -18,26 +18,24 @@ publishing {
 
         // Provide artifacts information required by Maven Central
         pom {
-            name.set("Kotlin Multiplatform library template")
-            description.set("Dummy library to test deployment to Maven Central")
-            url.set("https://github.com/Kotlin/multiplatform-library-template")
+            name.set("KonTinuity")
+            description.set("Provides fully-fledged multishot delimitied continuations in Kotlin with Coroutines")
+            url.set("https://github.com/kyay10/kontinuity")
 
             licenses {
                 license {
-                    name.set("MIT")
-                    url.set("https://opensource.org/licenses/MIT")
+                    name.set("Apache-2.0")
+                    url.set("https://opensource.org/license/apache-2-0")
                 }
             }
             developers {
                 developer {
-                    id.set("JetBrains")
-                    name.set("JetBrains Team")
-                    organization.set("JetBrains")
-                    organizationUrl.set("https://www.jetbrains.com")
+                    id.set("kyay10")
+                    name.set("Youssef Shoaib")
                 }
             }
             scm {
-                url.set("https://github.com/Kotlin/multiplatform-library-template")
+                url.set("https://github.com/kyay10/kontinuity")
             }
         }
     }
