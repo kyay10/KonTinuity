@@ -1,4 +1,5 @@
 import kotlin.coroutines.Continuation
+import java.lang.reflect.Modifier
 
 private val UNSAFE = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe").apply { isAccessible = true }
   .get(null) as sun.misc.Unsafe
@@ -28,6 +29,7 @@ private tailrec fun <T> copyDeclaredFields(
   }
   for (i in fields.indices) {
     val field = fields[i]
+    if (Modifier.isStatic(field.modifiers)) continue
     when (field.type) {
       Int::class.java -> field.setInt(copy, field.getInt(obj))
       else -> {
