@@ -49,10 +49,11 @@ public suspend fun <E, H> handle(
 ): E = handle { handler { this }.body() }
 
 public suspend fun <E> handle(body: suspend HandlerPrompt<E>.() -> E): E = with(HandlerPrompt<E>()) {
-  handle { body() }
+  rehandle { body() }
 }
 
-public suspend fun <E> Handler<E>.handle(body: suspend () -> E): E = prompt().prompt.reset(body)
+// TODO maybe we should remove this? Effekt gets by without it (but their lambdas are restricted)
+public suspend fun <E> Handler<E>.rehandle(body: suspend () -> E): E = prompt().prompt.reset(body)
 
 public suspend fun <E, H : StatefulHandler<E, S>, S> handleStateful(
   handler: ((() -> StatefulPrompt<E, S>) -> H), value: S, fork: S.() -> S,
@@ -60,16 +61,16 @@ public suspend fun <E, H : StatefulHandler<E, S>, S> handleStateful(
 ): E {
   val p = StatefulPrompt<E, S>()
   val h = handler { p }
-  return h.handleStateful(value, fork) { h.body() }
+  return h.rehandleStateful(value, fork) { h.body() }
 }
 
 public suspend fun <E, S> handleStateful(
   value: S, fork: S.() -> S, body: suspend StatefulPrompt<E, S>.() -> E
 ): E = with(StatefulPrompt<E, S>()) {
-  handleStateful(value, fork) { body() }
+  rehandleStateful(value, fork) { body() }
 }
 
-public suspend fun <E, S> StatefulHandler<E, S>.handleStateful(
+public suspend fun <E, S> StatefulHandler<E, S>.rehandleStateful(
   value: S, fork: S.() -> S,
   body: suspend () -> E
 ): E = reader.pushReader(value, fork) {

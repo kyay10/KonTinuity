@@ -50,6 +50,6 @@ public suspend fun <E, S : Stateful<S>> handleStateful(
   value: S, body: suspend StatefulPrompt<E, S>.() -> E
 ): E = handleStateful(value, Stateful<S>::fork, body)
 
-public suspend fun <E, S : Stateful<S>> StatefulHandler<E, S>.handleStateful(
+public suspend fun <E, S : Stateful<S>> StatefulHandler<E, S>.rehandleStateful(
   value: S, body: suspend () -> E
-): E = handleStateful(value, Stateful<S>::fork, body)
+): E = rehandleStateful(value, Stateful<S>::fork, body)

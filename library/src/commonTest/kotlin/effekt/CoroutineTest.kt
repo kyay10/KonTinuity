@@ -126,7 +126,7 @@ class CoroutineInstance<In, Out, Result>(
   }
 
   suspend fun <Arg> start(body: CoroutineBody<In, Out, Arg, Result>, arg: Arg): CoroutineInstance<In, Out, Result> {
-    yielder.prompt().handle {
+    yielder.prompt().rehandle {
       yielder.state = CoroutineState.Done(body(arg, yielder))
     }
     state = yielder.state
