@@ -1,141 +1,256 @@
 package effekt
 
+import Reader
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import ask
+import pushReader
 import runReader
 
-// wrap with a handle that'll allow turning the iteration into an iterator-like thing
-// should be handle, then stateful. Reuse loop as shown in the pdf. stateful should have
-// answer type of A, while the outer handle should be Pair
-// TODO if we make next nullable, we can detect the case where the queue has no more items
-//  and hence prevent the extra `raise` in every `choose` over a branch
-//  This seems to correspond to the `Tree` datatype from the LogicT paper
-data class Branch<A>(val value: A, val next: suspend () -> Branch<A>?)
+object LogicShallow {
+  suspend fun <A> split(block: suspend AmbExc.() -> A): Pair<A, suspend AmbExc.() -> A>? =
+    handleStateful(ArrayDeque<suspend () -> A>(), ::ArrayDeque) split@{
+      val currentAmbExc = Reader<AmbExc>()
+      val ambExc = object : AmbExc, Handler<A> by HandlerPrompt() {
+        override suspend fun flip(): Boolean = use { resume ->
+          get().addFirst { resume(false) }
+          resume(true)
+        }
 
-// TODO a lot of these directly would benefit from directly using Branch
-//  instead of choosing and splitting repeatedly
-
-// TODO we could emulate shallow handlers with state
-//  and thus split can be simpler, and can just return the list of jobs as List<suspend AmbExc.() -> A>
-
-suspend fun <A> split(block: suspend AmbExc.() -> A): Branch<A>? = handle split@{
-  runReader(ArrayDeque<suspend () -> A>(), ::ArrayDeque) {
-    ask().addFirst {
-      handle ambExc@{
-        block(object : AmbExc {
-          override suspend fun flip(): Boolean = use { resume ->
-            ask().addFirst { resume(false) }
-            resume(true)
-          }
-
-          override suspend fun raise(msg: String): Nothing = discard {
-            val branches = ask()
-            if (branches.isEmpty()) this@split.discardWithFast(Result.success(null))
-            else branches.removeFirst().invoke()
-          }
-        })
+        override suspend fun raise(msg: String): Nothing = discard {
+          val branches = get()
+          if (branches.isEmpty()) this@split.discardWithFast(Result.success(null))
+          else branches.removeFirst().invoke()
+        }
+      }
+      val res = currentAmbExc.pushReader(ambExc) {
+        ambExc.rehandle {
+          block(object : AmbExc {
+            override suspend fun flip(): Boolean = currentAmbExc.ask().flip()
+            override suspend fun raise(msg: String): Nothing = currentAmbExc.ask().raise(msg)
+          })
+        }
+      }
+      val jobQueue = get()
+      Pair(res) {
+        jobQueue.forEach {
+          if (flip()) return@Pair currentAmbExc.pushReader(this, body = it)
+        }
+        raise()
       }
     }
-    while (true) {
-      val branch = ask().removeFirstOrNull() ?: break
-      val result = branch()
-      use {
-        Branch(result) { it(Unit) }
+
+  suspend fun <A> AmbExc.reflect(pair: Pair<A, suspend AmbExc.() -> A>?): A {
+    val (value, next) = pair ?: raise()
+    return if (flip()) value else next()
+  }
+
+  // TODO could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some block
+  tailrec suspend fun <A> AmbExc.interleave(first: suspend AmbExc.() -> A, second: suspend AmbExc.() -> A): A {
+    val (res, branch) = split(first) ?: return second()
+    return if (flip()) res
+    else interleave(second, branch)
+  }
+
+  // TODO could we make this tailrec?
+  suspend fun <A, B> AmbExc.fairBind(first: suspend AmbExc.() -> A, second: suspend AmbExc.(A) -> B): B {
+    val (res, branch) = split(first) ?: raise()
+    return interleave({ second(res) }) { fairBind(branch, second) }
+  }
+
+  // TODO I think nullOnFailure is a better replacement (or an Option variant)
+  suspend inline fun <A, B> AmbExc.ifte(
+    noinline condition: suspend AmbExc.() -> A,
+    then: (A) -> B,
+    otherwise: () -> B
+  ): B {
+    val (res, branch) = split(condition) ?: return otherwise()
+    // TODO I think we can take out the `then` here
+    return if (flip()) then(res)
+    else then(branch())
+  }
+
+  suspend fun <A> AmbExc.nullOnFailure(
+    block: suspend AmbExc.() -> A,
+  ): A? = split(block)?.let { reflect(it) }
+
+  suspend fun <A> AmbExc.noneOnFailure(
+    block: suspend AmbExc.() -> A,
+  ): Option<A> = split(block)?.let { Some(reflect(it)) } ?: None
+
+  suspend fun <A> Exc.once(block: suspend AmbExc.() -> A): A {
+    val (res, _) = split(block) ?: raise()
+    return res
+  }
+
+  suspend fun <A> AmbExc.gnot(block: suspend AmbExc.() -> A) = ifte({ once(block) }, { raise() }) { }
+  suspend fun <A> AmbExc.gnot2(block: suspend AmbExc.() -> A) {
+    noneOnFailure { once(block) }.onSome { raise() }
+  }
+
+  suspend fun <A> Exc.gnot3(block: suspend AmbExc.() -> A) {
+    if (succeeds(block)) raise()
+  }
+
+  suspend fun <A> succeeds(block: suspend AmbExc.() -> A) = split(block) != null
+
+  suspend fun <A> bagOfN(count: Int = -1, block: suspend AmbExc.() -> A): List<A> =
+    bagOfNRec(count, emptyList(), block)
+
+  private tailrec suspend fun <A> bagOfNRec(count: Int, acc: List<A>, block: suspend AmbExc.() -> A): List<A> {
+    if (count < -1 || count == 0) return emptyList()
+    val (res, branch) = split(block) ?: return emptyList()
+    return bagOfNRec(if (count == -1) -1 else count - 1, acc + res, branch)
+  }
+}
+
+object LogicDeep {
+  // wrap with a handle that'll allow turning the iteration into an iterator-like thing
+  // should be handle, then stateful. Reuse loop as shown in the pdf. stateful should have
+  // answer type of A, while the outer handle should be Pair
+  // TODO if we make next nullable, we can detect the case where the queue has no more items
+  //  and hence prevent the extra `raise` in every `reflect` over a branch
+  //  This seems to correspond to the `Tree` datatype from the LogicT paper
+  data class Branch<A>(val value: A, val next: suspend () -> Branch<A>?)
+
+  // TODO a lot of these directly would benefit from directly using Branch
+  //  instead of reflecting and splitting repeatedly
+
+  // TODO we could emulate shallow handlers with state
+  //  and thus split can be simpler, and can just return the list of jobs as List<suspend AmbExc.() -> A>
+
+  suspend fun <A> split(block: suspend AmbExc.() -> A): Branch<A>? = handle split@{
+    runReader(ArrayDeque<suspend () -> A>(), ::ArrayDeque) {
+      ask().addFirst {
+        handle ambExc@{
+          block(object : AmbExc {
+            override suspend fun flip(): Boolean = use { resume ->
+              ask().addFirst { resume(false) }
+              resume(true)
+            }
+
+            override suspend fun raise(msg: String): Nothing = discard {
+              val branches = ask()
+              if (branches.isEmpty()) this@split.discardWithFast(Result.success(null))
+              else branches.removeFirst().invoke()
+            }
+          })
+        }
       }
+      while (true) {
+        val branch = ask().removeFirstOrNull() ?: break
+        val result = branch()
+        use {
+          Branch(result) { it(Unit) }
+        }
+      }
+      null
     }
-    null
   }
-}
 
-suspend fun <A> AmbExc.choose(branch: suspend () -> Branch<A>?): A {
-  var branch = branch()
-  while (branch != null) {
-    if (flip()) return branch.value
-    branch = branch.next()
+  // Opposite of split
+  suspend fun <A> AmbExc.reflect(branch: Branch<A>?): A {
+    branch.forEach {
+      if (flip()) return@reflect it
+    }
+    raise()
   }
-  raise()
-}
 
-// TODO check name against LogicT paper
-suspend fun <A> AmbExc.reflect(branch: Branch<A>): A = if (flip()) branch.value else choose(branch.next)
-
-suspend fun <A> AmbExc.choose(list: List<A>): A {
-  if (list.isEmpty()) raise()
-  var i = 0
-  while (i < list.lastIndex) {
-    if (flip()) return list[i]
-    i++
+  // TODO some way to know which is the last value
+  suspend inline fun <A> Branch<A>?.forEach(block: (A) -> Unit) {
+    var branch = this
+    while (branch != null) {
+      block(branch.value)
+      branch = branch.next()
+    }
   }
-  return list.last()
-}
 
-// TODO could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some block
-tailrec suspend fun <A> AmbExc.interleave(first: suspend AmbExc.() -> A, second: suspend AmbExc.() -> A): A {
-  val (res, branch) = split(first) ?: return second()
-  return if (flip()) res
-  else interleave(second) { choose(branch) }
-}
+  // TODO could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some block
+//  likely no because interleave delimits its arguments
+  suspend fun <A> AmbExc.interleave(first: suspend AmbExc.() -> A, second: suspend AmbExc.() -> A): A {
+    val (res, branch) = split(first) ?: return second()
+    return if (flip()) res
+    else interleave2({ split(second) }, branch)
+  }
 
-// TODO could we make this tailrec?
-suspend fun <A, B> AmbExc.fairBind(first: suspend AmbExc.() -> A, second: suspend AmbExc.(A) -> B): B {
-  val (res, branch) = split(first) ?: raise()
-  return interleave({ second(res) }) { fairBind({ choose(branch) }, second) }
-}
+  tailrec suspend fun <A> AmbExc.interleave2(first: suspend () -> Branch<A>?, second: suspend () -> Branch<A>?): A {
+    val (res, branch) = first() ?: return reflect(second())
+    return if (flip()) res
+    else interleave2(second, branch)
+  }
 
-// TODO I think nullOnFailure is a better replacement (or an Option variant)
-suspend inline fun <A, B> AmbExc.ifte(
-  noinline condition: suspend AmbExc.() -> A,
-  then: (A) -> B,
-  otherwise: () -> B
-): B {
-  val (res, branch) = split(condition) ?: return otherwise()
-  // TODO I think we can take out the `then` here
-  return if (flip()) then(res)
-  else then(choose(branch))
-}
+  // TODO could we make this tailrec?
+  suspend fun <A, B> AmbExc.fairBind(first: suspend AmbExc.() -> A, second: suspend AmbExc.(A) -> B): B {
+    val (res, branch) = split(first) ?: raise()
+    return interleave({ second(res) }) { fairBind({ reflect(branch()) }, second) }
+  }
 
-suspend fun <A> AmbExc.nullOnFailure(
-  block: suspend AmbExc.() -> A,
-): A? = split(block)?.let { reflect(it) }
+  suspend fun <A, B> AmbExc.fairBind2(first: suspend () -> Branch<A>?, second: suspend AmbExc.(A) -> B): B {
+    val (res, branch) = first() ?: raise()
+    return interleave({ second(res) }) { fairBind2(branch, second) }
+  }
 
-suspend fun <A> AmbExc.noneOnFailure(
-  block: suspend AmbExc.() -> A,
-): Option<A> = split(block)?.let { Some(reflect(it)) } ?: None
+  // TODO I think nullOnFailure or noneOnFailure is a better replacement
+  suspend inline fun <A, B> AmbExc.ifte(
+    noinline condition: suspend AmbExc.() -> A,
+    then: (A) -> B,
+    otherwise: () -> B
+  ): B {
+    val res = split(condition) ?: return otherwise()
+    return then(reflect(res))
+  }
 
-suspend fun <A> Exc.once(block: suspend AmbExc.() -> A): A {
-  val (res, _) = split(block) ?: raise()
-  return res
-}
+  suspend fun <A> AmbExc.nullOnFailure(
+    block: suspend AmbExc.() -> A,
+  ): A? = split(block)?.let { reflect(it) }
 
-suspend fun <A> AmbExc.gnot(block: suspend AmbExc.() -> A) = ifte({ once(block) }, { raise() }) { }
-suspend fun <A> AmbExc.gnot2(block: suspend AmbExc.() -> A) {
-  noneOnFailure { once(block) }.onSome { raise() }
-}
+  suspend fun <A> AmbExc.noneOnFailure(
+    block: suspend AmbExc.() -> A,
+  ): Option<A> = split(block)?.let { Some(reflect(it)) } ?: None
 
-suspend fun <A> Exc.gnot3(block: suspend AmbExc.() -> A) {
-  if (succeeds(block)) raise()
-}
+  suspend fun <A> Exc.once(block: suspend AmbExc.() -> A): A {
+    val (res, _) = split(block) ?: raise()
+    return res
+  }
 
-suspend fun <A> succeeds(block: suspend AmbExc.() -> A) = split(block) != null
+  suspend fun <A> Exc.onceOrNull(block: suspend AmbExc.() -> A): A? {
+    val (res, _) = split(block) ?: return null
+    return res
+  }
 
-suspend fun <A> bagOfN(count: Int = -1, block: suspend AmbExc.() -> A): List<A> = bagOfNRec(count, emptyList(), block)
+  suspend fun <A> Exc.onceOrNone(block: suspend AmbExc.() -> A): Option<A> {
+    val (res, _) = split(block) ?: return None
+    return Some(res)
+  }
 
-private tailrec suspend fun <A> bagOfNRec(count: Int, acc: List<A>, block: suspend AmbExc.() -> A): List<A> {
-  if (count < -1 || count == 0) return emptyList()
-  val (res, branch) = split(block) ?: return emptyList()
-  return bagOfNRec(if (count == -1) -1 else count - 1, acc + res) { choose(branch) }
-}
+  suspend fun <A> AmbExc.gnot(block: suspend AmbExc.() -> A) = ifte({ once(block) }, { raise() }) { }
+  suspend fun <A> AmbExc.gnot2(block: suspend AmbExc.() -> A) {
+    noneOnFailure { once(block) }.onSome { raise() }
+  }
 
-suspend fun <A> bagOfN2(count: Int = -1, block: suspend AmbExc.() -> A): List<A> =
-  bagOfNRec2(count, emptyList(), split(block))
+  suspend fun <A> Exc.gnot3(block: suspend AmbExc.() -> A) {
+    if (succeeds(block)) raise()
+  }
 
-// TODO off by one error I think, at least for execution
-private tailrec suspend fun <A> bagOfNRec2(count: Int, acc: List<A>, branch: Branch<A>?): List<A> {
-  if (count < -1 || count == 0) return emptyList()
-  val (res, branch) = branch ?: return emptyList()
-  return bagOfNRec2(if (count == -1) -1 else count - 1, acc + res, branch())
+  suspend fun <A> succeeds(block: suspend AmbExc.() -> A) = split(block) != null
+
+  suspend fun <A> bagOfN(count: Int = -1, block: suspend AmbExc.() -> A): List<A> = bagOfNRec(count, emptyList(), block)
+
+  private tailrec suspend fun <A> bagOfNRec(count: Int, acc: List<A>, block: suspend AmbExc.() -> A): List<A> {
+    if (count < -1 || count == 0) return emptyList()
+    val (res, branch) = split(block) ?: return emptyList()
+    return bagOfNRec(if (count == -1) -1 else count - 1, acc + res) { reflect(branch()) }
+  }
+
+  suspend fun <A> bagOfN2(count: Int = -1, block: suspend AmbExc.() -> A): List<A> =
+    bagOfNRec2(count, emptyList()) { split(block) }
+
+  private tailrec suspend fun <A> bagOfNRec2(count: Int, acc: List<A>, branch: suspend () -> Branch<A>?): List<A> {
+    if (count < -1 || count == 0) return emptyList()
+    val (res, branch) = branch() ?: return emptyList()
+    return bagOfNRec2(if (count == -1) -1 else count - 1, acc + res, branch)
+  }
 }
 
 interface Logic : AmbExc {
@@ -166,7 +281,7 @@ interface Logic : AmbExc {
       }
     }
 
-    private suspend fun <A> Logic.reflect(pair: Pair<A, suspend Logic.() -> A>?): A {
+    suspend fun <A> Logic.reflect(pair: Pair<A, suspend Logic.() -> A>?): A {
       val (value, next) = pair ?: raise()
       return if (flip()) value else next()
     }
@@ -233,7 +348,8 @@ interface Logic : AmbExc {
 
     suspend fun <A> Logic.succeeds(block: suspend Logic.() -> A) = split(block) != null
 
-    suspend fun <A> Logic.bagOfN(count: Int = -1, block: suspend Logic.() -> A): List<A> = bagOfNRec(count, emptyList(), block)
+    suspend fun <A> Logic.bagOfN(count: Int = -1, block: suspend Logic.() -> A): List<A> =
+      bagOfNRec(count, emptyList(), block)
 
     private tailrec suspend fun <A> Logic.bagOfNRec(count: Int, acc: List<A>, block: suspend Logic.() -> A): List<A> {
       if (count < -1 || count == 0) return emptyList()
