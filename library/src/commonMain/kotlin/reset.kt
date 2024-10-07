@@ -50,7 +50,7 @@ public suspend fun <R> Prompt<R>.pushPrompt(
   body.startCoroutine(WrapperCont(stack.pushPrompt(this)))
 }
 
-/*
+/* TODO this might be better
 suspendCoroutineUnintercepted { k ->
   val stack = collectStack(k).pushPrompt(this)
   stack.resumeWith(runCatching {

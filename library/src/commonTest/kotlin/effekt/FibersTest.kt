@@ -131,6 +131,13 @@ class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
     k(false, shouldClear = true)
   }
 
+  suspend inline fun forkFlipped(task: Task) {
+    if (!fork()) {
+      task()
+      discardWithFast(Result.success(Unit))
+    }
+  }
+
   suspend inline fun fork(task: Task) {
     // TODO this reveals an inefficiency in the SplitSeq code
     //  because here the frames up to the prompt are never used
