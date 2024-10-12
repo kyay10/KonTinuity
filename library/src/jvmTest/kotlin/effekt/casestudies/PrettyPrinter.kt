@@ -1,3 +1,5 @@
+@file:Suppress("CONTEXT_RECEIVERS_DEPRECATED")
+
 package effekt.casestudies
 
 import Raise
@@ -9,10 +11,10 @@ import arrow.core.getOrElse
 import arrow.core.raise.SingletonRaise
 import arrow.core.recover
 import arrow.core.some
+import effekt.get
 import effekt.handle
 import effekt.handleStateful
 import effekt.use
-import effekt.useStateful
 import given
 import io.kotest.matchers.shouldBe
 import runTestCC
@@ -303,34 +305,42 @@ suspend fun <R> searchLayout(p: suspend context(SingletonRaise<Unit>, LayoutChoi
   }.some()
 }
 
-suspend fun writer(p: suspend context(Emit) () -> Unit): String = handleStateful("") {
-  p { text ->
-    set(get() + text)
+suspend fun writer(p: suspend context(Emit) () -> Unit): String {
+  data class Data(var content: String)
+  return handleStateful(Data(""), Data::copy) {
+    p { text ->
+      get().content += text
+    }
+    get().content
   }
-  get()
 }
 
 context(Emit, LayoutChoice, SingletonRaise<Unit>)
 suspend fun printer(
   width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit
-) = handleStateful(0) {
-  val outerEmit = given<Emit>()
-  block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(::choice), object : Emit {
-    override suspend fun emitText(text: String) = useStateful { k, p ->
-      val pos = p + text.length
-      if (pos > width) {
-        raise()
-      } else {
-        outerEmit.emitText(text)
-        k(Unit, pos)
-      }
-    }
+) {
+  data class PrinterData(var pos: Int)
 
-    override suspend fun emitNewline() = useStateful { k, _ ->
-      outerEmit.emitNewline()
-      k(Unit, 0)
-    }
-  })
+  val outerEmit = given<Emit>()
+  handleStateful(PrinterData(0), PrinterData::copy) {
+    block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(::choice), object : Emit {
+      override suspend fun emitText(text: String) = use { k ->
+        get().pos += text.length
+        if (get().pos > width) {
+          raise()
+        } else {
+          outerEmit.emitText(text)
+          k(Unit)
+        }
+      }
+
+      override suspend fun emitNewline() = use { k ->
+        outerEmit.emitNewline()
+        get().pos = 0
+        k(Unit)
+      }
+    })
+  }
 }
 
 suspend fun pretty(

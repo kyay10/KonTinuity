@@ -1,3 +1,5 @@
+@file:Suppress("CONTEXT_RECEIVERS_DEPRECATED")
+
 import arrow.core.raise.Raise
 import arrow.core.raise.SingletonRaise
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -28,7 +30,7 @@ public suspend fun <R> runChoice(
 }
 
 public suspend fun <R> Choose.pushList(body: suspend () -> R): List<R> =
-  runForkingReader(mutableListOf(), MutableList<R>::toMutableList) {
+  runReader(mutableListOf(), MutableList<R>::toMutableList) {
     pushChoice(body) {
       ask().add(it)
     }
@@ -36,7 +38,7 @@ public suspend fun <R> Choose.pushList(body: suspend () -> R): List<R> =
   }
 
 public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =
-  runForkingReader(mutableListOf(), MutableList<R>::toMutableList) {
+  runReader(mutableListOf(), MutableList<R>::toMutableList) {
     runChoice(body) {
       ask().add(it)
     }

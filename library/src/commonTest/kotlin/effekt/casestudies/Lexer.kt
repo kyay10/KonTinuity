@@ -2,9 +2,10 @@ package effekt.casestudies
 
 import arrow.core.raise.Raise
 import arrow.core.raise.recover
+import effekt.Stateful
 import effekt.casestudies.TokenKind.*
+import effekt.get
 import effekt.handleStateful
-import effekt.useStateful
 import io.kotest.matchers.shouldBe
 import runTestCC
 import kotlin.test.Test
@@ -72,14 +73,15 @@ data class LexerError(val msg: String, val pos: Position)
 
 val dummyPosition = Position(0, 0, 0)
 
-suspend fun <R> Raise<LexerError>.lexerFromList(l: List<Token>, block: suspend Lexer.() -> R): R = handleStateful(0) {
-  object : Lexer {
-    override suspend fun peek(): Token? = l.getOrNull(get())
-    override suspend fun next(): Token = useStateful { k, i ->
-      val token = l.getOrNull(i) ?: raise(LexerError("Unexpected end of input", dummyPosition))
-      k(token, i + 1)
-    }
-  }.block()
+suspend fun <R> Raise<LexerError>.lexerFromList(l: List<Token>, block: suspend Lexer.() -> R): R {
+  data class Data(var index: Int)
+  return handleStateful(Data(0), Data::copy) {
+    object : Lexer {
+      override suspend fun peek(): Token? = l.getOrNull(get().index)
+      override suspend fun next(): Token =
+        l.getOrNull(get().index++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
+    }.block()
+  }
 }
 
 inline fun report(block: Raise<LexerError>.() -> Unit) = recover(block) { (msg, pos) ->
@@ -93,21 +95,26 @@ private val tokenDescriptors = mapOf(
   Space to "^[ \t\n]+".toRegex()
 )
 
-fun Position.consume(text: String): Position {
-  val lines = text.split("\n")
-  val offset = lines.last().length
-  return copy(
-    line = line + lines.size - 1, col = if (lines.size > 1) offset else col + text.length, index = index + text.length
-  )
-}
+suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend Lexer.() -> R): R {
+  data class Data(var index: Int, var col: Int, var line: Int) : Stateful<Data> {
+    fun toPosition() = Position(line, col, index)
+    fun consume(text: String) {
+      val lines = text.split("\n")
+      val offset = lines.last().length
+      line += lines.size - 1
+      col = if (lines.size > 1) offset else col + text.length
+      index += text.length
+    }
 
-suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend Lexer.() -> R): R =
-  handleStateful(Position(index = 0, col = 1, line = 1)) {
+    override fun fork() = copy()
+  }
+
+  return handleStateful(Data(index = 0, col = 1, line = 1)) {
     object : Lexer {
       private suspend fun eos(): Boolean = get().index >= input.length
       private suspend fun tryMatch(regex: Regex, tokenKind: TokenKind): Token? =
         regex.find(input.substring(get().index))?.let {
-          Token(tokenKind, it.value, get())
+          Token(tokenKind, it.value, get().toPosition())
         }
 
       private suspend fun tryMatchAll(map: Map<TokenKind, Regex>): Token? =
@@ -115,16 +122,15 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend Lexer.() -
 
       override suspend fun peek(): Token? = tryMatchAll(tokenDescriptors)
       override suspend fun next(): Token {
-        val position = get()
-        return if (eos()) raise(LexerError("Unexpected EOS", position))
-        else {
-          val tok = peek() ?: raise(LexerError("Cannot tokenize input", position))
-          set(position.consume(tok.text))
-          tok
-        }
+        val position = get().toPosition()
+        if (eos()) raise(LexerError("Unexpected EOS", position))
+        val tok = peek() ?: raise(LexerError("Cannot tokenize input", position))
+        get().consume(tok.text)
+        return tok
       }
     }.block()
   }
+}
 
 suspend fun Lexer.skipSpaces() {
   while (peek()?.kind == Space) next()

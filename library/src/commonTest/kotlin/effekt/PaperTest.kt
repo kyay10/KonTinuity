@@ -3,8 +3,10 @@ package effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import arrow.core.identity
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.runTest
+import pushReader
 import runCC
 import kotlin.collections.plus
 import kotlin.test.Test
@@ -194,32 +196,30 @@ suspend fun <R> firstResult(block: suspend NonDetermined.() -> R): Option<R> = h
   Some(block())
 }
 
-fun interface Scheduler : Fiber, StatefulHandler<Unit, Queue> {
+class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Unit, Queue> by prompt {
   override suspend fun exit(): Nothing = discard {}
-  override suspend fun fork(): Boolean = useStateful { resume, queue ->
-    run(listOf(QueueItem { resume(true, it) }, QueueItem { resume(false, it) }) + queue)
+  override suspend fun fork(): Boolean = use { resume ->
+    run(listOf(suspend { resume(true) }, suspend { resume(false) }) + get())
   }
 
-  override suspend fun suspend() = useStateful { resume, queue ->
-    run(queue + QueueItem { resume(Unit, it) })
+  override suspend fun suspend() = use { resume ->
+    run(get() + { resume(Unit) })
   }
 }
 
-suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(::Scheduler, emptyList(), block)
+suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(emptyList<suspend () -> Unit>(), ::identity) {
+  Scheduler(this).block()
+}
 
-private suspend fun run(q: Queue) {
+private suspend fun StatefulHandler<Unit, Queue>.run(q: Queue) {
   if (q.isNotEmpty()) {
-    q.first()(q.drop(1))
+    reader.pushReader(q.drop(1)) {
+      q.first()()
+    }
   }
 }
 
-// Needed because recursive type
-// Queue = List<suspend (Queue) -> Unit>
-fun interface QueueItem {
-  suspend operator fun invoke(queue: Queue)
-}
-
-typealias Queue = List<QueueItem>
+typealias Queue = List<suspend () -> Unit>
 
 interface Input {
   suspend fun read(): Char

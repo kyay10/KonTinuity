@@ -1,15 +1,23 @@
 package effekt
 
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import runTestCC
+import kotlin.test.Ignore
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.minutes
+
+private const val N = 1_000_000
 
 // skynet benchmark:
 //    https://github.com/atemerev/skynet
 class SkynetTest {
   // not using effects at all
-  // @Test TODO times out on JS
-  fun skynetNoEffects() = runTestCC {
+  @Test
+  fun skynetNoEffects() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val children = Array(div) {
@@ -24,7 +32,7 @@ class SkynetTest {
       }
     }
 
-    val f = Fibre.create { skynet(0, 1_000_000, 10) }
+    val f = Fibre.create { skynet(0, N, 10) }
     f.resume()
     f.result shouldBe 499_999_500_000L
   }
@@ -40,7 +48,19 @@ class SkynetTest {
       }
       return children.sumOf { it() }
     }
-    skynet(0, 1_000_000, 10) shouldBe 499_999_500_000L
+    skynet(0, N, 10) shouldBe 499_999_500_000L
+  }
+
+  @Test
+  fun skynetNotEvenSuspend() = runTestCC {
+    fun skynet(num: Int, size: Int, div: Int): Long {
+      if (size <= 1) return num.toLong()
+      return (0..<div).sumOf {
+        val subNum = num + it * (size / div)
+        skynet(subNum, size / div, div)
+      }
+    }
+    skynet(0, N, 10) shouldBe 499_999_500_000L
   }
 
   // not using fibers, but cooperative multitasking with a scheduler
@@ -50,8 +70,8 @@ class SkynetTest {
   //
   // we also perform "busy waiting" which is pretty slow since it captures the
   // continuation on every wait cycle ...
-  // @Test TODO throws OutOfMemoryError
-  fun skynetScheduler() = runTestCC {
+  @Test
+  fun skynetScheduler() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
@@ -72,12 +92,62 @@ class SkynetTest {
       return data.sum
     }
 
-    scheduler2 { skynet(0, 1_000_000, 10) } shouldBe 499_999_500_000L
+    scheduler2 { skynet(0, N, 10) shouldBe 499_999_500_000L }
+  }
+
+  @Test
+  fun skynetFlippedScheduler() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
+    data class SkynetData(var sum: Long, var returned: Int)
+
+    suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
+      if (size <= 1) return num.toLong()
+      val data = SkynetData(0, 0)
+      repeat(div) {
+        val subNum = num + it * (size / div)
+        forkFlipped {
+          val res = skynet(subNum, size / div, div)
+          data.returned++
+          data.sum += res
+        }
+      }
+      while (data.returned < div) {
+        yield()
+      }
+      yield()
+      return data.sum
+    }
+
+    scheduler2 { skynet(0, N, 10) shouldBe 499_999_500_000L }
+  }
+
+  @Test
+  fun skynetFastScheduler() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
+    data class SkynetData(var sum: Long, var returned: Int)
+
+    suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
+      if (size <= 1) return num.toLong()
+      val data = SkynetData(0, 0)
+      repeat(div) {
+        val subNum = num + it * (size / div)
+        fastFork {
+          val res = skynet(subNum, size / div, div)
+          data.returned++
+          data.sum += res
+        }
+      }
+      while (data.returned < div) {
+        yield()
+      }
+      yield()
+      return data.sum
+    }
+
+    scheduler2 { skynet(0, N, 10) shouldBe 499_999_500_000L }
   }
 
   // every fiber suspends once before returning the result.
-  // @Test TODO times out on JS
-  fun skynetSuspend() = runTestCC {
+  @Test
+  fun skynetSuspend() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
     suspend fun Suspendable.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong().also { suspend() }
       val children = Array(div) {
@@ -93,9 +163,67 @@ class SkynetTest {
       }.also { suspend() }
     }
 
-    val f = Fibre.create { skynet(0, 1_000_000, 10) }
+    val f = Fibre.create { skynet(0, N, 10) }
     f.resume()
     f.resume()
     f.result shouldBe 499_999_500_000L
+  }
+
+  @Ignore
+  @Test
+  fun skynetCoroutinesBusy() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
+    data class SkynetData(var sum: Long, var returned: Int)
+
+    suspend fun skynet(num: Int, size: Int, div: Int): Long {
+      if (size <= 1) return num.toLong()
+      val data = SkynetData(0, 0)
+      repeat(div) {
+        val subNum = num + it * (size / div)
+        launch {
+          val res = skynet(subNum, size / div, div)
+          data.returned++
+          data.sum += res
+        }
+      }
+      while (data.returned < div) {
+        kotlinx.coroutines.yield()
+      }
+      kotlinx.coroutines.yield()
+      return data.sum
+    }
+
+    skynet(0, N, 10) shouldBe 499_999_500_000L
+  }
+
+  @Ignore
+  @Test
+  fun skynetCoroutinesAwaitAll() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
+    suspend fun skynet(num: Int, size: Int, div: Int): Long {
+      if (size <= 1) return num.toLong()
+      return (0..<div).map {
+        val subNum = num + it * (size / div)
+        async {
+          skynet(subNum, size / div, div)
+        }
+      }.awaitAll().sum()
+    }
+
+    skynet(0, N, 10) shouldBe 499_999_500_000L
+  }
+
+  @Ignore
+  @Test
+  fun skynetCoroutinesAwaitEach() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
+    suspend fun skynet(num: Int, size: Int, div: Int): Long {
+      if (size <= 1) return num.toLong()
+      return (0..<div).map {
+        val subNum = num + it * (size / div)
+        async {
+          skynet(subNum, size / div, div)
+        }
+      }.sumOf { it.await() }
+    }
+
+    skynet(0, N, 10) shouldBe 499_999_500_000L
   }
 }

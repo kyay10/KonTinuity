@@ -1,5 +1,5 @@
-import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
@@ -13,13 +13,19 @@ kotlin {
   }
   explicitApi()
   applyDefaultHierarchyTemplate()
-  jvm()
+  jvm {
+    compilerOptions {
+      jvmTarget = JvmTarget.JVM_1_8
+    }
+  }
   js {
     browser()
     nodejs {
       testTask {
+//        nodeJsArgs += "--prof-sampling-interval=10"
+//        nodeJsArgs += "--prof"
         useMocha {
-          timeout = "120s"
+          timeout = "600s"
         }
       }
     }
@@ -53,6 +59,25 @@ kotlin {
     }
     jsMain {
       dependsOn(nonJvmMain)
+    }
+  }
+}
+
+tasks.withType<Test> {
+  jvmArgs = listOf(
+    "-XX:+HeapDumpOnOutOfMemoryError",
+    "-Xmx600m",
+    // results in lots of thread name setting, which slows tests and throws off profiling, so we turn it off
+    "-Dkotlinx.coroutines.debug=off",
+  )
+}
+
+publishing {
+  publications.withType<MavenPublication> {
+    artifactId = if (name == "kotlinMultiplatform") {
+      "kontinuity"
+    } else {
+      "kontinuity-$name"
     }
   }
 }

@@ -18,12 +18,15 @@ class AwaitTest {
       mutableAwait {
         // TODO this doesn't work with virtual delay. Investigate
         //  Likely because of busy waiting in await
+        //  This is also slightly flaky because it's running on a different dispatcher
         val d = async(Dispatchers.Default.limitedParallelism(1)) {
           printed.appendLine("started future")
           delay(100.milliseconds)
           42
         }
-        if(fork()) {
+        // Yield call here to try and reduce flakiness. This desperately needs looking at!
+        kotlinx.coroutines.yield()
+        if (fork()) {
           printed.appendLine("hello 1")
           yield()
           printed.appendLine("world 1")
@@ -54,7 +57,7 @@ class AwaitTest {
 }
 
 interface Await {
-  suspend fun <A> await(body: suspend (Cont<A, Unit>) -> Unit): A
+  suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A
   suspend fun fork(): Boolean
 }
 
@@ -75,9 +78,9 @@ suspend fun <A> Await.await(d: Deferred<A>): A {
 
 class MutableAwait(prompt: HandlerPrompt<Unit>) : Await, Handler<Unit> by prompt {
   internal val processes = mutableListOf<suspend () -> Unit>()
-  override suspend fun <A> await(body: suspend (Cont<A, Unit>) -> Unit): A = use { k ->
+  override suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A = use { k ->
     body {
-      processes.add { k.resumeWith(it) }
+      processes.add { k(it) }
       processes.removeFirst()()
     }
   }
@@ -91,6 +94,6 @@ class MutableAwait(prompt: HandlerPrompt<Unit>) : Await, Handler<Unit> by prompt
 suspend fun mutableAwait(body: suspend MutableAwait.() -> Unit) = handle {
   with(MutableAwait(this)) {
     body()
-    if(processes.isNotEmpty()) processes.removeFirst()()
+    if (processes.isNotEmpty()) processes.removeFirst()()
   }
 }

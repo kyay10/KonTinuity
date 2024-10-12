@@ -4,6 +4,7 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.testTimeSource
 import kotlin.test.Test
@@ -129,18 +130,18 @@ class ContinuationTest {
   }
 
   @Test
-  fun stackSafety() = runTest {
+  fun stackSafety() = runTest(UnconfinedTestDispatcher()) {
     val n = stackSafeIterations
     topReset<Int> {
       repeat(n) {
-        shift { k -> k(Unit) + it }
+        shiftOnce { k -> k(Unit) + it }
       }
       0
     } shouldBe n * (n - 1) / 2
   }
 
   @Test
-  fun manyIterations() = runTest {
+  fun manyIterations() = runTest(UnconfinedTestDispatcher()) {
     val n = 100_000
     val result = topReset<Int> {
       shift { k ->

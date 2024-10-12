@@ -4,7 +4,7 @@ import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
+import runTestCC
 import kotlin.test.Test
 
 class UseCasesTest {
@@ -21,7 +21,7 @@ class UseCasesTest {
   }
 
   @Test
-  fun example() = runTest {
+  fun example() = runTestCC {
     "123".parseAll(Parser2::number) shouldBe listOf(123, 12, 1)
     "123".parseBacktrack { number() } shouldBe Some(123)
   }
@@ -45,20 +45,20 @@ suspend fun Parser2.number(): Int {
   return res
 }
 
-class StringReader<R>(val input: String, val exc: Exc, prompt: HandlerPrompt<R>) : Receive<Char>,
-  StatefulHandler<R, Int>, Handler<R> by prompt {
+class StringReader<R>(val input: String, val exc: Exc, prompt: StatefulPrompt<R, Data>) : Receive<Char>,
+  StatefulHandler<R, StringReader.Data> by prompt {
+  data class Data(var pos: Int = 0) : Stateful<Data> {
+    override fun fork() = copy()
+  }
+
   override suspend fun receive(): Char {
-    val curPos = get()
-    if (curPos >= input.length) exc.raise("Unexpected EOS")
-    set(curPos + 1)
-    return input[curPos]
+    if (get().pos >= input.length) exc.raise("Unexpected EOS")
+    return input[get().pos++]
   }
 }
 
-suspend fun <R> Exc.stringReader(input: String, block: suspend StringReader<R>.() -> R): R =
-  with(StringReader(input, this, HandlerPrompt<R>())) {
-    handleStateful(0) { block() }
-  }
+suspend fun <R> Exc.stringReader(input: String, block: suspend Receive<Char>.() -> R): R =
+  handleStateful(StringReader.Data()) { block(StringReader(input, this@stringReader, this)) }
 
 interface AmbExc : Amb, Exc
 

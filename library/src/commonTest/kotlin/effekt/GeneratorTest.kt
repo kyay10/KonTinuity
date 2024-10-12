@@ -74,15 +74,11 @@ fun interface EffectfulIterable<A> {
   suspend operator fun iterator(): EffectfulIterator<A>
 }
 
-fun <A> effectfulIterable(body: suspend Generator<A>.() -> Unit): EffectfulIterable<A> {
-  val prompt = HandlerPrompt<EffectfulIteratorStep<A>>()
-  val iterate = Iterate(prompt)
-  return EffectfulIterable<A> {
-    EffectfulIteratorImpl<A>(prompt.handle<EffectfulIteratorStep<A>> {
-      iterate.body()
-      EffectfulIteratorStep.Done
-    })
-  }
+fun <A> effectfulIterable(body: suspend Generator<A>.() -> Unit) = EffectfulIterable<A> {
+  EffectfulIteratorImpl<A>(handle {
+    body(Iterate(this))
+    EffectfulIteratorStep.Done
+  })
 }
 
 class EffectfulIteratorImpl<A>(var current: EffectfulIteratorStep<A>) : EffectfulIterator<A> {

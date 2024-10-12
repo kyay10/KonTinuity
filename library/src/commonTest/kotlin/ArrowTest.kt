@@ -1,15 +1,16 @@
 import arrow.core.Either
 import arrow.core.Either.Left
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
 // From https://github.com/arrow-kt/arrow-core/pull/226
 class ArrowTest {
   @Test
-  fun yieldAListAndStackSafety() = runTest {
+  fun yieldAListAndStackSafety() = runTest(UnconfinedTestDispatcher()) {
     topReset<List<Int>> {
-      suspend fun <A> Prompt<List<A>>.yield(a: A): Unit = shift { k -> listOf(a) + k(Unit) }
+      suspend fun <A> Prompt<List<A>>.yield(a: A): Unit = shiftOnce { k -> listOf(a) + k(Unit) }
       for (i in 0..10_000) yield(i)
       emptyList()
     } shouldBe (0..10_000).toList()
@@ -111,11 +112,11 @@ class ArrowTest {
   }
 
   @Test
-  fun multishotIsStacksafeRegardlessOfStackSize() = runTest {
+  fun multishotIsStacksafeRegardlessOfStackSize() = runTest(UnconfinedTestDispatcher()) {
     topReset<Int> {
       // bring 10k elements on the stack
       var sum = 0
-      for (i0 in 1..10_000) sum += shift<Int, _> { it(i0) }
+      for (i0 in 1..10_000) sum += shiftOnce<Int, _> { it(i0) }
 
       // run the continuation from here 10k times and sum the results
       // This is about as bad as a scenario as it gets :)

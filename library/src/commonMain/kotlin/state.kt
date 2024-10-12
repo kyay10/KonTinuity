@@ -1,18 +1,18 @@
-import arrow.atomic.Atomic
-import arrow.atomic.update
-import arrow.atomic.value
+public data class StateValue<T>(public var value: T)
 
-public typealias State<T> = Reader<Atomic<T>>
+public typealias State<T> = Reader<StateValue<T>>
 
-public suspend fun <T> State<T>.set(value: T) = ask().set(value)
-public suspend fun <T> State<T>.get() = ask().get()
+public suspend fun <T> State<T>.set(value: T) {
+  ask().value = value
+}
 
-public suspend inline fun <T> State<T>.modify(f: (T) -> T) = ask().update(f)
+public suspend fun <T> State<T>.get() = ask().value
 
-public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R {
-  val state = Reader<Atomic<T>>()
-  return state.pushState(value) { state.body() }
+public suspend inline fun <T> State<T>.modify(f: (T) -> T) = set(f(get()))
+
+public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R = with(State<T>()) {
+  pushState(value) { body() }
 }
 
 public suspend fun <T, R> State<T>.pushState(value: T, body: suspend () -> R): R =
-  pushForkingReader(Atomic(value), { Atomic(this.value) }, body)
+  pushReader(StateValue(value), { copy() }, body)

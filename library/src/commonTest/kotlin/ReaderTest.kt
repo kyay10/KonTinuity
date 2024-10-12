@@ -5,7 +5,7 @@ import kotlin.test.Test
 
 class ReaderTest {
   @Test
-  fun simple() = runTest {
+  fun simple() = runTestCC {
     runReader(1) reader@{
       newReset reset@{
         pushReader(2) {
