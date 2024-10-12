@@ -44,25 +44,12 @@ public fun <E> Handler<E>.discardWith(value: Result<E>): Nothing = prompt().prom
 
 public suspend fun <E> Handler<E>.discardWithFast(value: Result<E>): Nothing = prompt().prompt.abortWithFast(deleteDelimiter = true, value)
 
-public suspend fun <E, H> handle(
-  handler: ((() -> HandlerPrompt<E>) -> H), body: suspend H.() -> E
-): E = handle { handler { this }.body() }
-
 public suspend fun <E> handle(body: suspend HandlerPrompt<E>.() -> E): E = with(HandlerPrompt<E>()) {
   rehandle { body() }
 }
 
 // TODO maybe we should remove this? Effekt gets by without it (but their lambdas are restricted)
 public suspend fun <E> Handler<E>.rehandle(body: suspend () -> E): E = prompt().prompt.reset(body)
-
-public suspend fun <E, H : StatefulHandler<E, S>, S> handleStateful(
-  handler: ((() -> StatefulPrompt<E, S>) -> H), value: S, fork: S.() -> S,
-  body: suspend H.() -> E
-): E {
-  val p = StatefulPrompt<E, S>()
-  val h = handler { p }
-  return h.rehandleStateful(value, fork) { h.body() }
-}
 
 public suspend fun <E, S> handleStateful(
   value: S, fork: S.() -> S, body: suspend StatefulPrompt<E, S>.() -> E

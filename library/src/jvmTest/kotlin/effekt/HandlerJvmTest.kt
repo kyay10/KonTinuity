@@ -120,22 +120,22 @@ suspend fun <R> stringInput(input: String, block: suspend StringInput<R>.() -> R
   })
 }
 
-fun interface Nondet2<R> : Collect<R>, NonDetermined {
+class Nondet2<R>(p: HandlerPrompt<List<R>>) : Amb by Collect(p), AmbExc, Handler<List<R>> by p {
   override suspend fun raise(msg: String): Nothing = discard { emptyList() }
 }
 
-suspend fun <R> nondet(block: suspend NonDetermined.() -> R): List<R> = handle(::Nondet2) {
-  listOf(block())
+suspend fun <R> nondet(block: suspend AmbExc.() -> R): List<R> = handle {
+  listOf(block(Nondet2(this)))
 }
 
-fun interface Backtrack2<R> : Maybe<R>, NonDetermined {
+class Backtrack2<R>(p: HandlerPrompt<Option<R>>) : Exc by Maybe(p), AmbExc, Handler<Option<R>> by p {
   override suspend fun flip(): Boolean = use { resume ->
     resume(true).recover { resume(false).bind() }
   }
 }
 
-suspend fun <R> backtrack2(block: suspend NonDetermined.() -> R): Option<R> = handle(::Backtrack2) {
-  Some(block())
+suspend fun <R> backtrack2(block: suspend AmbExc.() -> R): Option<R> = handle {
+  Some(block(Backtrack2(this)))
 }
 
 interface Generator2<A> {
@@ -146,8 +146,7 @@ private suspend fun Generator2<Int>.numbers(upto: Int) {
   for (i in 0..upto) yield(i)
 }
 
-interface Iterate2<A> : Generator2<A>, Handler<EffectfulIterator2<A>> {
-  val nextValue: StateScope.Field<(suspend (Unit) -> A)?>
+class Iterate2<A>(val nextValue: StateScope.Field<(suspend (Unit) -> A)?>, p: HandlerPrompt<EffectfulIterator2<A>>) : Generator2<A>, Handler<EffectfulIterator2<A>> by p {
   override suspend fun yield(value: A) = use { resume ->
     nextValue.set {
       resume(Unit)
@@ -163,16 +162,9 @@ interface Iterate2<A> : Generator2<A>, Handler<EffectfulIterator2<A>> {
   }
 }
 
-suspend fun <A> StateScope.iterate2(block: suspend Generator2<A>.() -> Unit): EffectfulIterator2<A> {
-  val nextValue = field<(suspend (Unit) -> A)?>(null)
-  return handle({
-    object : Iterate2<A>, Handler<EffectfulIterator2<A>> by it() {
-      override val nextValue = nextValue
-    }
-  }) {
-    block()
-    EmptyEffectfulIterator
-  }
+suspend fun <A> StateScope.iterate2(block: suspend Generator2<A>.() -> Unit) = handle {
+  block(Iterate2(field(null), this))
+  EmptyEffectfulIterator
 }
 
 private object EmptyEffectfulIterator : EffectfulIterator2<Nothing> {
@@ -185,4 +177,4 @@ interface EffectfulIterator2<out A> {
   suspend operator fun next(): A
 }
 
-suspend operator fun <A> EffectfulIterator2<A>.iterator() = this
+operator fun <A> EffectfulIterator2<A>.iterator() = this

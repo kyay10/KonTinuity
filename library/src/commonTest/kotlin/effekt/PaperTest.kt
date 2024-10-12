@@ -128,7 +128,7 @@ private suspend fun drunkFlip(amb: Amb, exc: Exc): String {
   return if (heads) "Heads" else "Tails"
 }
 
-fun interface Collect<R> : Amb, Handler<List<R>> {
+class Collect<R>(p: HandlerPrompt<List<R>>) : Amb, Handler<List<R>> by p {
   override suspend fun flip(): Boolean = use { resume ->
     val ts = resume(true)
     val fs = resume(false)
@@ -136,8 +136,8 @@ fun interface Collect<R> : Amb, Handler<List<R>> {
   }
 }
 
-suspend fun <R> collect(block: suspend Amb.() -> R): List<R> = handle(::Collect) {
-  listOf(block())
+suspend fun <R> collect(block: suspend Amb.() -> R): List<R> = handle {
+  listOf(block(Collect(this)))
 }
 
 interface Fiber {
@@ -188,12 +188,8 @@ suspend inline fun poll(state: StateScope, fiber: Fiber, block: suspend Async.()
   override val fiber = fiber
 })
 
-interface NonDetermined : Amb, Exc
-
-fun interface FirstResult<R> : NonDetermined, Maybe<R>, Backtrack<R>
-
-suspend fun <R> firstResult(block: suspend NonDetermined.() -> R): Option<R> = handle(::FirstResult) {
-  Some(block())
+suspend fun <R> firstResult(block: suspend AmbExc.() -> R): Option<R> = handle {
+  Some(block(Backtrack(this)))
 }
 
 class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Unit, Queue> by prompt {

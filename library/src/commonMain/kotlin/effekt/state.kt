@@ -41,11 +41,6 @@ public interface Stateful<S : Stateful<S>> {
   public fun fork(): S
 }
 
-public suspend fun <E, H : StatefulHandler<E, S>, S : Stateful<S>> handleStateful(
-  handler: ((() -> StatefulPrompt<E, S>) -> H), value: S,
-  body: suspend H.() -> E
-): E = handleStateful(handler, value, Stateful<S>::fork, body)
-
 public suspend fun <E, S : Stateful<S>> handleStateful(
   value: S, body: suspend StatefulPrompt<E, S>.() -> E
 ): E = handleStateful(value, Stateful<S>::fork, body)

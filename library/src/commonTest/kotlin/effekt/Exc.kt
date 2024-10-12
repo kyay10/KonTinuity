@@ -10,10 +10,10 @@ interface Exc {
 
 suspend fun Exc.raise(): Nothing = raise("")
 
-fun interface Maybe<R> : Exc, Handler<Option<R>> {
+class Maybe<R>(p: HandlerPrompt<Option<R>>) : Exc, Handler<Option<R>> by p {
   override suspend fun raise(msg: String): Nothing = discard { None }
 }
 
-suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle(::Maybe) {
-  Some(block())
+suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle {
+  Some(block(Maybe(this)))
 }

@@ -62,28 +62,24 @@ suspend fun <R> Exc.stringReader(input: String, block: suspend Receive<Char>.() 
 
 interface AmbExc : Amb, Exc
 
-fun interface NonDet<E> : AmbList<E>, AmbExc {
+class NonDet<E>(p: HandlerPrompt<List<E>>) : Amb by AmbList<E>(p), AmbExc, Handler<List<E>> by p {
   override suspend fun raise(msg: String): Nothing = discard { emptyList() }
 }
 
-suspend fun <E> nonDet(block: suspend AmbExc.() -> E): List<E> = handle(::NonDet) {
-  listOf(block())
+suspend fun <E> nonDet(block: suspend AmbExc.() -> E): List<E> = handle {
+  listOf(block(NonDet(this)))
 }
 
-fun interface Backtrack<R> : Maybe<R>, AmbExc {
+class Backtrack<R>(p: HandlerPrompt<Option<R>>) : Exc by Maybe(p), Handler<Option<R>> by p, AmbExc {
   override suspend fun flip(): Boolean = use { resume ->
     resume(true).recover { resume(false).bind() }
   }
 }
 
-suspend fun <R> backtrack(block: suspend AmbExc.() -> R): Option<R> = handle(::Backtrack) {
-  Some(block())
+suspend fun <R> backtrack(block: suspend AmbExc.() -> R): Option<R> = handle {
+  Some(block(Backtrack(this)))
 }
 
 interface Receive<A> {
   suspend fun receive(): A
-}
-
-interface Send<A> {
-  suspend fun send(a: A)
 }

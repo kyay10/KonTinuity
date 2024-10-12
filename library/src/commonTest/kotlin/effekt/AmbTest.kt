@@ -67,7 +67,7 @@ interface Amb {
   suspend fun flip(): Boolean
 }
 
-fun interface AmbList<E> : Handler<List<E>>, Amb {
+class AmbList<E>(p: HandlerPrompt<List<E>>) : Handler<List<E>> by p, Amb {
   override suspend fun flip(): Boolean = use { resume ->
     val ts = resume(true)
     val fs = resume(false)
@@ -75,6 +75,6 @@ fun interface AmbList<E> : Handler<List<E>>, Amb {
   }
 }
 
-suspend fun <E> ambList(block: suspend Amb.() -> E): List<E> = handle(::AmbList) {
-  listOf(block())
+suspend fun <E> ambList(block: suspend Amb.() -> E): List<E> = handle {
+  listOf(block(AmbList(this)))
 }

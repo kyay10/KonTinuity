@@ -64,15 +64,15 @@ interface Select {
   suspend fun <A> Iterable<A>.select(): A
 }
 
-fun interface SelectAll<R> : Select, Handler<List<R>> {
+class SelectAll<R>(p: HandlerPrompt<List<R>>) : Select, Handler<List<R>> by p{
   override suspend fun <A> Iterable<A>.select(): A = use { k ->
     fold(emptyList()) { acc, elem -> acc + k(elem) }
   }
 }
 
-suspend fun <R> selectAll(body: suspend Select.() -> R): List<R> = handle(::SelectAll) { listOf(body()) }
+suspend fun <R> selectAll(body: suspend Select.() -> R): List<R> = handle { listOf(body(SelectAll(this))) }
 
-fun interface SelectFirst<R> : Select, Handler<Option<R>> {
+class SelectFirst<R>(p: HandlerPrompt<Option<R>>) : Select, Handler<Option<R>> by p {
   override suspend fun <A> Iterable<A>.select(): A = use { k ->
     forEach {
       val res = k(it)
@@ -82,4 +82,4 @@ fun interface SelectFirst<R> : Select, Handler<Option<R>> {
   }
 }
 
-suspend fun <R> selectFirst(body: suspend Select.() -> R): Option<R> = handle(::SelectFirst) { Some(body()) }
+suspend fun <R> selectFirst(body: suspend Select.() -> R): Option<R> = handle { Some(body(SelectFirst(this))) }

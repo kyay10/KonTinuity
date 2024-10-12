@@ -184,7 +184,7 @@ suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
     block(SpecialState(this))
   }
 
-fun interface StateFun<R, S> : State<S>, Handler<suspend (S) -> R> {
+class StateFun<R, S>(p: HandlerPrompt<suspend (S) -> R>) : State<S>, Handler<suspend (S) -> R> by p {
   override suspend fun get(): S = useOnce { k ->
     { s ->
       k(s, shouldClear = true)(s)
@@ -198,8 +198,8 @@ fun interface StateFun<R, S> : State<S>, Handler<suspend (S) -> R> {
   }
 }
 
-suspend fun <R, S> stateFun(init: S, block: suspend State<S>.() -> R): R = handle<suspend (S) -> R, _>(::StateFun) {
-  val res = block()
+suspend fun <R, S> stateFun(init: S, block: suspend State<S>.() -> R): R = handle {
+  val res = block(StateFun(this))
   suspendOneArg { res }
 }(init)
 
