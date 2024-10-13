@@ -319,7 +319,7 @@ class ContinuationTest {
             shift0 { k -> k(ask()) } shouldBe 1
             ask() shouldBe 2
             inHandlingContext { ask() } shouldBe 1
-            inHandlingContext(includeBodyContext = true) { ask() } shouldBe 1
+            inHandlingContext(deleteDelimiter = true) { ask() } shouldBe 1
             ask() shouldBe 2
           }
         }
@@ -349,8 +349,8 @@ class ContinuationTest {
             inHandlingContext { ask() } shouldBe 4
             inHandlingContext { inHandlingContext { ask() } } shouldBe 4
             inHandlingContext { inHandlingContext { inHandlingContext { ask() } } } shouldBe 1
-            inHandlingContext(includeBodyContext = true) { inHandlingContext { inHandlingContext { ask() } } } shouldBe 4
-            inHandlingContext(includeBodyContext = true) { inHandlingContext { inHandlingContext { inHandlingContext { ask() } } } } shouldBe 1
+            inHandlingContext(deleteDelimiter = false) { inHandlingContext { inHandlingContext { ask() } } } shouldBe 4
+            inHandlingContext(deleteDelimiter = false) { inHandlingContext { inHandlingContext { inHandlingContext { ask() } } } } shouldBe 1
             ask() shouldBe 2
           }
         }

@@ -1,4 +1,5 @@
 import arrow.core.identity
+import arrow.core.nonFatalOrThrow
 import kotlinx.coroutines.CancellationException
 import kotlin.coroutines.*
 import kotlin.coroutines.intrinsics.*
@@ -136,12 +137,17 @@ public suspend fun <T, R> Prompt<R>.takeSubContWithFinal(
 }
 
 // Acts like shift0/control { it(body()) }
-// TODO make it faster
+// TODO if `body` is multishot, we need to somehow
+//  evolve k to be multishot too. This is a more general issue with
+//  the `once` functionality. Maybe look to Scheme for ideas?
 @ResetDsl
 public suspend fun <T, P> Prompt<P>.inHandlingContext(
-  includeBodyContext: Boolean = false, body: suspend () -> T
-): T = takeSubCont(!includeBodyContext) { k ->
-  k.pushSubContWith(runCatching { body() }, isDelimiting = !includeBodyContext)
+  deleteDelimiter: Boolean = true, body: suspend () -> T
+): T = takeSubContOnce(deleteDelimiter) { k ->
+  val res = runCatching { body() }
+  // TODO test abortWith here
+  res.exceptionOrNull()?.nonFatalOrThrow()
+  k.pushSubContWith(res, isDelimiting = deleteDelimiter)
 }
 
 @Suppress("UNCHECKED_CAST")

@@ -171,7 +171,7 @@ internal fun <Start, First, End, P> SplitSeq<Start, First, End>.splitAt(p: Promp
 internal fun <Start, First, End, P> SplitSeq<Start, First, End>.splitAtOnce(p: Prompt<P>): Pair<Segment<Start, *, P>, SplitSeq<P, *, End>> {
   val box = findGuyBefore(p, null)
   return if (box != null) {
-    SingleUseSegment(box, this) to box.sequence!!.also { box.sequence = null } as SplitSeq<P, *, End>
+    SingleUseSegment(box, this) to (box.sequence!! as PromptCont).rest.also { box.sequence = null } as SplitSeq<P, *, End>
   } else {
     EmptySegment to this as SplitSeq<P, *, End>
   }
