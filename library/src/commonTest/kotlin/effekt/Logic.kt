@@ -238,8 +238,8 @@ object LogicDeep {
   suspend fun <A> bagOfN(count: Int = -1, block: suspend AmbExc.() -> A): List<A> = bagOfNRec(count, emptyList(), block)
 
   private tailrec suspend fun <A> bagOfNRec(count: Int, acc: List<A>, block: suspend AmbExc.() -> A): List<A> {
-    if (count < -1 || count == 0) return emptyList()
-    val (res, branch) = split(block) ?: return emptyList()
+    if (count < -1 || count == 0) return acc
+    val (res, branch) = split(block) ?: return acc
     return bagOfNRec(if (count == -1) -1 else count - 1, acc + res) { reflect(branch()) }
   }
 
@@ -247,8 +247,8 @@ object LogicDeep {
     bagOfNRec2(count, emptyList()) { split(block) }
 
   private tailrec suspend fun <A> bagOfNRec2(count: Int, acc: List<A>, branch: suspend () -> Branch<A>?): List<A> {
-    if (count < -1 || count == 0) return emptyList()
-    val (res, branch) = branch() ?: return emptyList()
+    if (count < -1 || count == 0) return acc
+    val (res, branch) = branch() ?: return acc
     return bagOfNRec2(if (count == -1) -1 else count - 1, acc + res, branch)
   }
 }
