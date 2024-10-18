@@ -116,13 +116,14 @@ class CanResume<A> : Fibre<A> {
   }
 }
 
+// TODO defunctionalization
 private fun makeTask(k: Cont<Boolean, Unit>): Task {
   val newK = k.copy()
   return { newK(true, shouldClear = true) }
 }
 
-class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
-  private val tasks = ArrayDeque<Task>()
+class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit>) :
+  Handler<Unit> by prompt {
   suspend fun fork(): Boolean = useWithFinal { (k, final) ->
     tasks.addLast(makeTask(final))
     final.clear()
@@ -144,14 +145,19 @@ class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
     //  so we should never have to copy them, but seemingly we copy
     //  at least the SplitSeq elements by turning them into Segments
     //  so maybe we can delay segment creation?
+    // Something something reflection without remorse?
     if (fork()) {
       task()
       discardWithFast(Result.success(Unit))
     }
   }
 
-  fun fastFork(task: Task) {
-    tasks.addLast { rehandle(task) }
+  fun fastFork(task: suspend Scheduler2.() -> Unit) {
+    tasks.addLast {
+      handle {
+        task(Scheduler2(tasks, this))
+      }
+    }
   }
 
   // Since we only run on one thread, we also need yield in the scheduler
@@ -159,25 +165,24 @@ class Scheduler2(prompt: HandlerPrompt<Unit>) : Handler<Unit> by prompt {
   suspend fun yield() = useOnce {
     tasks.addLast { it(Unit, shouldClear = true) }
   }
+}
 
-  // we can't run the scheduler in pure since the continuation that contains
-  // the call to pure might be discarded by one fork, while another one
-  // is still alive.
-  suspend fun run() {
-    while (tasks.isNotEmpty()) {
-      tasks.removeFirst()()
-    }
+// we can't run the scheduler in pure since the continuation that contains
+// the call to pure might be discarded by one fork, while another one
+// is still alive.
+suspend fun ArrayDeque<Task>.run() {
+  while (isNotEmpty()) {
+    removeFirst()()
   }
 }
 
 suspend fun scheduler2(block: suspend Scheduler2.() -> Unit) {
-  lateinit var s: Scheduler2
+  val tasks = ArrayDeque<Task>()
   handle {
-    s = Scheduler2(this)
-    block(s)
+    block(Scheduler2(tasks, this))
   }
   // this is safe since all tasks container the scheduler prompt marker
-  s.run()
+  tasks.run()
 }
 
 fun interface Suspendable {
