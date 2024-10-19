@@ -264,7 +264,7 @@ suspend fun <E, A> runHExcControlO(block: suspend HExc<E>.() -> A): Either<E, A>
         }
       }
       return res.fold({ recover(it) }, {
-        block(it).also { prompt.control0 { it(Unit) } }
+        block(it).also { p.control0 { it(Unit) } }
       })
     }
   }).right()
