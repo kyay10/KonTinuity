@@ -1,13 +1,11 @@
 package effekt.higherorder
 
+import Raise
 import State
-import arrow.core.Either
+import arrow.core.*
 import arrow.core.Either.Left
 import arrow.core.Either.Right
-import arrow.core.getOrElse
-import arrow.core.left
-import arrow.core.right
-import control0
+import arrow.core.raise.Raise
 import effekt.*
 import get
 import io.kotest.matchers.shouldBe
@@ -17,14 +15,14 @@ import set
 import kotlin.test.Test
 
 class HExcTest {
-  suspend fun HExc<Unit>.decr(state: State<Int>) {
+  private suspend fun Raise<Unit>.decr(state: State<Int>) {
     val x = state.get()
     if (x > 0) state.set(x - 1) else raise(Unit)
   }
 
-  suspend fun HExc<Unit>.tripleDecr(state: State<Int>) {
+  private suspend fun Raise<Unit>.tripleDecr(recover: Recover, state: State<Int>) {
     decr(state)
-    recover({
+    recover.recover({
       decr(state)
       decr(state)
     }) {}
@@ -33,13 +31,35 @@ class HExcTest {
   @Test
   fun tripleDecrTest() = runTestCC {
     runHExc<Unit, _> {
-      runStateReturningBoth(2) {
-        tripleDecr(this)
+      runStatePair(2) {
+        tripleDecr(this@runHExc, this)
+      }
+    } shouldBe Right(0 to Unit)
+    runHExcTransactional<Unit, _> {
+      runStatePair(2) {
+        tripleDecr(this@runHExcTransactional, this)
       }
     } shouldBe Right(1 to Unit)
-    runStateReturningBoth(2) {
+    runStatePair(2) {
       runHExc {
-        tripleDecr(this@runStateReturningBoth)
+        tripleDecr(this, this@runStatePair)
+      }
+    } shouldBe (0 to Right(Unit))
+    runEither<Unit, _> {
+      subJump {
+        runStatePair(2) {
+          tripleDecr(recover, this@runStatePair)
+        }
+      }
+    } shouldBe Right(1 to Unit)
+    runStatePair(2) {
+      runHExcTransactional {
+        tripleDecr(this, this@runStatePair)
+      }
+    } shouldBe (0 to Right(Unit))
+    runStatePair(2) {
+      subJump {
+        runEither { tripleDecr(recover, this@runStatePair) }
       }
     } shouldBe (0 to Right(Unit))
   }
@@ -53,7 +73,23 @@ class HExcTest {
           true
         }) { false }
       }
+    } shouldBe Right(listOf(false, true))
+    runHExcTransactional<Unit, _> {
+      LogicDeep.bagOfN {
+        recover({
+          if (flip()) raise(Unit)
+          true
+        }) { false }
+      }
     } shouldBe Right(listOf(false))
+    subJump {
+      LogicDeep.bagOfN {
+        recover.recover({
+          if (flip()) raise(Unit)
+          true
+        }) { false }
+      }
+    } shouldBe listOf(false)
   }
 
   @Test
@@ -63,90 +99,30 @@ class HExcTest {
         raise(Unit)
       }) { }
     } shouldBe Right(Unit)
-    runHExc<Unit, _> {
+    runHExcTransactional<Unit, _> {
       recover({
-        this@runHExc.raise(Unit)
+        raise(Unit)
       }) { }
+    } shouldBe Right(Unit)
+    runEither<Nothing, _> {
+      subJump {
+        recover.recover({ raise(Unit) }) {}
+      }
+    } shouldBe Right(Unit)
+    runHExc {
+      recover<Nothing, Nothing>({
+        raise(Unit)
+      }) { it }
     } shouldBe Left(Unit)
-  }
-
-  @Test
-  fun tripleDecrTest2() = runTestCC {
-    runHExcControlO<Unit, _> {
-      runStateReturningBoth(2) {
-        tripleDecr(this)
-      }
-    } shouldBe Right(1 to Unit)
-    runStateReturningBoth(2) {
-      runHExcControlO {
-        tripleDecr(this@runStateReturningBoth)
-      }
-    } shouldBe (0 to Right(Unit))
-  }
-
-  @Test
-  fun withNonDetTest2() = runTestCC {
-    runHExcControlO<Unit, _> {
-      LogicDeep.bagOfN {
-        recover({
-          if (flip()) raise(Unit)
-          true
-        }) { false }
-      }
-    } shouldBe Right(listOf(false))
-  }
-
-  @Test
-  fun shortCircuitTest2() = runTestCC {
-    runHExcControlO<Unit, _> {
-      recover({
+    runHExcTransactional {
+      recover<Nothing, Nothing>({
         raise(Unit)
-      }) { }
-    } shouldBe Right(Unit)
-    runHExcControlO<Unit, _> {
-      recover({
-        this@runHExcControlO.raise(Unit)
-      }) { }
-    } shouldBe Right(Unit)
-  }
-
-  @Test
-  fun tripleDecrTestSimple() = runTestCC {
-    runHExcSimple<Unit, _> {
-      runStateReturningBoth(2) {
-        tripleDecr(this)
+      }) { it }
+    } shouldBe Left(Unit)
+    runEither {
+      subJump {
+        recover.recover<Nothing, Nothing>({ raise(Unit) }) { it }
       }
-    } shouldBe Right(0 to Unit)
-    runStateReturningBoth(2) {
-      runHExcSimple {
-        tripleDecr(this@runStateReturningBoth)
-      }
-    } shouldBe (0 to Right(Unit))
-  }
-
-  @Test
-  fun withNonDetTestSimple() = runTestCC {
-    runHExcSimple<Unit, _> {
-      LogicDeep.bagOfN {
-        recover({
-          if (flip()) raise(Unit)
-          true
-        }) { false }
-      }
-    } shouldBe Right(listOf(false, true))
-  }
-
-  @Test
-  fun shortCircuitTestSimple() = runTestCC {
-    runHExcSimple<Unit, _> {
-      recover({
-        raise(Unit)
-      }) { }
-    } shouldBe Right(Unit)
-    runHExcSimple<Unit, _> {
-      recover({
-        this@runHExcSimple.raise(Unit)
-      }) { }
     } shouldBe Left(Unit)
   }
 
@@ -159,7 +135,31 @@ class HExcTest {
   }) { false }
 
   @Test
-  fun nonDetAcidTest() = runTestCC {
+  fun nonDetAcidTestTransactional() = runTestCC {
+    collect {
+      runHExcTransactional {
+        action1(this)
+      }
+    } shouldBe listOf(Right(true), Right(false))
+    runHExcTransactional {
+      collect {
+        action1(this@runHExcTransactional)
+      }
+    } shouldBe Right(listOf(false))
+    collect {
+      runHExcTransactional {
+        action2(this)
+      }
+    } shouldBe listOf(Right(false), Right(true))
+    runHExcTransactional {
+      collect {
+        action2(this@runHExcTransactional)
+      }
+    } shouldBe Right(listOf(false))
+  }
+
+  @Test
+  fun nonDetAcidTestSimple() = runTestCC {
     collect {
       runHExc {
         action1(this)
@@ -169,7 +169,7 @@ class HExcTest {
       collect {
         action1(this@runHExc)
       }
-    } shouldBe Right(listOf(false))
+    } shouldBe Right(listOf(true, false))
     collect {
       runHExc {
         action2(this)
@@ -179,69 +179,70 @@ class HExcTest {
       collect {
         action2(this@runHExc)
       }
-    } shouldBe Right(listOf(false))
-  }
-
-  @Test
-  fun nonDetAcidTest2() = runTestCC {
-    collect {
-      runHExcControlO {
-        action1(this)
-      }
-    } shouldBe listOf(Right(true), Right(false))
-    runHExcControlO {
-      collect {
-        action1(this@runHExcControlO)
-      }
-    } shouldBe Left(Unit)
-    collect {
-      runHExcControlO {
-        action2(this)
-      }
-    } shouldBe listOf(Right(false), Right(true))
-    runHExcControlO {
-      collect {
-        action2(this@runHExcControlO)
-      }
-    } shouldBe Right(listOf(false))
-  }
-
-  @Test
-  fun nonDetAcidTestSimple() = runTestCC {
-    collect {
-      runHExcSimple {
-        action1(this)
-      }
-    } shouldBe listOf(Right(true), Right(false))
-    runHExcSimple {
-      collect {
-        action1(this@runHExcSimple)
-      }
-    } shouldBe Right(listOf(true, false))
-    collect {
-      runHExcSimple {
-        action2(this)
-      }
-    } shouldBe listOf(Right(false), Right(true))
-    runHExcSimple {
-      collect {
-        action2(this@runHExcSimple)
-      }
     } shouldBe Right(listOf(false, true))
   }
+
+  @Test
+  fun nonDetAcidTestSubJump() = runTestCC {
+    collect {
+      runHExcSubJump {
+        action1(this)
+      }
+    } shouldBe listOf(Right(true), Right(false))
+    runHExcSubJump {
+      collect {
+        action1(this@runHExcSubJump)
+      }
+    } shouldBe Right(listOf(false))
+    collect {
+      runHExcSubJump {
+        action2(this)
+      }
+    } shouldBe listOf(Right(false), Right(true))
+    runHExcSubJump {
+      collect {
+        action2(this@runHExcSubJump)
+      }
+    } shouldBe Right(listOf(false))
+  }
+
+  @Test
+  fun nonDetAcidTestHRecover() = runTestCC {
+    collect {
+      hRecover {
+        action1(this)
+      }
+    } shouldBe listOf(Right(true), Right(false))
+    hRecover {
+      collect {
+        action1(this@hRecover)
+      }
+    } shouldBe Right(listOf(false))
+    collect {
+      hRecover {
+        action2(this)
+      }
+    } shouldBe listOf(Right(false), Right(true))
+    hRecover {
+      collect {
+        action2(this@hRecover)
+      }
+    } shouldBe Right(listOf(false))
+  }
 }
 
-interface HExc<E> {
-  suspend fun raise(value: E): Nothing
-  suspend fun <A> recover(block: suspend HExc<E>.() -> A, recover: suspend (E) -> A): A
+interface Recover {
+  suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A
 }
 
-suspend fun <E, A> runHExc(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
+interface HExc<E> : Recover, Raise<E>
+
+suspend fun <E, A> runHExcTransactional(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
   block(object : HExc<E> {
-    override suspend fun raise(value: E) = discardWithFast(Result.success(Left(value)))
-    override suspend fun <A> recover(block: suspend HExc<E>.() -> A, recover: suspend (E) -> A): A {
+    override fun raise(r: E) = discardWith(Result.success(Left(r)))
+    override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A {
       val res: Either<E, HExc<E>> = use { resume ->
-        runHExc {
+        runHExcTransactional {
           resume(this.right())
         }.getOrElse {
           resume(it.left())
@@ -252,33 +253,44 @@ suspend fun <E, A> runHExc(block: suspend HExc<E>.() -> A): Either<E, A> = handl
   }).right()
 }
 
-suspend fun <E, A> runHExcControlO(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
+suspend fun <E, A> runHExc(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
   block(object : HExc<E> {
-    override suspend fun raise(value: E) = discardWithFast(Result.success(Left(value)))
-    override suspend fun <A> recover(block: suspend HExc<E>.() -> A, recover: suspend (E) -> A): A {
-      val res: Either<E, HExc<E>> = use { resume ->
-        rehandle {
-          resume(this.right()).fold({
-            resume(it.left())
-          }, ::Right)
+    override fun raise(r: E) = discardWith(Result.success(Left(r)))
+    override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A =
+      runHExc(block).getOrElse { recover(it) }
+  }).right()
+}
+
+suspend fun <E, A> runHExcSubJump(block: suspend HExc<E>.() -> A): Either<E, A> = runEither {
+  subJump {
+    block(object : HExc<E>, Recover by recover, Raise<E> by this@runEither {})
+  }
+}
+
+suspend fun <E, A> runEither(block: suspend Raise<E>.() -> A): Either<E, A> = handle {
+  block(Raise(::Left)).right()
+}
+
+val SubJump.recover: Recover
+  get() = object : Recover {
+    override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A =
+      sub({ jump -> runEither(block).getOrElse { jump(it) } }, { recover(it) })
+  }
+
+suspend fun <E, A> hRecover(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
+  block(object : HExc<E> {
+    override fun raise(r: E) = discardWith(Result.success(Left(r)))
+    override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A = use { resume ->
+      resume.locally {
+        hRecover(block).getOrElse { error ->
+          discard { resume.locally { recover(error) } }
         }
       }
-      return res.fold({ recover(it) }, {
-        block(it).also { p.control0 { it(Unit) } }
-      })
     }
   }).right()
 }
 
-suspend fun <E, A> runHExcSimple(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
-  block(object : HExc<E> {
-    override suspend fun raise(value: E) = discardWithFast(Result.success(Left(value)))
-    override suspend fun <A> recover(block: suspend HExc<E>.() -> A, recover: suspend (E) -> A): A =
-      runHExcSimple(block).getOrElse { recover(it) }
-  }).right()
-}
-
-suspend fun <T, R> runStateReturningBoth(value: T, body: suspend State<T>.() -> R): Pair<T, R> = runState(value) {
+suspend fun <T, R> runStatePair(value: T, body: suspend State<T>.() -> R): Pair<T, R> = runState(value) {
   val res = body()
   get() to res
 }

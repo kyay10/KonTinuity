@@ -77,12 +77,15 @@ public class StatefulPrompt<E, S>(
 ) : StatefulHandler<E, S>, Handler<E> by prompt
 
 @JvmInline
-public value class Cont<in T, out R> @PublishedApi internal constructor(internal val subCont: SubCont<T, R>) {
+public value class Cont<in T, out R> @PublishedApi internal constructor(private val subCont: SubCont<T, R>) {
   public suspend fun resumeWith(value: Result<T>, shouldClear: Boolean = false): R =
     subCont.pushSubContWith(value, isDelimiting = true, shouldClear)
 
   public suspend operator fun invoke(value: T, shouldClear: Boolean = false): R =
     resumeWith(Result.success(value), shouldClear)
+
+  public suspend fun locally(shouldClear: Boolean = false, value: suspend () -> T): R =
+    subCont.pushSubCont(isDelimiting = true, shouldClear, value)
 
   public suspend fun resumeWithException(exception: Throwable, shouldClear: Boolean = false): R =
     resumeWith(Result.failure(exception), shouldClear)
