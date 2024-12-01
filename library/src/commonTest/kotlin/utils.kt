@@ -19,5 +19,5 @@ inline fun runTestCC(
 }
 
 inline fun <Error, R> HandlerPrompt<R>.Raise(crossinline transform: (Error) -> R): Raise<Error> = object : Raise<Error> {
-  override fun raise(error: Error): Nothing = discard { transform(error) }
+  override fun raise(r: Error): Nothing = discard { transform(r) }
 }

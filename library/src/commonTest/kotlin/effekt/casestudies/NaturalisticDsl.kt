@@ -71,7 +71,6 @@ suspend fun Quantification.every(who: Predicate) = quantify(who)
 
 suspend fun s2() = scoped { John said { every(Woman) loves me() } }
 
-//TODO: weird compiler bug. Removing suspend here still compiles s2, but ends up with null continuation
 suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
