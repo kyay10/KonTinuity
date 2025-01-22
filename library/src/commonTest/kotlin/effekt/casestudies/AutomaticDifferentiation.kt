@@ -1,5 +1,6 @@
 package effekt.casestudies
 
+import arrow.autoCloseScope
 import effekt.handle
 import effekt.use
 import io.kotest.matchers.shouldBe
@@ -12,19 +13,24 @@ class AutomaticDifferentiationTest {
   fun example() = runTestCC {
     forwards(2.0) { prog(it) } shouldBe 15.0
     backwards(2.0) { prog(it) } shouldBe 15.0
+    backwardsAutoClose(2.0) { prog(it) } shouldBe 15.0
 
     forwards(3.0) { prog(it) } shouldBe 30.0
     backwards(3.0) { prog(it) } shouldBe 30.0
+    backwardsAutoClose(3.0) { prog(it) } shouldBe 30.0
 
     forwards(0.0) { prog(it) } shouldBe 3.0
     backwards(0.0) { prog(it) } shouldBe 3.0
+    backwardsAutoClose(0.0) { prog(it) } shouldBe 3.0
 
 
     forwards(1.0) { progExp(it) } shouldBe 25.522100580105757
     backwards(1.0) { progExp(it) } shouldBe 25.522100580105757
+    backwardsAutoClose(1.0) { progExp(it) } shouldBe 25.522100580105757
 
     forwards(0.0) { progExp(it) } shouldBe mathExp(1.0)
     backwards(0.0) { progExp(it) } shouldBe mathExp(1.0)
+    backwardsAutoClose(0.0) { progExp(it) } shouldBe mathExp(1.0)
     val one = 1.0
 
     showString { x ->
@@ -47,8 +53,17 @@ class AutomaticDifferentiationTest {
       x * shouldBeOne.num
     } shouldBe 2.0
 
+    backwardsAutoClose(1.0) { x ->
+      val shouldBeOne = backwardsAutoClose(1.0) { y -> x + y }
+      x * shouldBeOne.num
+    } shouldBe 2.0
+
     // this is proposed by Wang et al. as a solution to pertubation confusion
     backwards(1.0) { x ->
+      val shouldBeOne = forwards(1.0) { y -> x.value.num + y }
+      x * shouldBeOne.num
+    } shouldBe 1.0
+    backwardsAutoClose(1.0) { x ->
       val shouldBeOne = forwards(1.0) { y -> x.value.num + y }
       x * shouldBeOne.num
     } shouldBe 1.0
@@ -132,6 +147,37 @@ suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double 
         val z = NumB(xExp, 0.0)
         resume(z)
         x.d += xExp * z.d
+      }
+    }.prog(input)
+    res.d += 1
+  }
+  return input.d
+}
+
+suspend fun backwardsAutoClose(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double {
+  val input = NumB(x, 0.0)
+  autoCloseScope {
+    val res = object : AD<NumB> {
+      override val Double.num: NumB get() = NumB(this, 0.0)
+      override suspend fun NumB.plus(other: NumB) = NumB(value + other.value, 0.0).also { z ->
+        onClose {
+          this.d += z.d
+          other.d += z.d
+        }
+      }
+
+      override suspend fun NumB.times(other: NumB) = NumB(value * other.value, 0.0).also { z ->
+        onClose {
+          d += other.value * z.d
+          other.d += value * z.d
+        }
+      }
+
+      override suspend fun exp(x: NumB): NumB {
+        val xExp = mathExp(x.value)
+        val z = NumB(xExp, 0.0)
+        onClose { x.d += xExp * z.d }
+        return z
       }
     }.prog(input)
     res.d += 1
