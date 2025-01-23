@@ -52,28 +52,25 @@ private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIm
           val exception = res.exceptionOrNull()
           if (exception is SeekingStackException) exception.use(tail)
           else tail.resumeWithImpl(res, false)
-        } else {
-          wrapper.result = hasBeenIntercepted
         }
       }
     } else {
+      // TODO deduplicate
       val wrapper = wrapperCont
       val rest = rest!! as SplitSeq<Any?, *, *>
       wrapper.seq = rest
       wrapper.realContext = rest.context
       if (isIntercepted) {
-        wrapper.result = hasBeenIntercepted
+        wrapper.endWaitingForValue()
         frames.head().cont.intercepted().resumeWith(result)
       } else {
-        wrapper.result = waitingForValue
+        wrapper.beginWaitingForValue()
         frames.head().cont.resumeWith(result)
         val res = wrapper.result
         if (res != waitingForValue && res != hasBeenIntercepted) {
           val exception = res.exceptionOrNull()
           if (exception is SeekingStackException) exception.use(rest)
           else rest.resumeWithImpl(res, false)
-        } else {
-          wrapper.result = hasBeenIntercepted
         }
       }
     }
@@ -215,6 +212,17 @@ internal class WrapperCont<T>(seq: SplitSeq<T, *, *>, isWaitingForValue: Boolean
   CoroutineContext {
   var seq: SplitSeq<T, *, *>? = seq
   var result: Result<T> = if (isWaitingForValue) waitingForValue else hasBeenIntercepted
+    get() = field.also { endWaitingForValue() }
+  private set
+
+  fun beginWaitingForValue() {
+    result = waitingForValue
+  }
+
+  fun endWaitingForValue() {
+    result = hasBeenIntercepted
+  }
+
   var realContext = seq.context.unwrap()
     set(value) {
       field = value.unwrap()
