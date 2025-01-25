@@ -3,7 +3,6 @@ import arrow.core.Either.Right
 import arrow.core.left
 import arrow.core.right
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
 class FcontrolJvmTest {

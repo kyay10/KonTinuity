@@ -1,6 +1,5 @@
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
 class RevStateTest {

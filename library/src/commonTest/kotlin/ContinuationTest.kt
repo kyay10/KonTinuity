@@ -5,7 +5,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import kotlinx.coroutines.test.testTimeSource
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
@@ -113,7 +113,7 @@ class ContinuationTest {
 
   @OptIn(ExperimentalTime::class, ExperimentalCoroutinesApi::class)
   @Test
-  fun await() = runTest {
+  fun await() = coroutinesRunTest {
     val mark = testTimeSource.markNow()
     val a = async {
       delay(500.milliseconds)

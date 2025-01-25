@@ -5,8 +5,8 @@ import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.test.runTest
 import runCC
+import runTest
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 

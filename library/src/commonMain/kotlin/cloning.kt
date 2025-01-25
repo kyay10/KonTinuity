@@ -234,7 +234,7 @@ internal class WrapperCont<T>(seq: SplitSeq<T, *, *>, isWaitingForValue: Boolean
     if (this.result == waitingForValue) {
       this.result = result
     } else {
-      seq!!.resumeWith(result, isIntercepted = false)
+      checkNotNull(seq) { "No sequence to resume with result $result" }.resumeWith(result, isIntercepted = false)
     }
   }
 

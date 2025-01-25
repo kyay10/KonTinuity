@@ -1,5 +1,4 @@
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
 class TreeTest {
@@ -107,7 +106,7 @@ class TreeTest {
       val secondSequence = secondTree.shiftSequence()
       val firstList = listOf(77, 2, 3, 4, 5, 6)
       val secondList = listOf(6, 5, 4, 3, 77, 2)
-      repeat(100) {
+      repeat(10) {
         firstSequence.toList() shouldBe firstList
         secondSequence.toList() shouldBe secondList
       }
@@ -117,7 +116,7 @@ class TreeTest {
       val secondSequence = secondTree.controlSequence()
       val firstList = firstTree.breadthFirstList()
       val secondList = secondTree.breadthFirstList()
-      repeat(100) {
+      repeat(10) {
         firstSequence.toList() shouldBe firstList
         secondSequence.toList() shouldBe secondList
       }

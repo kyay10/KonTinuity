@@ -1,6 +1,5 @@
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
 class ReaderTest {

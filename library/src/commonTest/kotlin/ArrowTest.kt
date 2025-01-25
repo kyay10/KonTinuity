@@ -2,7 +2,6 @@ import arrow.core.Either
 import arrow.core.Either.Left
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 
 // From https://github.com/arrow-kt/arrow-core/pull/226

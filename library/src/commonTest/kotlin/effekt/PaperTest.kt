@@ -5,9 +5,9 @@ import arrow.core.Option
 import arrow.core.Some
 import arrow.core.identity
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
 import pushReader
 import runCC
+import runTest
 import kotlin.collections.plus
 import kotlin.test.Test
 

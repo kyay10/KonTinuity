@@ -1,8 +1,8 @@
 package effekt
 
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
 import runCC
+import runTest
 import kotlin.test.Test
 
 class FibersTest {

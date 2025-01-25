@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -171,5 +170,5 @@ class FlowTest {
 }
 
 private fun <T> flowOfWithDelay(vararg elements: T) = flowOf(*elements).onEach {
-  delay(500.milliseconds)
+  delay(1.milliseconds)
 }

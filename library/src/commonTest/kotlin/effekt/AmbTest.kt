@@ -3,8 +3,8 @@ package effekt
 import arrow.core.None
 import arrow.core.Some
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
 import runCC
+import runTest
 import kotlin.test.Test
 
 class AmbTest {

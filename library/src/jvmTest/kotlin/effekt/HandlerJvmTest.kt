@@ -5,9 +5,9 @@ import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import runCC
+import runTest
 
 class HandlerJvmTest {
   @Test
