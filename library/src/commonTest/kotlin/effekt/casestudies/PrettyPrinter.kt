@@ -1,5 +1,3 @@
-@file:Suppress("CONTEXT_RECEIVERS_DEPRECATED")
-
 package effekt.casestudies
 
 import Raise
@@ -17,12 +15,13 @@ import effekt.handleStateful
 import effekt.use
 import given
 import io.kotest.matchers.shouldBe
+import raise
 import runTestCC
 import kotlin.test.Test
 import kotlin.text.repeat
 
 class PrettyPrinterTest {
-  context(Indent, DefaultIndent, Flow, Emit, LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
   suspend fun example4b() {
     text("def"); space(); text("foo"); parens {
       group {
@@ -37,7 +36,7 @@ class PrettyPrinterTest {
     }
   }
 
-  context(Indent, DefaultIndent, Flow, Emit, LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
   suspend fun example3b() {
     example4b()
     space()
@@ -52,7 +51,7 @@ class PrettyPrinterTest {
     }
   }
 
-  context(Indent, DefaultIndent, Flow, Emit, LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
   suspend fun example6() {
     group {
       text("this")
@@ -65,7 +64,7 @@ class PrettyPrinterTest {
     }
   }
 
-  context(Indent, DefaultIndent, Flow, Emit, LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
   suspend fun example7() {
     group {
       text("this")
@@ -80,7 +79,7 @@ class PrettyPrinterTest {
     }
   }
 
-  context(Indent, DefaultIndent, Flow, Emit, LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
   suspend fun helloWorld() {
     text("hello")
     line()
@@ -165,36 +164,45 @@ fun interface Indent {
   suspend fun indent(): Int
 }
 
+context(indent: Indent)
+suspend fun indent() = indent.indent()
+
 fun interface DefaultIndent {
   suspend fun defaultIndent(): Int
 }
 
+context(defaultIndent: DefaultIndent)
+suspend fun defaultIndent() = defaultIndent.defaultIndent()
+
 fun interface Flow {
   suspend fun flow(): Direction
 }
+
+context(flow: Flow)
+suspend fun flow() = flow.flow()
 
 fun interface Emit {
   suspend fun emitText(text: String)
   suspend fun emitNewline() = emitText("\n")
 }
 
-context(Emit)
-suspend fun text(content: String) = emitText(content)
+context(emit: Emit)
+suspend fun text(content: String) = emit.emitText(content)
 
-context(Emit)
-suspend fun newline() = emitNewline()
+context(emit: Emit)
+suspend fun newline() = emit.emitNewline()
 
-context(Emit)
+context(_: Emit)
 suspend fun space() = text(" ")
 
-context(Emit)
+context(_: Emit)
 suspend fun spaces(n: Int) {
   if (n > 0) {
     text(" ".repeat(n))
   }
 }
 
-context(Indent, Flow, Emit)
+context(_: Indent, _: Flow, _: Emit)
 suspend fun lineOr(replace: String) = when (flow()) {
   Direction.Horizontal -> text(replace)
   Direction.Vertical -> {
@@ -203,41 +211,41 @@ suspend fun lineOr(replace: String) = when (flow()) {
   }
 }
 
-context(Indent, Flow, Emit)
+context(_: Indent, _: Flow, _: Emit)
 suspend fun line() = lineOr(" ")
 
-context(Indent, Flow, Emit)
+context(_: Indent, _: Flow, _: Emit)
 suspend fun linebreak() = lineOr("")
 
 // Uses `n` as the indentation in the given document
-context(Indent)
+context(_: Indent)
 suspend inline fun <R> withIndent(n: Int, doc: suspend context(Indent) () -> R): R = with(Indent { n }) {
-  doc(given<Indent>()) // Annoying Kotlin issue
+  doc()
 }
 
-context(Indent)
+context(_: Indent)
 suspend inline fun <R> nest(
   j: Int, doc: suspend context(Indent) () -> R
 ): R = withIndent(indent() + j, doc)
 
-context(Indent, DefaultIndent)
+context(_: Indent, _: DefaultIndent)
 suspend inline fun <R> nested(
   doc: suspend context(Indent) () -> R
 ): R = nest(defaultIndent(), doc)
 
-context(Flow)
+context(_: Flow)
 suspend inline fun <R> fix(
   direction: Direction, doc: suspend context(Flow) () -> R
 ): R = with(Flow { direction }) {
   doc(given<Flow>())
 }
 
-context(Flow)
+context(_: Flow)
 suspend inline fun <R> horizontal(
   doc: suspend context(Flow) () -> R
 ): R = fix(Direction.Horizontal, doc)
 
-context(Flow)
+context(_: Flow)
 suspend inline fun <R> vertical(
   doc: suspend context(Flow) () -> R
 ): R = fix(Direction.Vertical, doc)
@@ -246,20 +254,21 @@ fun interface LayoutChoice {
   suspend fun choice(): Direction
 }
 
-context(Flow, LayoutChoice)
+context(layoutChoice: LayoutChoice)
+suspend fun choice() = layoutChoice.choice()
+
+context(_: Flow, _: LayoutChoice)
 suspend inline fun group(
   doc: suspend context(Flow) () -> Unit
-) = fix(choice()) {
-  doc(given<Flow>())
-}
+) = fix(choice(), doc)
 
-context(Indent, Flow, Emit, LayoutChoice)
+context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
 suspend fun softline() = group { line() }
 
-context(Indent, Flow, Emit, LayoutChoice)
+context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
 suspend fun softbreak() = group { linebreak() }
 
-context(Indent, Flow, Emit)
+context(_: Indent, _: Flow, _: Emit)
 suspend fun example1(l: List<Int>) {
   text("[")
   var n = 0
@@ -272,7 +281,7 @@ suspend fun example1(l: List<Int>) {
   text("]")
 }
 
-context(Indent, Flow, Emit, LayoutChoice)
+context(_:Indent, _: Flow, _: Emit, _: LayoutChoice)
 suspend fun example2() {
   group {
     text("Hi")
@@ -282,7 +291,7 @@ suspend fun example2() {
   text("!!!")
 }
 
-context(Indent, Flow, Emit, LayoutChoice)
+context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
 suspend fun example3() = group {
   text("this")
   nest(9) {
@@ -315,27 +324,25 @@ suspend fun writer(p: suspend context(Emit) () -> Unit): String {
   }
 }
 
-context(Emit, LayoutChoice, SingletonRaise<Unit>)
+context(emit: Emit, layoutChoice: LayoutChoice, _: SingletonRaise<*>)
 suspend fun printer(
   width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit
 ) {
   data class PrinterData(var pos: Int)
-
-  val outerEmit = given<Emit>()
   handleStateful(PrinterData(0), PrinterData::copy) {
-    block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(::choice), object : Emit {
+    block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(layoutChoice::choice), object : Emit {
       override suspend fun emitText(text: String) = use { k ->
         get().pos += text.length
         if (get().pos > width) {
           raise()
         } else {
-          outerEmit.emitText(text)
+          emit.emitText(text)
           k(Unit)
         }
       }
 
       override suspend fun emitNewline() = use { k ->
-        outerEmit.emitNewline()
+        emit.emitNewline()
         get().pos = 0
         k(Unit)
       }
@@ -353,7 +360,7 @@ suspend fun pretty(
   }
 }.getOrElse { "Cannot print document, since it would overflow." }
 
-context(Emit)
+context(_: Emit)
 suspend inline fun parens(block: () -> Unit) {
   text("(")
   block()
@@ -361,7 +368,7 @@ suspend inline fun parens(block: () -> Unit) {
 }
 
 
-context(Emit)
+context(_: Emit)
 suspend inline fun braces(block: () -> Unit) {
   text("{")
   block()
@@ -369,7 +376,7 @@ suspend inline fun braces(block: () -> Unit) {
 }
 
 
-context(Indent, DefaultIndent, Flow, Emit, LayoutChoice)
+context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
 suspend fun Tree.emit(): Unit = when (this) {
   is Lit -> text(value.toString())
   is Var -> text(name)

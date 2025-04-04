@@ -1,7 +1,6 @@
-import kotlin.jvm.JvmInline
 
-@JvmInline
-public value class Fcontrol<Error, T> private constructor(private val reader: Reader<suspend (Error) -> T>) {
+// TODO: turn into value class when KT-76583 is fixed
+public class Fcontrol<Error, T> private constructor(private val reader: Reader<suspend (Error) -> T>) {
   public constructor() : this(Reader())
 
   @ResetDsl

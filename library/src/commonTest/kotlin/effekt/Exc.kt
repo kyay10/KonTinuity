@@ -8,7 +8,11 @@ interface Exc {
   suspend fun raise(msg: String): Nothing
 }
 
-suspend fun Exc.raise(): Nothing = raise("")
+context(exc: Exc)
+suspend fun raise(msg: String): Nothing = exc.raise(msg)
+
+context(exc: Exc)
+suspend fun raise(): Nothing = raise("")
 
 class Maybe<R>(p: HandlerPrompt<Option<R>>) : Exc, Handler<Option<R>> by p {
   override suspend fun raise(msg: String): Nothing = discard { None }

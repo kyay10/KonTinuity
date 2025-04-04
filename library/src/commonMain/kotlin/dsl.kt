@@ -1,5 +1,3 @@
-@file:Suppress("CONTEXT_RECEIVERS_DEPRECATED")
-
 import arrow.core.raise.Raise
 import arrow.core.raise.SingletonRaise
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -48,19 +46,24 @@ public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choos
 public suspend fun <R> listReset(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =
   runCC { runList(body) }
 
-context(Choose)
+context(_: Choose)
 public suspend fun <T> List<T>.bind(): T = shift { continuation ->
-  for (item in 0..lastIndex) continuation(this[item])
+  (0..lastIndex).forEachIteratorless { item ->
+    continuation(this[item])
+  }
 }
 
-public suspend fun <T> Choose.choose(left: T, right: T): T = shift { continuation ->
+context(_: Choose)
+public suspend fun <T> choose(left: T, right: T): T = shift { continuation ->
   continuation(left)
   continuation(right)
 }
 
-context(Choose)
+context(_: Choose)
 public suspend fun IntRange.bind(): Int = shift { continuation ->
-  for (i in start..endInclusive) continuation(i)
+  (start..endInclusive).forEachIteratorless { i ->
+    continuation(i)
+  }
 }
 
 public suspend fun <T> replicate(amount: Int, producer: suspend (Int) -> T): List<T> = runList {
@@ -75,7 +78,7 @@ public fun <R> flowReset(
   }
 }
 
-context(Choose)
+context(_: Choose)
 @OptIn(ExperimentalCoroutinesApi::class)
 public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
   // TODO using coroutineScope in such a way is generally unsafe unless a nonReentrant block is used
@@ -86,5 +89,13 @@ public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
         continuation(item)
       }
     }
+  }
+}
+
+private inline fun IntRange.forEachIteratorless(block: (Int) -> Unit) {
+  var index = start
+  while (index <= endInclusive) {
+    block(index)
+    index++
   }
 }

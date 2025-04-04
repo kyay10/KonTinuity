@@ -67,6 +67,9 @@ interface Amb {
   suspend fun flip(): Boolean
 }
 
+context(amb: Amb)
+suspend fun flip(): Boolean = amb.flip()
+
 class AmbList<E>(p: HandlerPrompt<List<E>>) : Handler<List<E>> by p, Amb {
   override suspend fun flip(): Boolean = use { resume ->
     val ts = resume(true)

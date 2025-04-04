@@ -3,6 +3,7 @@ import arrow.core.nonFatalOrThrow
 import kotlinx.coroutines.CancellationException
 import kotlin.coroutines.*
 import kotlin.coroutines.intrinsics.*
+import kotlin.jvm.JvmName
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
 @DslMarker
@@ -51,6 +52,13 @@ public suspend fun <R> Prompt<R>.pushPrompt(
   body.startCoroutine(WrapperCont(stack.pushPrompt(this)))
 }
 
+context(p: Prompt<R>)
+@ResetDsl
+@JvmName("pushPromptContext")
+public suspend fun <R> pushPrompt(
+  body: suspend () -> R
+): R = p.pushPrompt(body)
+
 /* TODO this might be better
 suspendCoroutineUnintercepted { k ->
   val stack = collectStack(k).pushPrompt(this)
@@ -67,6 +75,11 @@ public suspend fun <T, R> Reader<T>.pushReader(value: T, fork: T.() -> T = ::ide
     val stack = collectStack(k)
     body.startCoroutine(WrapperCont(stack.pushReader(this, value, fork)))
   }
+
+context(r: Reader<T>)
+@JvmName("pushReaderContext")
+public suspend fun <T, R> pushReader(value: T, fork: T.() -> T = ::identity, body: suspend () -> R): R =
+  r.pushReader(value, fork, body)
 
 
 @ResetDsl
@@ -100,6 +113,10 @@ public suspend fun <S> Reader<S>.deleteBinding(): Unit = suspendCoroutineUninter
   toResume.resumeWith(Result.success(Unit), isIntercepted = true)
 }
 
+context(r: Reader<S>)
+@JvmName("deleteBindingContext")
+public suspend fun <S> deleteBinding(): Unit = r.deleteBinding()
+
 private fun <T> SplitSeq<*, *, *>.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): SplitSeq<T, *, *> {
   val splitSeq = find(prompt)
   return if (deleteDelimiter) splitSeq else splitSeq.pushPrompt(prompt)
@@ -114,6 +131,13 @@ public suspend fun <T, R> Prompt<R>.takeSubCont(
   body.startCoroutine(SubCont(init, this), WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this)))
 }
 
+context(p: Prompt<R>)
+@ResetDsl
+@JvmName("takeSubContContext")
+public suspend fun <T, R> takeSubCont(
+  deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
+): T = p.takeSubCont(deleteDelimiter, body)
+
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubContOnce(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
@@ -122,6 +146,13 @@ public suspend fun <T, R> Prompt<R>.takeSubContOnce(
   val (init, rest) = stack.splitAtOnce(this)
   body.startCoroutine(SubCont(init, this), WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this)))
 }
+
+context(p: Prompt<R>)
+@ResetDsl
+@JvmName("takeSubContOnceContext")
+public suspend fun <T, R> takeSubContOnce(
+  deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
+): T = p.takeSubContOnce(deleteDelimiter, body)
 
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubContWithFinal(
@@ -135,6 +166,13 @@ public suspend fun <T, R> Prompt<R>.takeSubContWithFinal(
     WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this))
   )
 }
+
+context(p: Prompt<R>)
+@ResetDsl
+@JvmName("takeSubContWithFinalContext")
+public suspend fun <T, R> takeSubContWithFinal(
+  deleteDelimiter: Boolean = true, body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
+): T = p.takeSubContWithFinal(deleteDelimiter, body)
 
 // Acts like shift0/control { it(body()) }
 // TODO if `body` is multishot, we need to somehow
@@ -150,7 +188,14 @@ public suspend fun <T, P> Prompt<P>.inHandlingContext(
   k.pushSubContWith(res, isDelimiting = deleteDelimiter)
 }
 
-@Suppress("UNCHECKED_CAST")
+context(p: Prompt<P>)
+@ResetDsl
+@JvmName("inHandlingContextContext")
+public suspend fun <T, P> inHandlingContext(
+  deleteDelimiter: Boolean = true, body: suspend () -> T
+): T = p.inHandlingContext(deleteDelimiter, body)
+
+  @Suppress("UNCHECKED_CAST")
 internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>): Nothing =
   throw AbortWithValueException(this as Prompt<Any?>, value, deleteDelimiter)
 

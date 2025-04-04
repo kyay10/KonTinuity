@@ -100,7 +100,7 @@ class ListTest {
         twoElements.bind()
         "firstBranch"
       } else {
-        repeat(2) {
+        repeatIteratorless(2) {
           twoElements.bind()
         }
         "secondBranch"
@@ -116,7 +116,7 @@ class ListTest {
   @Test
   fun forLoops() = runTest {
     val result = listReset {
-      for (i in 1..10) {
+      (1..10).forEachIteratorless { i ->
         listOf(i, i).bind()
       }
       0
@@ -138,7 +138,7 @@ class ListTest {
   fun allEightBitPatternsWithOnlyChange() = runTest {
     val result = buildString {
       listReset {
-        repeat(8) {
+        repeatIteratorless(8) {
           append(choose(0, 1))
         }
         appendLine()

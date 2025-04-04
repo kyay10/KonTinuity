@@ -5,9 +5,9 @@ import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
 import io.kotest.matchers.shouldBe
-import org.junit.Test
 import runCC
 import runTest
+import kotlin.test.Test
 
 class HandlerJvmTest {
   @Test
@@ -63,7 +63,7 @@ class HandlerJvmTest {
 }
 
 // AB ::= a AB | b
-context(Amb, Exc, Input)
+context(_: Amb, _: Exc, _: Input)
 private suspend fun parseAsB(): Int = if (flip()) {
   accept('a')
   parseAsB() + 1
@@ -72,25 +72,25 @@ private suspend fun parseAsB(): Int = if (flip()) {
   0
 }
 
-context(Input, Exc)
+context(_: Input, _: Exc)
 private suspend fun accept(exp: Char) {
   if (read() != exp) raise("Expected $exp")
 }
 
-context(Amb, Exc)
+context(_: Amb, _: Exc)
 private suspend fun drunkFlip(): String {
   val caught = flip()
   val heads = if (caught) flip() else raise("We dropped the coin.")
   return if (heads) "Heads" else "Tails"
 }
 
-context(Amb, Exc, Input)
+context(_: Amb, _: Exc, _: Input)
 private suspend fun digit(): Int = when (val c = read()) {
   in '0'..'9' -> c - '0'
   else -> raise("Not a digit: $c")
 }
 
-context(Amb, Exc, Input)
+context(_: Amb, _: Exc, _: Input)
 private suspend fun number(): Int {
   var res = digit()
   while (true) {
@@ -110,11 +110,11 @@ interface StringInput<R> : Input {
   else input[pos.get().also { pos.set(it + 1) }]
 }
 
-context(Exc)
+context(exc: Exc)
 suspend fun <R> stringInput(input: String, block: suspend StringInput<R>.() -> R): R = region {
   val pos = field(0)
   block(object : StringInput<R> {
-    override val exc: Exc = this@Exc
+    override val exc: Exc = exc
     override val input: String = input
     override val pos: StateScope.Field<Int> = pos
   })

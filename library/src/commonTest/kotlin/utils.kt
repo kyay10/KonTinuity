@@ -32,3 +32,22 @@ inline fun <Error, R> HandlerPrompt<R>.Raise(crossinline transform: (Error) -> R
   }
 
 expect fun runSuspend(block: suspend () -> Unit)
+
+inline fun repeatIteratorless(
+  times: Int,
+  block: (Int) -> Unit
+) {
+  var i = 0
+  while (i < times) {
+    block(i)
+    i++
+  }
+}
+
+inline fun IntRange.forEachIteratorless(block: (Int) -> Unit) {
+  var index = start
+  while (index <= endInclusive) {
+    block(index)
+    index++
+  }
+}

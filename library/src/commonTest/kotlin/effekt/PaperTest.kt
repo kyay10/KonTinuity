@@ -220,3 +220,6 @@ typealias Queue = List<suspend () -> Unit>
 interface Input {
   suspend fun read(): Char
 }
+
+context(input: Input)
+suspend fun read(): Char = input.read()

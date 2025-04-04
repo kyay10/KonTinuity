@@ -128,7 +128,7 @@ class FlowTest {
         twoElements.bind()
         "firstBranch"
       } else {
-        repeat(2) {
+        repeatIteratorless(2) {
           twoElements.bind()
         }
         "secondBranch"
@@ -155,7 +155,7 @@ class FlowTest {
   @Test
   fun forLoops() = runTest(UnconfinedTestDispatcher()) {
     val result = flowReset {
-      for (i in 1..10) {
+      (1..10).forEachIteratorless { i ->
         flowOfWithDelay(i, i).bind()
       }
       0

@@ -64,9 +64,8 @@ public suspend fun <E, S> StatefulHandler<E, S>.rehandleStateful(
 ): E = reader.pushReader(value, fork) {
   rehandle(body)
 }
-
-@JvmInline
-public value class HandlerPrompt<E> private constructor(@PublishedApi internal val p: Prompt<E>) : Handler<E> {
+// TODO: turn into value class when KT-76583 is fixed
+public class HandlerPrompt<E> private constructor(@PublishedApi internal val p: Prompt<E>) : Handler<E> {
   public constructor() : this(Prompt())
 
   override val prompt: HandlerPrompt<E> get() = this
@@ -76,8 +75,8 @@ public class StatefulPrompt<E, S>(
   prompt: HandlerPrompt<E> = HandlerPrompt(), override val reader: Reader<S> = Reader()
 ) : StatefulHandler<E, S>, Handler<E> by prompt
 
-@JvmInline
-public value class Cont<in T, out R> @PublishedApi internal constructor(private val subCont: SubCont<T, R>) {
+// TODO: turn into value class when KT-76583 is fixed
+public class Cont<in T, out R> @PublishedApi internal constructor(private val subCont: SubCont<T, R>) {
   public suspend fun resumeWith(value: Result<T>, shouldClear: Boolean = false): R =
     subCont.pushSubContWith(value, isDelimiting = true, shouldClear)
 

@@ -1,5 +1,3 @@
-@file:Suppress("CONTEXT_RECEIVERS_DEPRECATED")
-
 package effekt.casestudies
 
 import arrow.core.Either
@@ -66,11 +64,14 @@ fun interface Fresh {
   suspend fun fresh(): String
 }
 
+context(fresh: Fresh)
+suspend fun fresh(): String = fresh.fresh()
+
 suspend fun <R> freshVars(block: suspend context(Fresh) () -> R): R {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
     block {
-      "x${++(get().i)}"
+      "x${++get().i}"
     }
   }
 }
@@ -79,7 +80,10 @@ fun interface Bind {
   suspend fun Stmt.bind(): Expr
 }
 
-context(Bind, Fresh)
+context(bind: Bind)
+suspend fun Stmt.bind(): Expr = with(bind) { bind() }
+
+context(_: Bind, _: Fresh)
 suspend fun Tree.toStmt(): Stmt = when (this) {
   is Lit -> CRet(CLit(value))
   is Var -> CRet(CVar(name))
@@ -90,7 +94,7 @@ suspend fun Tree.toStmt(): Stmt = when (this) {
   is Let -> CLet(name, bindHere { binding.toStmt() }, bindHere { body.toStmt() })
 }
 
-context(Fresh)
+context(_: Fresh)
 suspend fun bindHere(block: suspend context(Bind) () -> Stmt): Stmt = handle {
   block {
     use { resume ->
@@ -102,7 +106,7 @@ suspend fun bindHere(block: suspend context(Bind) () -> Stmt): Stmt = handle {
 
 suspend fun translate(e: Tree): Stmt = freshVars { bindHere { e.toStmt() } }
 
-context(Emit)
+context(_: Emit)
 suspend fun Expr.emit() = text(
   when (this) {
     is CLit -> value.toString()
@@ -110,7 +114,7 @@ suspend fun Expr.emit() = text(
   }
 )
 
-context(Indent, DefaultIndent, Flow, Emit, LayoutChoice)
+context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
 suspend fun Stmt.emit(): Unit = when (this) {
   is CLet -> {
     text("let"); space(); text(name); space(); text("=")

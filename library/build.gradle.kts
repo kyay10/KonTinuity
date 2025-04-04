@@ -9,7 +9,7 @@ plugins {
 @OptIn(ExperimentalKotlinGradlePluginApi::class)
 kotlin {
   compilerOptions {
-    freeCompilerArgs.add("-Xcontext-receivers")
+    freeCompilerArgs.add("-Xcontext-parameters")
   }
   explicitApi()
   applyDefaultHierarchyTemplate()
@@ -36,7 +36,8 @@ kotlin {
       repositories {
         google()
         mavenCentral()
-        maven("https://oss.sonatype.org/content/repositories/snapshots")
+        maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap")
+        maven("https://redirector.kotlinlang.org/maven/dev")
       }
       dependencies {
         implementation(libs.arrow.core)
