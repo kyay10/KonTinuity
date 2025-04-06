@@ -1,9 +1,18 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+@file:OptIn(ExperimentalWasmDsl::class)
+
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
+import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
   id("module.publication")
+}
+
+repositories {
+  mavenCentral()
+  maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap")
+  maven("https://redirector.kotlinlang.org/maven/dev")
 }
 
 @OptIn(ExperimentalKotlinGradlePluginApi::class)
@@ -12,13 +21,13 @@ kotlin {
     freeCompilerArgs.add("-Xcontext-parameters")
   }
   explicitApi()
-  applyDefaultHierarchyTemplate()
+  // Matching the targets from Arrow
   jvm {
     compilerOptions {
-      jvmTarget = JvmTarget.JVM_1_8
+      jvmTarget = JvmTarget.JVM_11
     }
   }
-  js {
+  js(IR) {
     browser()
     nodejs {
       testTask {
@@ -30,22 +39,44 @@ kotlin {
       }
     }
   }
+  wasmJs {
+    browser()
+    nodejs()
+    d8()
+  }
+  // androidTarget() TODO
+  // Native: https://kotlinlang.org/docs/native-target-support.html
+  // -- Tier 1 --
+  linuxX64()
+  macosX64()
+  macosArm64()
+  iosSimulatorArm64()
+  iosX64()
+  // -- Tier 2 --
+  linuxArm64()
+  watchosSimulatorArm64()
+  watchosX64()
+  watchosArm32()
+  watchosArm64()
+  tvosSimulatorArm64()
+  tvosX64()
+  tvosArm64()
+  iosArm64()
+  // -- Tier 3 --
+  mingwX64()
+  // Android Native and watchOS not included
+
+  applyDefaultHierarchyTemplate()
 
   sourceSets {
-    val commonMain by getting {
-      repositories {
-        google()
-        mavenCentral()
-        maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap")
-        maven("https://redirector.kotlinlang.org/maven/dev")
-      }
+    commonMain {
       dependencies {
         implementation(libs.arrow.core)
         implementation(libs.arrow.fx.coroutines)
         api(libs.kotlinx.coroutines.core)
       }
     }
-    val commonTest by getting {
+    commonTest {
       dependencies {
         implementation(libs.kotlin.test)
         implementation(libs.kotlinx.coroutines.test)
@@ -56,11 +87,18 @@ kotlin {
     }
 
     val nonJvmMain by creating {
-      dependsOn(commonMain)
+      dependsOn(commonMain.get())
     }
-    jsMain {
-      dependsOn(nonJvmMain)
+    val nonJvmTest by creating {
+      dependsOn(commonTest.get())
     }
+
+    nativeMain.get().dependsOn(nonJvmMain)
+    nativeTest.get().dependsOn(nonJvmTest)
+    jsMain.get().dependsOn(nonJvmMain)
+    jsTest.get().dependsOn(nonJvmTest)
+    wasmJsMain.get().dependsOn(nonJvmMain)
+    wasmJsTest.get().dependsOn(nonJvmTest)
   }
 }
 
