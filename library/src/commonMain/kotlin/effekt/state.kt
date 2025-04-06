@@ -1,9 +1,8 @@
 package effekt
 
-import State
-import get
-import pushState
-import set
+import Reader
+import ask
+import runReader
 
 public interface StateScope {
   public suspend fun <T> field(init: T): Field<T>
@@ -17,23 +16,31 @@ public suspend inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
   set(f(get()))
 }
 
-public suspend fun <R> region(body: suspend StateScope.() -> R): R = handle {
+public suspend fun <R> region(body: suspend StateScope.() -> R): R = runReader(TypedMutableMap(), TypedMutableMap::copy) {
   body(StateScopeImpl(this))
 }
 
-// TODO use map implementation
-private class StateScopeImpl<R>(prompt: HandlerPrompt<R>) : StateScope, Handler<R> by prompt {
-  override suspend fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>(State()).apply {
-    use {
-      state.pushState(init) {
-        it(Unit)
-      }
-    }
+private class TypedMutableMap private constructor(private val map: MutableMap<Key<*>, Any?>) {
+  constructor() : this(mutableMapOf())
+  interface Key<T>
+  @Suppress("UNCHECKED_CAST")
+  operator fun <T> get(key: Key<T>): T = map.getValue(key) as T
+  operator fun <T> set(key: Key<T>, value: T) {
+    map[key] = value
+  }
+  fun copy(): TypedMutableMap = TypedMutableMap(map.toMutableMap())
+}
+
+private class StateScopeImpl(private val reader: Reader<TypedMutableMap>) : StateScope {
+  override suspend fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().also {
+    reader.ask()[it] = init
   }
 
-  private data class FieldImpl<T>(val state: State<T>) : StateScope.Field<T> {
-    override suspend fun get(): T = state.get()
-    override suspend fun set(value: T) = state.set(value)
+  private inner class FieldImpl<T> : StateScope.Field<T>, TypedMutableMap.Key<T> {
+    override suspend fun get(): T = reader.ask()[this]
+    override suspend fun set(value: T) {
+      reader.ask()[this] = value
+    }
   }
 }
 
