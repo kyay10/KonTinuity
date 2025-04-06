@@ -1,6 +1,9 @@
 import kotlin.coroutines.Continuation
 import java.lang.reflect.Modifier
 
+internal actual typealias CoroutineStackFrame = kotlin.coroutines.jvm.internal.CoroutineStackFrame
+internal actual typealias StackTraceElement = java.lang.StackTraceElement
+
 private val UNSAFE = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe").apply { isAccessible = true }
   .get(null) as sun.misc.Unsafe
 
@@ -14,11 +17,12 @@ private val coroutineOwnerConstructor = coroutineOwnerClass.declaredConstructors
 private val delegateField = coroutineOwnerClass.getDeclaredField("delegate").apply { isAccessible = true }
 private val infoField = coroutineOwnerClass.getDeclaredField("info").apply { isAccessible = true }
 
-internal actual val Continuation<*>.isCompilerGenerated: Boolean
-  get() = baseContClass.isInstance(this) || coroutineOwnerClass.isInstance(this)
 internal actual val Continuation<*>.completion: Continuation<*>
-  get() = if (baseContClass.isInstance(this)) completionField.get(this) as Continuation<*>
-  else delegateField.get(this) as Continuation<*>
+  get() = when {
+    coroutineOwnerClass.isInstance(this) -> delegateField.get(this) as? Continuation<*>
+    this is CoroutineStackFrame -> callerFrame as? Continuation<*>
+    else -> null
+  } ?: error("Not a compiler generated or debug continuation $this")
 private val cache = hashMapOf<Class<*>, Array<java.lang.reflect.Field>>()
 
 private tailrec fun <T> copyDeclaredFields(

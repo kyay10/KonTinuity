@@ -3,7 +3,12 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.intercepted
 import kotlin.jvm.JvmInline
 
-internal expect val Continuation<*>.isCompilerGenerated: Boolean
+internal expect class StackTraceElement
+internal expect interface CoroutineStackFrame {
+  val callerFrame: CoroutineStackFrame?
+  fun getStackTraceElement(): StackTraceElement?
+}
+
 internal expect val Continuation<*>.completion: Continuation<*>
 internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>
 
@@ -22,7 +27,7 @@ internal value class FrameList<in Start, First, out End>(val frame: Frame<Start,
     if (this.completion is WrapperCont) null else FrameList<First, Nothing, End>(Frame(this.completion))
 }
 
-internal sealed interface SplitSeq<in Start, First, out End> {
+internal sealed interface SplitSeq<in Start, First, out End>: CoroutineStackFrame {
   val context: CoroutineContext
 }
 
@@ -183,6 +188,8 @@ internal fun <S, P, First, End> SplitSeq<P, First, End>.pushReader(
 
 internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : SplitSeq<Start, Nothing, Nothing> {
   override val context: CoroutineContext = underlying.context
+  override val callerFrame: CoroutineStackFrame? = (underlying as? CoroutineStackFrame)?.callerFrame
+  override fun getStackTraceElement(): StackTraceElement? = (underlying as? CoroutineStackFrame)?.getStackTraceElement()
 }
 
 // frame :: frames ::: rest
@@ -203,13 +210,15 @@ internal data class FramesCont<Start, First, Last, End>(
     set(value) {
       rest = value as SplitSeq<Last, *, End>?
     }
+  override val callerFrame: CoroutineStackFrame? = (head.cont as? CoroutineStackFrame)?.callerFrame
+  override fun getStackTraceElement(): StackTraceElement? = (head.cont as? CoroutineStackFrame)?.getStackTraceElement()
 }
 
 internal fun CoroutineContext.unwrap(): CoroutineContext =
   if (this is WrapperCont<*>) this.realContext else this
 
 internal class WrapperCont<T>(seq: SplitSeq<T, *, *>, isWaitingForValue: Boolean = false) : Continuation<T>,
-  CoroutineContext {
+  CoroutineContext, CoroutineStackFrame {
   var seq: SplitSeq<T, *, *>? = seq
   var result: Result<T> = if (isWaitingForValue) waitingForValue else hasBeenIntercepted
     get() = field.also { endWaitingForValue() }
@@ -238,6 +247,12 @@ internal class WrapperCont<T>(seq: SplitSeq<T, *, *>, isWaitingForValue: Boolean
     }
   }
 
+  override val callerFrame: CoroutineStackFrame?
+    get() = seq?.callerFrame
+
+  override fun getStackTraceElement(): StackTraceElement? =
+    seq?.getStackTraceElement()
+
   // TODO improve these implementations
   override fun <R> fold(initial: R, operation: (R, CoroutineContext.Element) -> R): R =
     realContext.fold(initial, operation)
@@ -261,7 +276,7 @@ private val hasBeenIntercepted = Result.failure<Nothing>(HasBeenIntercepted)
 
 internal data class PromptCont<Start, First, End>(
   val p: Prompt<Start>, var rest: SplitSeq<Start, First, End>?
-) : SplitSeq<Start, First, End>, ExpectsSequenceStartingWith<Start> {
+) : SplitSeq<Start, First, End>, ExpectsSequenceStartingWith<Start>, CoroutineStackFrame {
   override val context = rest!!.context
   override var sequence: SplitSeq<Start, *, *>?
     get() = rest
@@ -333,8 +348,10 @@ internal data class SingleUseSegment<Start, First, End>(
   val box: ExpectsSequenceStartingWith<End>, val cont: SplitSeq<Start, First, *>
 ) : Segment<Start, First, End>
 
-internal sealed interface ExpectsSequenceStartingWith<Start> {
+internal sealed interface ExpectsSequenceStartingWith<Start>: CoroutineStackFrame {
   var sequence: SplitSeq<Start, *, *>?
+  override val callerFrame: CoroutineStackFrame? get() = sequence?.callerFrame
+  override fun getStackTraceElement(): StackTraceElement? = sequence?.getStackTraceElement()
 }
 
 internal fun <R> collectStack(continuation: Continuation<R>): SplitSeq<R, *, *> =

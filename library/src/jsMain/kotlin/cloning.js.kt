@@ -14,7 +14,6 @@ private val contClass: KClass<*> = run {
 
 private suspend fun foo(): Continuation<*> = suspendCoroutineUninterceptedOrReturn { it }
 
-internal actual val Continuation<*>.isCompilerGenerated: Boolean get() = contClass.isInstance(this)
 internal actual val Continuation<*>.completion: Continuation<*> get() = asDynamic().resultContinuation_1
 
 internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> {

@@ -19,6 +19,7 @@ repositories {
 kotlin {
   compilerOptions {
     freeCompilerArgs.add("-Xcontext-parameters")
+    freeCompilerArgs.add("-Xexpect-actual-classes")
   }
   explicitApi()
   // Matching the targets from Arrow
