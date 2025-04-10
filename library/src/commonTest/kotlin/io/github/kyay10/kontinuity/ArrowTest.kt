@@ -3,13 +3,12 @@ package io.github.kyay10.kontinuity
 import arrow.core.Either
 import arrow.core.Either.Left
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlin.test.Test
 
 // From https://github.com/arrow-kt/arrow-core/pull/226
 class ArrowTest {
   @Test
-  fun yieldAListAndStackSafety() = runTest(UnconfinedTestDispatcher()) {
+  fun yieldAListAndStackSafety() = runTest {
     topReset<List<Int>> {
       suspend fun <A> Prompt<List<A>>.yield(a: A): Unit = shiftOnce { k -> listOf(a) + k(Unit) }
       for (i in 0..10_000) yield(i)
@@ -113,7 +112,7 @@ class ArrowTest {
   }
 
   @Test
-  fun multishotIsStacksafeRegardlessOfStackSize() = runTest(UnconfinedTestDispatcher()) {
+  fun multishotIsStacksafeRegardlessOfStackSize() = runTest {
     topReset<Int> {
       // bring 10k elements on the stack
       var sum = 0

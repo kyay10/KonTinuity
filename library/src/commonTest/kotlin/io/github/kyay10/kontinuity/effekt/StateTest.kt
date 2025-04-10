@@ -2,7 +2,6 @@ package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlin.test.Test
 
 class StateTest {
@@ -76,7 +75,7 @@ class StateTest {
   }
 
   @Test
-  fun silentCountDown() = runTestCC(UnconfinedTestDispatcher()) {
+  fun silentCountDown() = runTestCC {
     suspend fun State<Int>.countDown() {
       while (get() > 0) {
         put(get() - 1)
