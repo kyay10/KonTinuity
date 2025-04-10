@@ -76,18 +76,15 @@ public class StatefulPrompt<E, S>(
 
 // TODO: turn into value class when KT-76583 is fixed
 public class Cont<in T, out R> @PublishedApi internal constructor(private val subCont: SubCont<T, R>) {
-  public suspend fun resumeWith(value: Result<T>, shouldClear: Boolean = false): R =
-    subCont.pushSubContWith(value, isDelimiting = true, shouldClear)
+  public suspend fun resumeWith(value: Result<T>): R =
+    subCont.pushSubContWith(value, isDelimiting = true)
 
-  public suspend operator fun invoke(value: T, shouldClear: Boolean = false): R =
-    resumeWith(Result.success(value), shouldClear)
+  public suspend fun locally(value: suspend () -> T): R =
+    subCont.pushSubCont(isDelimiting = true, value)
 
-  public suspend fun locally(shouldClear: Boolean = false, value: suspend () -> T): R =
-    subCont.pushSubCont(isDelimiting = true, shouldClear, value)
+  public suspend operator fun invoke(value: T): R =
+    resumeWith(Result.success(value))
 
-  public suspend fun resumeWithException(exception: Throwable, shouldClear: Boolean = false): R =
-    resumeWith(Result.failure(exception), shouldClear)
-
-  public fun copy(): Cont<T, R> = Cont(subCont.copy())
-  public fun clear() { subCont.clear() }
+  public suspend fun resumeWithException(exception: Throwable): R =
+    resumeWith(Result.failure(exception))
 }

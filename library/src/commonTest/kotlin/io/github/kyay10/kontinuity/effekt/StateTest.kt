@@ -187,13 +187,13 @@ suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
 class StateFun<R, S>(p: HandlerPrompt<suspend (S) -> R>) : State<S>, Handler<suspend (S) -> R> by p {
   override suspend fun get(): S = useOnce { k ->
     { s ->
-      k(s, shouldClear = true)(s)
+      k(s)(s)
     }
   }
 
   override suspend fun put(value: S) = useOnce { k ->
     {
-      k(Unit, shouldClear = true)(value)
+      k(Unit)(value)
     }
   }
 }

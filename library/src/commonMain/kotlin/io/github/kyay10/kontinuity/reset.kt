@@ -16,38 +16,28 @@ import kotlin.jvm.JvmName
 public annotation class ResetDsl
 
 public class SubCont<in T, out R> internal constructor(
-  private var init: Segment<T, *, R>?,
+  private val init: Segment<T, *, R>,
   private val prompt: Prompt<R>
 ) {
-  public fun clear() {
-    init = null
-  }
-
   private fun composedWith(
-    k: Continuation<R>, isDelimiting: Boolean, shouldClear: Boolean
-  ) = (init!! prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it }).also {
-    if (shouldClear) clear()
-  }
+    k: Continuation<R>, isDelimiting: Boolean
+  ) = init prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it }
 
   @ResetDsl
   public suspend fun pushSubContWith(
     value: Result<T>,
     isDelimiting: Boolean = false,
-    shouldClear: Boolean = false,
   ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting, shouldClear).resumeWithIntercepted(value)
+    composedWith(k, isDelimiting).resumeWithIntercepted(value)
   }
 
   @ResetDsl
   public suspend fun pushSubCont(
     isDelimiting: Boolean = false,
-    shouldClear: Boolean = false,
     value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutineIntercepted(WrapperCont(composedWith(k, isDelimiting, shouldClear)))
+    value.startCoroutineIntercepted(WrapperCont(composedWith(k, isDelimiting)))
   }
-
-  public fun copy(): SubCont<T, R> = SubCont(init, prompt)
 }
 
 @ResetDsl

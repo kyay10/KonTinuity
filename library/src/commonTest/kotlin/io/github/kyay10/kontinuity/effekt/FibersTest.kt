@@ -116,20 +116,11 @@ class CanResume<A> : Fibre<A> {
   }
 }
 
-// TODO defunctionalization
-private fun makeTask(k: Cont<Boolean, Unit>): Task {
-  val newK = k.copy()
-  return { newK(true, shouldClear = true) }
-}
-
 class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit>) :
   Handler<Unit> by prompt {
   suspend fun fork(): Boolean = useWithFinal { (k, final) ->
-    tasks.addLast(makeTask(final))
-    final.clear()
-    // Kotlin compiler doesn't null the fields used for parameters,
-    // hence the `shouldClear` is necessary to prevent memory leaks
-    k(false, shouldClear = true)
+    tasks.addLast { final(true) }
+    k(false)
   }
 
   suspend inline fun forkFlipped(task: Task) {
@@ -163,7 +154,7 @@ class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit
   // Since we only run on one thread, we also need yield in the scheduler
   // to allow cooperative multitasking
   suspend fun yield() = useOnce {
-    tasks.addLast { it(Unit, shouldClear = true) }
+    tasks.addLast { it(Unit) }
   }
 }
 
