@@ -9,32 +9,25 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 
-internal fun <T> (suspend () -> T).startCoroutineHere(completion: Continuation<T>) {
-  val result = runCatching { startCoroutineUninterceptedOrReturn(completion) }
-  if (result == Result.success(COROUTINE_SUSPENDED)) return
-  @Suppress("UNCHECKED_CAST")
-  completion.resumeWithIntercepted(result as Result<T>)
-}
-
-internal fun <R, T> (suspend R.() -> T).startCoroutineHere(
-  receiver: R,
-  completion: Continuation<T>
-) {
-  val result = runCatching { startCoroutineUninterceptedOrReturn(receiver, completion) }
-  if (result == Result.success(COROUTINE_SUSPENDED)) return
-  @Suppress("UNCHECKED_CAST")
-  completion.resumeWithIntercepted(result as Result<T>)
-}
-
 internal fun <T> (suspend () -> T).startCoroutineIntercepted(completion: Continuation<T>) {
-  completion.context.trampoline.next { startCoroutineHere(completion) }
+  completion.context.trampoline.next {
+    val result = runCatching { startCoroutineUninterceptedOrReturn(completion) }
+    if (result == Result.success(COROUTINE_SUSPENDED)) return@next
+    @Suppress("UNCHECKED_CAST")
+    completion.resumeWith(result as Result<T>)
+  }
 }
 
 internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
   receiver: R,
   completion: Continuation<T>
 ) {
-  completion.context.trampoline.next { startCoroutineHere(receiver, completion) }
+  completion.context.trampoline.next {
+    val result = runCatching { startCoroutineUninterceptedOrReturn(receiver, completion) }
+    if (result == Result.success(COROUTINE_SUSPENDED)) return@next
+    @Suppress("UNCHECKED_CAST")
+    completion.resumeWith(result as Result<T>)
+  }
 }
 
 internal fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIntercepted(result: Result<Start>) {
@@ -43,10 +36,6 @@ internal fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIntercept
   else {
     context.trampoline.next { resumeWith(result, isIntercepted = false) }
   }
-}
-
-internal fun <Start> Continuation<Start>.resumeWithIntercepted(result: Result<Start>) {
-  context.trampoline.next { resumeWith(result) }
 }
 
 @OptIn(InternalCoroutinesApi::class)

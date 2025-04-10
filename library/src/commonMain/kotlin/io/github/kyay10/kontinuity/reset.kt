@@ -3,8 +3,12 @@ package io.github.kyay10.kontinuity
 import arrow.core.identity
 import arrow.core.nonFatalOrThrow
 import kotlinx.coroutines.CancellationException
-import kotlin.coroutines.*
-import kotlin.coroutines.intrinsics.*
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
+import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
+import kotlin.coroutines.startCoroutine
+import kotlin.coroutines.suspendCoroutine
 import kotlin.jvm.JvmName
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
@@ -49,9 +53,51 @@ public class SubCont<in T, out R> internal constructor(
 @ResetDsl
 public suspend fun <R> Prompt<R>.pushPrompt(
   body: suspend () -> R
-): R = suspendCoroutineUnintercepted { k ->
-  body.startCoroutineHere(WrapperCont(collectStack(k).pushPrompt(this)))
+): R = suspendCoroutineUninterceptedOrReturn { k ->
+  body.startCoroutineHere(collectStack(k).pushPrompt(this), k)
 }
+
+private fun <R> (suspend () -> R).startCoroutineHere(
+  stack: SplitSeq<R, *, *>,
+  k: Continuation<R>
+): Any? {
+  val result = runCatching {
+    startCoroutineUninterceptedOrReturn(WrapperCont(stack)).also {
+      if (it === COROUTINE_SUSPENDED) {
+        return@startCoroutineHere it
+      }
+    }
+  }
+  return result.seekingStackOrNull?.let {
+    it.use(stack)
+    COROUTINE_SUSPENDED
+  } ?: if (stack.reattachFrames(k)) {
+    result.getOrThrow()
+  } else {
+    stack.resumeWithIntercepted(result as Result<R>)
+    COROUTINE_SUSPENDED
+  }
+}
+
+private tailrec fun <R> SplitSeq<R, *, *>.reattachFrames(k: Continuation<R>): Boolean {
+  return when (this) {
+    is EmptyCont -> true
+    is FramesCont<*, *, *, *> -> {
+      if (this.head.cont !== k) return false
+      val wrapper = wrapperCont
+      if (wrapper == null) return false
+      val rest = rest!! as SplitSeq<Any?, *, *>
+      wrapper.seq = rest
+      wrapper.realContext = rest.context
+      true
+    }
+
+    is ExpectsSequenceStartingWith<*> -> {
+      sequence!!.reattachFrames(k)
+    }
+  }
+}
+
 
 context(p: Prompt<R>)
 @ResetDsl
@@ -61,8 +107,8 @@ public suspend fun <R> pushPrompt(
 ): R = p.pushPrompt(body)
 
 public suspend fun <T, R> Reader<T>.pushReader(value: T, fork: T.() -> T = ::identity, body: suspend () -> R): R =
-  suspendCoroutineUnintercepted { k ->
-    body.startCoroutineHere(WrapperCont(collectStack(k).pushReader(this, value, fork)))
+  suspendCoroutineUninterceptedOrReturn { k ->
+    body.startCoroutineHere(collectStack(k).pushReader(this, value, fork), k)
   }
 
 context(r: Reader<T>)
@@ -206,6 +252,9 @@ public class Reader<S>
 internal expect abstract class SeekingStackException() : CancellationException {
   abstract fun use(stack: SplitSeq<*, *, *>)
 }
+
+internal val Result<*>.seekingStackOrNull: SeekingStackException?
+  get() = exceptionOrNull() as? SeekingStackException
 
 public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
   body.startCoroutine(WrapperCont(EmptyCont(Continuation(it.context.withTrampoline(), it::resumeWith))))
