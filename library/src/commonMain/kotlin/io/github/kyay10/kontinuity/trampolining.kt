@@ -6,15 +6,13 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
-import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
+import kotlin.coroutines.intrinsics.createCoroutineUnintercepted
+import kotlin.coroutines.resume
 
 internal fun <T> (suspend () -> T).startCoroutineIntercepted(completion: Continuation<T>) {
+  val coroutine = createCoroutineUnintercepted(completion)
   completion.context.trampoline.next {
-    val result = runCatching { startCoroutineUninterceptedOrReturn(completion) }
-    if (result == Result.success(COROUTINE_SUSPENDED)) return@next
-    @Suppress("UNCHECKED_CAST")
-    completion.resumeWith(result as Result<T>)
+    coroutine.resume(Unit)
   }
 }
 
@@ -22,11 +20,9 @@ internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
   receiver: R,
   completion: Continuation<T>
 ) {
+  val coroutine = createCoroutineUnintercepted(receiver, completion)
   completion.context.trampoline.next {
-    val result = runCatching { startCoroutineUninterceptedOrReturn(receiver, completion) }
-    if (result == Result.success(COROUTINE_SUSPENDED)) return@next
-    @Suppress("UNCHECKED_CAST")
-    completion.resumeWith(result as Result<T>)
+    coroutine.resume(Unit)
   }
 }
 

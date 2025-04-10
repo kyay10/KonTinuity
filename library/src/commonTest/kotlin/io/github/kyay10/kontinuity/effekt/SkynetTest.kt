@@ -146,6 +146,7 @@ class SkynetTest {
   }
 
   // every fiber suspends once before returning the result.
+  // TODO this runs forever when debugging
   @Test
   fun skynetSuspend() = runTestCC(UnconfinedTestDispatcher(), timeout = 10.minutes) {
     suspend fun Suspendable.skynet(num: Int, size: Int, div: Int): Long {
