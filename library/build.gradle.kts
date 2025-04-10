@@ -20,6 +20,7 @@ kotlin {
   compilerOptions {
     freeCompilerArgs.add("-Xcontext-parameters")
     freeCompilerArgs.add("-Xexpect-actual-classes")
+    freeCompilerArgs.add("-Xwhen-guards")
   }
   explicitApi()
   // Matching the targets from Arrow
