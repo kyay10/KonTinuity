@@ -96,7 +96,7 @@ suspend fun forwards(x: Double, prog: suspend AD<NumF>.(NumF) -> NumF) = object 
 data class NumH<N>(val value: N, val d: N)
 
 suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend AD<NumH<N>>.(NumH<N>) -> NumH<N>) = object : AD<NumH<N>> {
-  override val Double.num: NumH<N> get() = with<AD<N>, NumH<N>>(this@forwardsHigher) { NumH(this@num.num, 0.num) }
+  override val Double.num: NumH<N> get() = with(this@forwardsHigher) { NumH(this@num.num, 0.num) }
   override suspend fun NumH<N>.plus(other: NumH<N>) = NumH(value + other.value, d + other.d)
   override suspend fun NumH<N>.times(other: NumH<N>) = NumH(value * other.value, d * other.value + other.d * value)
   override suspend fun exp(x: NumH<N>) =
@@ -105,6 +105,7 @@ suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend AD<NumH<N>>.(NumH<N>) -
 
 suspend fun showString(prog: suspend AD<String>.(String) -> String) = object : AD<String> {
   override val Double.num: String get() = toString()
+  @Suppress("EXTENSION_SHADOWED_BY_MEMBER")
   override suspend fun String.plus(other: String) = when {
     this == 0.0.toString() -> other
     other == 0.0.toString() -> this

@@ -34,11 +34,11 @@ class StateTest {
     data class CounterState(val count: Int)
 
     suspend fun StackState<CounterState>.incrementCounter() {
-      modifyLast<CounterState> { state -> state.copy(count = state.count + 1) }
+      modifyLast { state -> state.copy(count = state.count + 1) }
     }
 
     suspend fun StackState<CounterState>.doubleCounter() {
-      modifyLast<CounterState> { state -> state.copy(count = state.count * 2) }
+      modifyLast { state -> state.copy(count = state.count * 2) }
     }
 
     val result = runCC {
@@ -46,7 +46,7 @@ class StateTest {
         incrementCounter()
         doubleCounter()
         doubleCounter()
-        get<List<CounterState>>()
+        get()
       }
     }
     result shouldBe listOf(CounterState(0), CounterState(1), CounterState(2), CounterState(4))

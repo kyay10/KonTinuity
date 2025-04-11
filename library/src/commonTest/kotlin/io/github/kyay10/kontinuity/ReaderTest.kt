@@ -7,10 +7,10 @@ import kotlin.test.Test
 class ReaderTest {
   @Test
   fun simple() = runTestCC {
-    runReader(1) reader@{
-      newReset reset@{
+    runReader(1) {
+      newReset {
         pushReader(2) {
-          this@reset.shift { f -> this@reader.ask() }
+          shift { f -> ask() }
         }
       }
     } shouldBe 1
@@ -23,25 +23,23 @@ class ReaderTest {
 
   // https://www.brinckerhoff.org/clements/csc530-sp08/Readings/kiselyov-2006.pdf
   @Test
-  fun example6FromDBDCPaper() = runTest {
-    runCC {
-      val p = Reader<Int>()
-      val r = Reader<Int>()
-      val f = p.pushReader(1) {
-        newReset<R<Int, Int>> {
-          r.pushReader(10) {
-            shift {
-              p.ask() shouldBe 1
-              R.J(it)
-            } shouldBe 0
-            R.R(p.ask() + r.ask())
-          }
+  fun example6FromDBDCPaper() = runTestCC {
+    val p = Reader<Int>()
+    val r = Reader<Int>()
+    val f = p.pushReader(1) {
+      newReset<R<Int, Int>> {
+        r.pushReader(10) {
+          shift {
+            p.ask() shouldBe 1
+            R.J(it)
+          } shouldBe 0
+          R.R(p.ask() + r.ask())
         }
-      }.shouldBeInstanceOf<R.J<Int, Int>>()
-      p.pushReader(2) {
-        r.pushReader(20) {
-          f.f(0)
-        }
+      }
+    }.shouldBeInstanceOf<R.J<Int, Int>>()
+    p.pushReader(2) {
+      r.pushReader(20) {
+        f.f(0)
       }
     }.shouldBeInstanceOf<R.R<Int>>().b shouldBe 12
   }

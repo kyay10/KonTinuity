@@ -62,7 +62,7 @@ class MonadTest {
 
   @Test
   fun readerMonad() = runTest {
-    val one: Reader<String, Int> = Reader { input -> input.toInt() }
+    val one = Reader { input: String -> input.toInt() }
     val sum = runCC {
       readerReset {
         bind(one) + bind(one)

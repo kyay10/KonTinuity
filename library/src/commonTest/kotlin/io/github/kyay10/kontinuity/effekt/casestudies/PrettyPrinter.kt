@@ -73,7 +73,7 @@ class PrettyPrinterTest {
       nest(9) {
         line()
         group { text("take"); line(); text("many") }
-      };
+      }
       line()
       text("lines")
     }

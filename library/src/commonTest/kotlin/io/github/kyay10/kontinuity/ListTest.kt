@@ -5,10 +5,10 @@ import kotlin.test.Test
 
 class ListTest {
   @Test
-  fun empty() = runTest {
+  fun empty() = runTestCC {
     val list = emptyList<Int>()
     var counter = 0
-    val result = listReset {
+    val result = runList {
       val item = list.bind()
       counter++
       item
@@ -18,10 +18,10 @@ class ListTest {
   }
 
   @Test
-  fun single() = runTest {
+  fun single() = runTestCC {
     val list = listOf(1, 2, 3)
     var counter = 0
-    val result = listReset {
+    val result = runList {
       val item = list.bind()
       counter++
       item
@@ -31,9 +31,9 @@ class ListTest {
   }
 
   @Test
-  fun filtering() = runTest {
+  fun filtering() = runTestCC {
     val list = listOf(1, 2, 3)
-    val result = listReset {
+    val result = runList {
       val item = list.bind()
       ensure(item != 2)
       item
@@ -42,7 +42,7 @@ class ListTest {
   }
 
   @Test
-  fun multiple() = runTest {
+  fun multiple() = runTestCC {
     val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3, Int.MAX_VALUE)
     val list2 = listOf(2, 3, Int.MAX_VALUE, 4, Int.MAX_VALUE)
     val list3 = listOf(3, 4, 5)
@@ -50,7 +50,7 @@ class ListTest {
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
-    val result = listReset {
+    val result = runList {
       noObservedCounter++
       val first = list1.bind()
       ensure(first != Int.MAX_VALUE)
@@ -76,11 +76,11 @@ class ListTest {
   }
 
   @Test
-  fun nested() = runTest {
+  fun nested() = runTestCC {
     val list = listOf(listOf(1, 2), listOf(3, 4), listOf(5, 6))
     var innerCount = 0
     var itemCount = 0
-    val result = listReset {
+    val result = runList {
       val inner = list.bind()
       innerCount++
       val item = inner.bind()
@@ -93,10 +93,10 @@ class ListTest {
   }
 
   @Test
-  fun ifElse() = runTest {
+  fun ifElse() = runTestCC {
     val list = listOf(1, 2, 2, 3)
     val twoElements = listOf(0, 0)
-    val result = listReset {
+    val result = runList {
       val x = list.bind()
       if (x == 2) {
         twoElements.bind()
@@ -116,8 +116,8 @@ class ListTest {
   }
 
   @Test
-  fun forLoops() = runTest {
-    val result = listReset {
+  fun forLoops() = runTestCC {
+    val result = runList {
       (1..10).forEachIteratorless { i ->
         listOf(i, i).bind()
       }
@@ -127,8 +127,8 @@ class ListTest {
   }
 
   @Test
-  fun allEightBitPatterns() = runTest {
-    val result = listReset {
+  fun allEightBitPatterns() = runTestCC {
+    val result = runList {
       replicate(8) {
         choose(0, 1)
       }
@@ -137,9 +137,9 @@ class ListTest {
   }
 
   @Test
-  fun allEightBitPatternsWithOnlyChange() = runTest {
+  fun allEightBitPatternsWithOnlyChange() = runTestCC {
     val result = buildString {
-      listReset {
+      runList {
         repeatIteratorless(8) {
           append(choose(0, 1))
         }

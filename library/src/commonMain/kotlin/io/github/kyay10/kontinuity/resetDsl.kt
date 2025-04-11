@@ -19,8 +19,6 @@ public suspend fun <R> reset(body: suspend () -> R): R = p.reset(body)
 @ResetDsl
 public suspend fun <R> newReset(body: suspend Prompt<R>.() -> R): R = with(Prompt<R>()) { reset { body() } }
 
-public suspend fun <R> topReset(body: suspend Prompt<R>.() -> R): R = runCC { newReset(body) }
-
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Cont<T, R>) -> R): T =
   takeSubCont(deleteDelimiter = false) { sk -> block { sk.pushSubContWith(it, isDelimiting = true) } }

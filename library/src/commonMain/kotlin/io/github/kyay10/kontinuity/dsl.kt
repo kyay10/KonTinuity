@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.*
 
 /** MonadFail-style errors */
 private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R) : Raise<Unit> {
-  override fun raise(e: Unit): Nothing = prompt.abort(failValue)
+  override fun raise(r: Unit): Nothing = prompt.abort(failValue)
 }
 
 public typealias Choose = Prompt<Unit>
@@ -45,9 +45,6 @@ public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choos
     ask()
   }
 
-public suspend fun <R> listReset(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =
-  runCC { runList(body) }
-
 context(_: Choose)
 public suspend fun <T> List<T>.bind(): T = shift { continuation ->
   (0..lastIndex).forEachIteratorless { item ->
@@ -72,7 +69,7 @@ public suspend fun <T> replicate(amount: Int, producer: suspend (Int) -> T): Lis
   producer((0..<amount).bind())
 }
 
-public fun <R> flowReset(
+public fun <R> runFlowCC(
   body: suspend context(SingletonRaise<Unit>, Choose) () -> R
 ): Flow<R> = channelFlow {
   runCC {

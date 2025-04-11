@@ -12,7 +12,7 @@ class FcontrolJvmTest {
   fun tooBig() = runTest {
     data class TooBig(val value: Int)
 
-    suspend fun Prompt<TooBig>.ex2(m: Int) = if (m > 5) abort(TooBig(m)) else m
+    fun Prompt<TooBig>.ex2(m: Int) = if (m > 5) abort(TooBig(m)) else m
     suspend fun Prompt<TooBig>.exRec(body: suspend () -> Int): Int = newReset {
       val m = this@exRec.reset {
         abort(body())
@@ -22,7 +22,7 @@ class FcontrolJvmTest {
 
     runCC {
       val res = newReset {
-        newReset<TooBig> {
+        newReset {
           abort(runList {
             ex2(listOf(5, 7, 1).bind())
           }.right())
@@ -33,7 +33,7 @@ class FcontrolJvmTest {
 
     runCC {
       val res = newReset {
-        newReset<TooBig> {
+        newReset {
           abort(runList {
             exRec {
               ex2(listOf(5, 7, 1).bind())
@@ -46,7 +46,7 @@ class FcontrolJvmTest {
 
     runCC {
       val res = newReset {
-        newReset<TooBig> {
+        newReset {
           abort(runList {
             exRec {
               ex2(listOf(5, 7, 11, 1).bind())

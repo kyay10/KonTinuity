@@ -17,7 +17,7 @@ class FlowTest {
   fun empty() = runTest {
     val flow = emptyFlow<Int>()
     var counter = 0
-    val result = flowReset {
+    val result = runFlowCC {
       val item = flow.bind()
       counter++
       item
@@ -32,7 +32,7 @@ class FlowTest {
   fun single() = runTest {
     val flow1 = flowOfWithDelay(1, 2, 3)
     var counter = 0
-    val result = flowReset {
+    val result = runFlowCC {
       val item = flow1.bind()
       counter++
       item
@@ -49,7 +49,7 @@ class FlowTest {
   @Test
   fun filtering() = runTest {
     val flow = flowOfWithDelay(1, 2, 3)
-    val result = flowReset {
+    val result = runFlowCC {
       val item = flow.bind()
       ensure(item != 2)
       item
@@ -70,7 +70,7 @@ class FlowTest {
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
-    val result = flowReset {
+    val result = runFlowCC {
       val first = flow1.bind()
       ensure(first != Int.MAX_VALUE)
       firstCounter++
@@ -84,7 +84,7 @@ class FlowTest {
     result.test {
       for (i in flow1.toList().filter { it != Int.MAX_VALUE }) {
         for (j in flow2.toList().filter { it != Int.MAX_VALUE }) {
-          flow3.toList().forEach {
+          flow3.toList().forEach { _ ->
             awaitItem() shouldBe (i to j)
           }
         }
@@ -102,7 +102,7 @@ class FlowTest {
     val flow = flowOfWithDelay(flowOfWithDelay(1, 2), flowOfWithDelay(3, 4), flowOfWithDelay(5, 6))
     var innerCount = 0
     var itemCount = 0
-    val result = flowReset {
+    val result = runFlowCC {
       val inner = flow.bind()
       innerCount++
       val item = inner.bind()
@@ -123,7 +123,7 @@ class FlowTest {
   fun ifElse() = runTest {
     val flow = flowOfWithDelay(1, 2, 2, 3)
     val twoElements = flowOfWithDelay(0, 0)
-    val result = flowReset {
+    val result = runFlowCC {
       val x = flow.bind()
       if (x == 2) {
         twoElements.bind()
@@ -138,12 +138,12 @@ class FlowTest {
     result.test {
       for (i in flow.toList()) {
         if (i == 2) {
-          twoElements.toList().forEach {
+          twoElements.toList().forEach { _ ->
             awaitItem() shouldBe "firstBranch"
           }
         } else {
-          twoElements.toList().forEach {
-            twoElements.toList().forEach {
+          twoElements.toList().forEach { _ ->
+            twoElements.toList().forEach { _ ->
               awaitItem() shouldBe "secondBranch"
             }
           }
@@ -155,7 +155,7 @@ class FlowTest {
 
   @Test
   fun forLoops() = runTest {
-    val result = flowReset {
+    val result = runFlowCC {
       (1..10).forEachIteratorless { i ->
         flowOfWithDelay(i, i).bind()
       }

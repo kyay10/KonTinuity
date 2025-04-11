@@ -24,7 +24,7 @@ class FcontrolTest {
     val printed = mutableListOf<Int>()
     runCC {
       runReader(10) {
-        newResetFcontrol<Int, Unit, _>({ error, cont ->
+        newResetFcontrol({ error, cont ->
           printed.add(error)
           pushReader(ask() + 1) { cont.pushSubContWith(Result.success(Unit)) }
         }) {
@@ -45,7 +45,7 @@ class FcontrolTest {
     val printed = mutableListOf<Int>()
     runCC {
       runReader(10) {
-        newResetFcontrol<Int, Unit, _>({ error, cont ->
+        newResetFcontrol({ error, cont ->
           resetFcontrol0({ e, k ->
             printed.add(e)
             k.pushSubCont { fcontrol(e) }

@@ -6,11 +6,11 @@ import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import kotlinx.coroutines.test.testTimeSource
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.ExperimentalTime
+import kotlinx.coroutines.test.runTest as coroutinesRunTest
 
 suspend fun <T> Prompt<List<T>>.yield(x: T) = shift { k -> listOf(x) + k(Unit) }
 
@@ -22,39 +22,39 @@ class ContinuationTest {
   suspend fun Prompt<Int>.bar(): Int = 2 * foo()
 
   @Test
-  fun noContinuation() = runTest {
-    topReset<Int> {
+  fun noContinuation() = runTestCC {
+    newReset {
       42
     } shouldBe 42
   }
 
   @Test
-  fun simpleContinuations() = runTest {
+  fun simpleContinuations() = runTestCC {
     // Examples from https://en.wikipedia.org/wiki/Delimited_continuation
-    topReset<Int> {
+    newReset {
       val value = shift { k -> k(5) }
       shift { k -> k(value + 1) }
     } * 2 shouldBe 12
-    topReset {
+    newReset {
       shift { k -> k(k(4)) } * 2
     } + 1 shouldBe 17
-    topReset<List<Int>> {
+    newReset {
       yield(1)
       yield(2)
       yield(3)
       emptyList()
     } shouldBe listOf(1, 2, 3)
     // Example from https://www.scala-lang.org/old/node/2096
-    topReset {
+    newReset {
       bar()
     } shouldBe 70
   }
 
   @Test
-  fun controlVsShift() = runTest {
+  fun controlVsShift() = runTestCC {
     var shiftPostActCount = 0
     var shiftDiscardCount = 0
-    val shiftResult = topReset<Int> {
+    val shiftResult = newReset {
       val act = shift<suspend () -> Unit, _> { k ->
         k { }
         k {
@@ -74,7 +74,7 @@ class ContinuationTest {
     shiftDiscardCount shouldBe 1
     var controlPostActCount = 0
     var controlDiscardCount = 0
-    val controlResult = topReset<Int> {
+    val controlResult = newReset {
       val act = control<suspend () -> Unit, _> { k ->
         k { }
         k {
@@ -97,8 +97,8 @@ class ContinuationTest {
   }
 
   @Test
-  fun nestedContinuations() = runTest {
-    topReset<List<Int>> {
+  fun nestedContinuations() = runTestCC {
+    newReset {
       yield(1)
       yieldAll(reset {
         yield(4)
@@ -120,20 +120,22 @@ class ContinuationTest {
       delay(500.milliseconds)
       5
     }
-    val result = topReset {
-      delay(200.milliseconds)
-      val value = a.await()
-      delay(100.milliseconds)
-      value + 1
+    val result = runCC {
+      newReset {
+        delay(200.milliseconds)
+        val value = a.await()
+        delay(100.milliseconds)
+        value + 1
+      }
     }
     mark.elapsedNow() shouldBe 600.milliseconds
     result shouldBe 6
   }
 
   @Test
-  fun stackSafety() = runTest {
+  fun stackSafety() = runTestCC {
     val n = stackSafeIterations
-    topReset<Int> {
+    newReset<Int> {
       repeat(n) {
         shiftOnce { k -> k(Unit) + it }
       }
@@ -142,9 +144,9 @@ class ContinuationTest {
   }
 
   @Test
-  fun manyIterations() = runTest {
+  fun manyIterations() = runTestCC {
     val n = 100_000
-    val result = topReset<Int> {
+    val result = newReset<Int> {
       shift { k ->
         (1..n).sumOf { k(it) }
       }
@@ -154,32 +156,32 @@ class ContinuationTest {
   }
 
   @Test
-  fun shiftTests() = runTest {
-    10 + topReset<Int> {
+  fun shiftTests() = runTestCC {
+    10 + newReset<Int> {
       2 + shift<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
-    10 * topReset<Int> {
+    10 * newReset<Int> {
       shift {
         5 * shift<Int, _> { f -> f(1) + 1 }
       }
     } shouldBe 60
     run {
-      suspend fun <R> Prompt<R>.f(x: R) = shift<R, R> { k -> k(k(x)) }
-      1 + topReset<Int> { 10 + f(100) }
+      suspend fun <R> Prompt<R>.f(x: R) = shift { k -> k(k(x)) }
+      1 + newReset<Int> { 10 + f(100) }
     } shouldBe 121
     run {
       suspend fun Prompt<String>.x() = shift { f -> "a" + f("") }
-      topReset<String> {
+      newReset {
         shift { x() }
       }
     } shouldBe "a"
-    topReset<String> {
+    newReset {
       shift { g ->
         shift { f -> "a" + f("") }
         "b"
       }
     } shouldBe "ab"
-    topReset<String> {
+    newReset {
       shift { g ->
         shift { f -> "a" + f("") }
         g("b")
@@ -188,55 +190,55 @@ class ContinuationTest {
   }
 
   @Test
-  fun controlTests() = runTest {
-    10 + topReset<Int> {
+  fun controlTests() = runTestCC {
+    10 + newReset<Int> {
       2 + control<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
     // (prompt (control g (control f (cons 'a (f '())))))
-    topReset<String> {
+    newReset {
       control { control { f -> "a" + f("") } }
     } shouldBe "a"
     // (prompt (let ((x (control f (cons 'a (f '()))))) (control g x)))
-    topReset<String> {
+    newReset {
       val x = control { f -> "a" + f("") }
       control { x }
     } shouldBe ""
     // (prompt (let ((x (control f (cons 'a (f '()))))) (control g (g x))))
-    topReset<String> {
+    newReset {
       val x = control { f -> "a" + f("") }
       control { g -> g(x) }
     } shouldBe "a"
-    topReset<Int> {
+    newReset<Int> {
       control { l ->
         1 + l(0)
       }
       control { 2 }
     } shouldBe 2
-    topReset<String> {
+    newReset {
       control { f -> "a" + f("") }
     } shouldBe "a"
-    topReset<String> {
+    newReset {
       control { g ->
         control { f -> "a" + f("") }
         "b"
       }
     } shouldBe "ab"
-    topReset<String> {
+    newReset {
       control { f -> "a" + f("") }
       control { g -> "b" }
     } shouldBe "b"
-    topReset<String> {
+    newReset {
       control { f -> "a" + f("") }
       control { g -> g("b") }
     } shouldBe "ab"
     // (prompt (control g (let ((x (control f (cons 'a (f '()))))) (cons 'b '()))))
-    topReset<String> {
+    newReset {
       control { g ->
         control { f -> "a" + f("") }
         "b"
       }
     } shouldBe "ab"
-    topReset<String> {
+    newReset {
       control { g ->
         "b" + control { f -> "a" + f("") }
       }
@@ -244,18 +246,18 @@ class ContinuationTest {
   }
 
   @Test
-  fun shift0Tests() = runTest {
-    10 + topReset<Int> {
+  fun shift0Tests() = runTestCC {
+    10 + newReset<Int> {
       2 + shift0<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
-    topReset<String> {
-      "a" + reset<String> {
+    newReset {
+      "a" + reset {
         shift0 { _ -> shift0 { _ -> "" } }
       }
     } shouldBe ""
-    topReset<String> {
-      "a" + reset<String> {
-        reset<String> {
+    newReset {
+      "a" + reset {
+        reset {
           shift0 { _ -> shift0 { _ -> "" } }
         }
       }
@@ -263,18 +265,18 @@ class ContinuationTest {
   }
 
   @Test
-  fun abort0Tests() = runTest {
-    10 + topReset<Int> {
+  fun abort0Tests() = runTestCC {
+    10 + newReset<Int> {
       2 + shift0<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
-    topReset<String> {
-      "a" + reset<String> {
+    newReset{
+      "a" + reset {
         abortS0 { abort0("") }
       }
     } shouldBe ""
-    topReset<String> {
-      "a" + reset<String> {
-        reset<String> {
+    newReset {
+      "a" + reset {
+        reset {
           abortS0 { abort0("") }
         }
       }
@@ -282,26 +284,26 @@ class ContinuationTest {
   }
 
   @Test
-  fun control0Tests() = runTest {
-    10 + topReset<Int> {
+  fun control0Tests() = runTestCC {
+    10 + newReset<Int> {
       2 + control0<Int, _> { k -> 100 + k(k(3)) }
     } shouldBe 117
-    topReset<String> {
+    newReset {
       reset {
         val x = control0 { f -> "a" + f("") }
         control0 { x }
       }
     } shouldBe ""
-    topReset<String> {
-      "a" + reset<String> {
+    newReset {
+      "a" + reset {
         control0 { _ -> control0 { _ -> "" } }
       }
     } shouldBe ""
   }
 
   @Test
-  fun lazyShifts() = runTest {
-    topReset<Int> {
+  fun lazyShifts() = runTestCC {
+    newReset {
       val x = reset {
         shift { k -> k(1) + k(1) + 1 }
       }
@@ -313,7 +315,7 @@ class ContinuationTest {
   fun handlingContext() = runTest {
     runCC {
       runReader(1) {
-        newReset<Int> {
+        newReset {
           pushReader(2) {
             ask() shouldBe 2
             shift { k -> k(ask()) } shouldBe 1
@@ -328,7 +330,7 @@ class ContinuationTest {
     }
     runCC {
       runReader(1) {
-        newReset<Int> {
+        newReset {
           pushReader(2) {
             ask() shouldBe 2
             shift { k ->
@@ -360,15 +362,15 @@ class ContinuationTest {
   }
 
   @Test
-  fun ex4dot2dot1() = runTest {
-    topReset<Int> {
+  fun ex4dot2dot1() = runTestCC {
+    newReset {
       shift0 { k -> k(k(100)) } + 10
     } + 1 shouldBe 121
   }
 
   @Test
-  fun ex4dot2dot2() = runTest {
-    topReset<Int> p1@{
+  fun ex4dot2dot2() = runTestCC {
+    newReset p1@{
       if (newReset p2@{
           shift<Boolean, Int> { 21 }
         }) 1 else 2
