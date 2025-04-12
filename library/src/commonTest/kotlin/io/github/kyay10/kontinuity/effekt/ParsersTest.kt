@@ -217,7 +217,7 @@ class ToPush<R>(val outer: CharParsers, prompt: HandlerPrompt<PushParser<R>>) : 
 }
 
 suspend fun <A> CharParsers.pushParser(block: suspend CharParsers.() -> A): PushParser<A> = handle {
-  PushParser.succeed(ToPush<A>(this@pushParser, this).block())
+  PushParser.succeed(ToPush(this@pushParser, this).block())
 }
 
 // coalgebraic / push-based parsers, specialized to characters

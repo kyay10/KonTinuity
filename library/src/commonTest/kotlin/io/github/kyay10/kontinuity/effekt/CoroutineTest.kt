@@ -6,7 +6,8 @@ import kotlin.test.Test
 
 // Example translated from http://drops.dagstuhl.de/opus/volltexte/2018/9208/
 class CoroutineTest {
-  suspend fun random(amb: Amb, yield: Yield<*, Int>) {
+  context(amb: Amb, yield: Yield<*, Int>)
+  suspend fun randomYield() {
     yield.yield(0)
     if (amb.flip()) {
       yield.yield(1)
@@ -16,17 +17,19 @@ class CoroutineTest {
     yield.yield(3)
   }
 
-  suspend fun <A> bucket(b: List<A>, yield: Yield<*, A>) {
+  context(yield: Yield<*, A>)
+  suspend fun <A> bucket(b: List<A>) {
     var i = 0
     while (i < b.size) {
       yield.yield(b[i++])
     }
   }
 
-  suspend fun <A> buckets(bs: List<List<A>>, yield: Yield<*, A>) {
+  context(yield: Yield<*, A>)
+  suspend fun <A> buckets(bs: List<List<A>>) {
     var i = 0
     while (i < bs.size) {
-      bucket(bs[i++], yield)
+      bucket(bs[i++])
     }
   }
 
@@ -34,7 +37,7 @@ class CoroutineTest {
 
   @Test
   fun bucketsTest() = runTestCC {
-    val co: Coroutine<Unit, Int, Unit> = Coroutine.call(::buckets, data)
+    val co = coroutine<Unit, Int, _> { buckets(data) }
     buildList {
       do {
         add(co.value)
@@ -44,7 +47,7 @@ class CoroutineTest {
 
   @Test
   fun snapshotTest() = runTestCC {
-    val co: Coroutine<Unit, Int, Unit> = Coroutine.call(::buckets, data)
+    val co = coroutine<Unit, Int, Unit> { buckets(data) }
     co.value shouldBe 4
     co.resume()
     co.value shouldBe 3
@@ -61,7 +64,7 @@ class CoroutineTest {
   fun randomTest() = runTestCC {
     buildList {
       ambList {
-        val co: Coroutine<Unit, Int, Unit> = Coroutine.call(::random, this)
+        val co: Coroutine<Unit, Int, Unit> = coroutine { randomYield() }
         do {
           add(co.value)
         } while (co.resume())
@@ -82,16 +85,14 @@ interface Coroutine<In, Out, Result> {
   val value: Out
   val result: Result
   fun snapshot(): Coroutine<In, Out, Result>
+}
 
-  companion object {
-    suspend fun <In, Out, Arg, Result> call(
-      body: CoroutineBody<In, Out, Arg, Result>, arg: Arg
-    ): Coroutine<In, Out, Result> {
-      val yielder = Yielder<In, Out, Result>(HandlerPrompt())
-      val instance = CoroutineInstance<In, Out, Result>(yielder, null)
-      return instance.start(body, arg)
-    }
-  }
+suspend fun <In, Out, Result> coroutine(
+  body: CoroutineBody<In, Out, Result>
+): Coroutine<In, Out, Result> {
+  val yielder = Yielder<In, Out, Result>(HandlerPrompt())
+  val instance = CoroutineInstance(yielder, null)
+  return instance.start(body)
 }
 
 suspend fun Coroutine<Unit, *, *>.resume(): Boolean = resume(Unit)
@@ -125,9 +126,9 @@ class CoroutineInstance<In, Out, Result>(
     return !isDone
   }
 
-  suspend fun <Arg> start(body: CoroutineBody<In, Out, Arg, Result>, arg: Arg): CoroutineInstance<In, Out, Result> {
+  suspend fun start(body: CoroutineBody<In, Out, Result>): CoroutineInstance<In, Out, Result> {
     yielder.rehandle {
-      yielder.state = CoroutineState.Done(body(arg, yielder))
+      yielder.state = CoroutineState.Done(body(yielder))
     }
     state = yielder.state
     return this
@@ -146,10 +147,8 @@ sealed interface CoroutineState<in In, out Out, out Result> {
   data class Done<Result>(val result: Result) : CoroutineState<Any?, Nothing, Result>
 }
 
-typealias CoroutineBody<In, Out, Arg, Result> = suspend (Arg, Yield<In, Out>) -> Result
+typealias CoroutineBody<In, Out, Result> = suspend context(Yield<In, Out>) () -> Result
 
 interface Yield<out In, in Out> {
   suspend fun yield(value: Out): In
 }
-
-suspend fun <In> Yield<In, Unit>.yield(): In = yield(Unit)

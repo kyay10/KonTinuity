@@ -5,10 +5,9 @@ import arrow.core.Option
 import arrow.core.Some
 import arrow.core.identity
 import io.github.kyay10.kontinuity.pushReader
-import io.kotest.matchers.shouldBe
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
-import kotlin.collections.plus
+import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class PaperTest {
@@ -17,7 +16,7 @@ class PaperTest {
     runCC {
       val res = collect {
         maybe {
-          drunkFlip(this@collect, this@maybe)
+          drunkFlip()
         }
       }
       res shouldBe listOf(Some("Heads"), Some("Tails"), None)
@@ -25,7 +24,7 @@ class PaperTest {
     runCC {
       val res = maybe {
         collect {
-          drunkFlip(this@collect, this@maybe)
+          drunkFlip()
         }
       }
       res shouldBe None
@@ -73,22 +72,19 @@ class PaperTest {
     }
   }
 
-  suspend fun asyncExample(f: Fiber, a: Async) {
+  context(f: Fiber, a: Async)
+  suspend fun asyncExample() {
     val str = buildString {
-      with(f) {
-        with(a) {
-          val p = async {
-            appendLine("Async 1")
-            suspend()
-            appendLine("Async 2")
-            suspend()
-            42
-          }
-          appendLine("Main")
-          val r = p.await()
-          appendLine("Main with result $r")
-        }
+      val p = async {
+        appendLine("Async 1")
+        suspend()
+        appendLine("Async 2")
+        suspend()
+        42
       }
+      appendLine("Main")
+      val r = p.await()
+      appendLine("Main with result $r")
     }
     str shouldBe """
       Async 1
@@ -103,7 +99,7 @@ class PaperTest {
   fun ex4dot5dot4() = runTest {
     runCC {
       firstResult {
-        drunkFlip(this, this)
+        drunkFlip()
       } shouldBe Some("Heads")
     }
   }
@@ -113,8 +109,8 @@ class PaperTest {
     runCC {
       region {
         scheduler {
-          poll(this@region, this) {
-            asyncExample(this@scheduler, this)
+          poll {
+            asyncExample()
           }
         }
       }
@@ -122,7 +118,8 @@ class PaperTest {
   }
 }
 
-private suspend fun drunkFlip(amb: Amb, exc: Exc): String {
+context(amb: Amb, exc: Exc)
+private suspend fun drunkFlip(): String {
   val caught = amb.flip()
   val heads = if (caught) amb.flip() else exc.raise("We dropped the coin.")
   return if (heads) "Heads" else "Tails"
@@ -152,6 +149,9 @@ interface Fiber {
   }
 }
 
+context(fiber: Fiber)
+suspend fun suspend() = fiber.suspend()
+
 interface Async {
   suspend fun <T> async(body: suspend () -> T): Promise<T>
   interface Promise<T> {
@@ -159,10 +159,13 @@ interface Async {
   }
 }
 
-interface Poll : Async {
-  val state: StateScope
-  val fiber: Fiber
+context(async: Async)
+suspend fun <T> async(body: suspend () -> T): Async.Promise<T> = async.async(body)
 
+class Poll(
+  val state: StateScope,
+  val fiber: Fiber,
+) : Async {
   private class PromiseImpl<T>(val fiber: Fiber, val field: StateScope.Field<Option<T>>) : Async.Promise<T> {
     override tailrec suspend fun await(): T = when (val v = field.get()) {
       is None -> {
@@ -183,14 +186,11 @@ interface Poll : Async {
   }
 }
 
-suspend inline fun poll(state: StateScope, fiber: Fiber, block: suspend Async.() -> Unit) = block(object : Poll {
-  override val state = state
-  override val fiber = fiber
-})
+context(state: StateScope, fiber: Fiber)
+suspend inline fun poll(block: suspend Async.() -> Unit) =
+  block(Poll(state, fiber))
 
-suspend fun <R> firstResult(block: suspend AmbExc.() -> R): Option<R> = handle {
-  Some(block(Backtrack(this)))
-}
+suspend fun <R> firstResult(block: suspend context(Amb, Exc) () -> R): Option<R> = backtrack(block)
 
 class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Unit, Queue> by prompt {
   override suspend fun exit(): Nothing = discard {}
@@ -203,7 +203,7 @@ class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Un
   }
 }
 
-suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(emptyList<suspend () -> Unit>(), ::identity) {
+suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(emptyList(), ::identity) {
   Scheduler(this).block()
 }
 
@@ -217,7 +217,7 @@ private suspend fun StatefulHandler<Unit, Queue>.run(q: Queue) {
 
 typealias Queue = List<suspend () -> Unit>
 
-interface Input {
+fun interface Input {
   suspend fun read(): Char
 }
 

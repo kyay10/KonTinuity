@@ -12,7 +12,8 @@ class GeneratorTest {
     }
   }
 
-  suspend fun Generator<Int>.numbersFlip(to: Int, amb: Amb) {
+  context(amb: Amb)
+  suspend fun Generator<Int>.numbersFlip(to: Int) {
     var i = 0
     while (i <= to) {
       yield(if (amb.flip()) i else -i)
@@ -55,7 +56,7 @@ class GeneratorTest {
     buildList {
       ambList {
         val ints = effectfulIterable {
-          numbersFlip(2, this@ambList)
+          numbersFlip(2)
         }
         for (i in ints) {
           add(i)
@@ -74,8 +75,8 @@ fun interface EffectfulIterable<A> {
   suspend operator fun iterator(): EffectfulIterator<A>
 }
 
-fun <A> effectfulIterable(body: suspend Generator<A>.() -> Unit) = EffectfulIterable<A> {
-  EffectfulIteratorImpl<A>(handle {
+fun <A> effectfulIterable(body: suspend Generator<A>.() -> Unit) = EffectfulIterable {
+  EffectfulIteratorImpl(handle {
     body(Iterate(this))
     EffectfulIteratorStep.Done
   })

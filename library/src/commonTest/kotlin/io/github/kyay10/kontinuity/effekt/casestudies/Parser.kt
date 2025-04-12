@@ -7,10 +7,11 @@ import arrow.core.left
 import arrow.core.raise.Raise
 import arrow.core.recover
 import arrow.core.right
-import io.github.kyay10.kontinuity.effekt.casestudies.TokenKind.*
 import io.github.kyay10.kontinuity.Raise
+import io.github.kyay10.kontinuity.effekt.casestudies.TokenKind.*
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.use
+import io.github.kyay10.kontinuity.raise
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -47,36 +48,50 @@ fun interface Nondet {
   suspend fun alt(): Boolean
 }
 
-// Temporary product until contexts are multiplatform
-interface Parser : Nondet, Lexer, Raise<String>
+context(nondet: Nondet)
+suspend fun alt() = nondet.alt()
 
-suspend inline fun Parser.accept(expectedText: String = "", predicate: (Token) -> Boolean): Token {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend inline fun accept(expectedText: String = "", predicate: (Token) -> Boolean): Token {
   val token = next()
   return if (predicate(token)) token
   else raise("unexpected token $token, expected $expectedText")
 }
 
-suspend fun Parser.any() = accept { t -> true }
-suspend fun Parser.accept(exp: TokenKind) = accept(exp.toString()) { t -> t.kind == exp }
-suspend fun Parser.ident() = accept(Ident).text
-suspend fun Parser.number() = accept(Number).text
-suspend fun Parser.punct(p: String) {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun any() = accept { t -> true }
+
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun accept(exp: TokenKind) = accept(exp.toString()) { t -> t.kind == exp }
+
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun ident() = accept(Ident).text
+
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun number() = accept(Number).text
+
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun punct(p: String) {
   val text = accept(Punct).text
   if (text != p) raise("Expected $p but got $text")
 }
 
-suspend fun Parser.kw(exp: String) {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun kw(exp: String) {
   val text = ident()
   if (text != exp) raise("Expected keyword $exp but got $text")
 }
 
-suspend inline fun <R> Nondet.opt(block: () -> R): R? = if (alt()) block() else null
+context(_: Nondet)
+suspend inline fun <R> opt(block: () -> R): R? = if (alt()) block() else null
 
-suspend inline fun Nondet.many(block: () -> Unit) {
+context(_: Nondet)
+suspend inline fun many(block: () -> Unit) {
   while (alt()) block()
 }
 
-suspend inline fun Nondet.some(block: () -> Unit) {
+context(_: Nondet)
+suspend inline fun some(block: () -> Unit) {
   do block() while (alt())
 }
 
@@ -86,16 +101,20 @@ data class Var(val name: String) : Tree
 data class Let(val name: String, val binding: Tree, val body: Tree) : Tree
 data class App(val name: String, val arg: Tree) : Tree
 
-suspend fun Parser.parseNum(): Tree {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun parseNum(): Tree {
   val num = number()
   return Lit(num.toIntOrNull() ?: raise("Expected number, but cannot convert input to integer: $num"))
 }
 
-suspend fun Parser.parseVar(): Tree = Var(ident())
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun parseVar(): Tree = Var(ident())
 
-suspend fun Parser.parseAtom(): Tree = opt { parseNum() } ?: parseVar()
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun parseAtom(): Tree = opt { parseNum() } ?: parseVar()
 
-suspend fun Parser.parseLet(): Tree {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun parseLet(): Tree {
   kw("let")
   val name = ident()
   punct("=")
@@ -105,14 +124,16 @@ suspend fun Parser.parseLet(): Tree {
   return Let(name, binding, body)
 }
 
-suspend fun Parser.parseGroup(): Tree = opt { parseAtom() } ?: run {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun parseGroup(): Tree = opt { parseAtom() } ?: run {
   punct("(")
   val expr = parseExpr()
   punct(")")
   return expr
 }
 
-suspend fun Parser.parseApp(): Tree {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun parseApp(): Tree {
   val name = ident()
   punct("(")
   val arg = parseExpr()
@@ -120,14 +141,16 @@ suspend fun Parser.parseApp(): Tree {
   return App(name, arg)
 }
 
-suspend fun Parser.parseExpr(): Tree = when {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun parseExpr(): Tree = when {
   alt() -> parseLet()
   alt() -> parseApp()
   else -> parseGroup()
 }
 
 // <EXPR> ::= <NUMBER> | <IDENT> `(` <EXPR> (`,` <EXPR>)*  `)`
-suspend fun Parser.parseCalls(): Int = if (alt()) {
+context(_: Nondet, _: Lexer, _: Raise<String>)
+suspend fun parseCalls(): Int = if (alt()) {
   number()
   1
 } else {
@@ -145,17 +168,15 @@ suspend fun Parser.parseCalls(): Int = if (alt()) {
 
 typealias ParseResult<R> = Either<String, R>
 
-class CombinedParser(lexer: Lexer, nondet: Nondet, raise: Raise<String>) : Parser, Nondet by nondet, Lexer by lexer,
-  Raise<String> by raise
-
-suspend fun <R> parse(input: String, block: suspend Parser.() -> R): ParseResult<R> = handle {
-  Raise<LexerError, _> { Left("${it.msg}: ${it.pos}") }.lexer(input) {
-    skipWhitespace {
-      CombinedParser(
-        this,
-        Nondet { use { k -> k(true).recover { k(false).bind() } } },
-        Raise { it.left() }
-      ).block().right()
+suspend fun <R> parse(input: String, block: suspend context(Nondet, Lexer, Raise<String>) () -> R): ParseResult<R> =
+  handle {
+    Raise<LexerError, _> { Left("${it.msg}: ${it.pos}") }.lexer(input) {
+      skipWhitespace {
+        block(
+          Nondet { use { k -> k(true).recover { k(false).bind() } } },
+          this,
+          Raise { it.left() }
+        ).right()
+      }
     }
   }
-}

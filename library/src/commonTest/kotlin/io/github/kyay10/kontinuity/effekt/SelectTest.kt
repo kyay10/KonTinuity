@@ -64,7 +64,7 @@ interface Select {
   suspend fun <A> Iterable<A>.select(): A
 }
 
-class SelectAll<R>(p: HandlerPrompt<List<R>>) : Select, Handler<List<R>> by p{
+class SelectAll<R>(p: HandlerPrompt<List<R>>) : Select, Handler<List<R>> by p {
   override suspend fun <A> Iterable<A>.select(): A = use { k ->
     fold(emptyList()) { acc, elem -> acc + k(elem) }
   }

@@ -11,7 +11,6 @@ interface SubJump {
   suspend fun <T> sub(): Either<AbortiveCont<T>, T>
 }
 
-
 suspend inline fun <T, R> SubJump.sub(block: (AbortiveCont<T>) -> R, onJump: (T) -> R): R = sub<T>().fold(block, onJump)
 
 typealias AbortiveCont<T> = suspend (T) -> Nothing

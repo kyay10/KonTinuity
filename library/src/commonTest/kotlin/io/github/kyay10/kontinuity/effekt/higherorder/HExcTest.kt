@@ -1,71 +1,77 @@
 package io.github.kyay10.kontinuity.effekt.higherorder
 
-import io.github.kyay10.kontinuity.State
 import arrow.core.*
 import arrow.core.Either.Left
 import arrow.core.Either.Right
 import arrow.core.raise.Raise
-import io.github.kyay10.kontinuity.Raise
+import io.github.kyay10.kontinuity.*
 import io.github.kyay10.kontinuity.effekt.Amb
 import io.github.kyay10.kontinuity.effekt.LogicDeep
 import io.github.kyay10.kontinuity.effekt.collect
 import io.github.kyay10.kontinuity.effekt.discard
 import io.github.kyay10.kontinuity.effekt.discardWith
+import io.github.kyay10.kontinuity.effekt.flip
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.use
-import io.github.kyay10.kontinuity.get
 import io.kotest.matchers.shouldBe
-import io.github.kyay10.kontinuity.runState
-import io.github.kyay10.kontinuity.runTestCC
-import io.github.kyay10.kontinuity.set
+import kotlin.Int
+import kotlin.Nothing
+import kotlin.Pair
+import kotlin.Result
+import kotlin.Unit
+import kotlin.collections.listOf
 import kotlin.test.Test
+import kotlin.to
+import kotlin.with
 
 class HExcTest {
-  private suspend fun Raise<Unit>.decr(state: State<Int>) {
+  context(r: Raise<Unit>, state: State<Int>)
+  private suspend fun decr() {
     val x = state.get()
     if (x > 0) state.set(x - 1) else raise(Unit)
   }
 
-  private suspend fun Raise<Unit>.tripleDecr(recover: Recover, state: State<Int>) {
-    decr(state)
+  context(r: Raise<Unit>, recover: Recover, state: State<Int>)
+  private suspend fun tripleDecr() {
+    decr()
     recover.recover({
-      decr(state)
-      decr(state)
+      decr()
+      decr()
     }) {}
   }
 
   @Test
   fun tripleDecrTest() = runTestCC {
-    runHExc<Unit, _> {
+    runHExc {
       runStatePair(2) {
-        tripleDecr(this@runHExc, this)
+        tripleDecr()
       }
     } shouldBe Right(0 to Unit)
-    runHExcTransactional<Unit, _> {
+    runHExcTransactional {
       runStatePair(2) {
-        tripleDecr(this@runHExcTransactional, this)
+        tripleDecr()
       }
     } shouldBe Right(1 to Unit)
     runStatePair(2) {
       runHExc {
-        tripleDecr(this, this@runStatePair)
+        tripleDecr()
       }
     } shouldBe (0 to Right(Unit))
-    runEither<Unit, _> {
+    runEither {
       subJump {
         runStatePair(2) {
-          tripleDecr(recover, this@runStatePair)
+          with(recover) { tripleDecr() }
         }
       }
     } shouldBe Right(1 to Unit)
     runStatePair(2) {
       runHExcTransactional {
-        tripleDecr(this, this@runStatePair)
+        tripleDecr()
       }
     } shouldBe (0 to Right(Unit))
     runStatePair(2) {
       subJump {
-        runEither { tripleDecr(recover, this@runStatePair) }
+        runEither { with(recover) { tripleDecr() } }
       }
     } shouldBe (0 to Right(Unit))
   }

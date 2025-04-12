@@ -68,6 +68,12 @@ interface Lexer {
   suspend fun next(): Token
 }
 
+context(lexer: Lexer)
+suspend fun next() = lexer.next()
+
+context(lexer: Lexer)
+suspend fun peek() = lexer.peek()
+
 data class LexerError(val msg: String, val pos: Position)
 
 val dummyPosition = Position(0, 0, 0)

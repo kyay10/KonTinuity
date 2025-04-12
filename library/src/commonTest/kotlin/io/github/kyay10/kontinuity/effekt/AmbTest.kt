@@ -8,7 +8,8 @@ import io.github.kyay10.kontinuity.runTest
 import kotlin.test.Test
 
 class AmbTest {
-  suspend fun drunkFlip(amb: Amb, exc: Exc): String {
+  context(amb: Amb, exc: Exc)
+  suspend fun drunkFlip(): String {
     val heads = if (amb.flip()) amb.flip() else exc.raise("We dropped the coin.")
     return if (heads) "Heads" else "Tails"
   }
@@ -18,14 +19,14 @@ class AmbTest {
     runCC {
       ambList {
         maybe {
-          drunkFlip(this@ambList, this)
+          drunkFlip()
         }
       }
     } shouldBe listOf(Some("Heads"), Some("Tails"), None)
     runCC {
       maybe {
         ambList {
-          drunkFlip(this, this@maybe)
+          drunkFlip()
         }
       }
     } shouldBe None
@@ -63,7 +64,7 @@ class AmbTest {
   }
 }
 
-interface Amb {
+fun interface Amb {
   suspend fun flip(): Boolean
 }
 

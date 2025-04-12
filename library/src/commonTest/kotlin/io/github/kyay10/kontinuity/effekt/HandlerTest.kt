@@ -4,9 +4,10 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
-import io.kotest.matchers.shouldBe
+import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
+import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class HandlerJvmTest {
@@ -102,51 +103,36 @@ private suspend fun number(): Int {
   }
 }
 
-interface StringInput<R> : Input {
-  val exc: Exc
-  val input: String
-  val pos: StateScope.Field<Int>
-  override suspend fun read(): Char = if (pos.get() >= input.length) exc.raise("EOS")
-  else input[pos.get().also { pos.set(it + 1) }]
-}
-
-context(exc: Exc)
-suspend fun <R> stringInput(input: String, block: suspend StringInput<R>.() -> R): R = region {
+context(_: Exc)
+suspend fun <R> stringInput(input: String, block: suspend Input.() -> R): R = region {
   val pos = field(0)
-  block(object : StringInput<R> {
-    override val exc: Exc = exc
-    override val input: String = input
-    override val pos: StateScope.Field<Int> = pos
-  })
-}
-
-class Nondet2<R>(p: HandlerPrompt<List<R>>) : Amb by Collect(p), AmbExc, Handler<List<R>> by p {
-  override suspend fun raise(msg: String): Nothing = discard { emptyList() }
-}
-
-suspend fun <R> nondet(block: suspend AmbExc.() -> R): List<R> = handle {
-  listOf(block(Nondet2(this)))
-}
-
-class Backtrack2<R>(p: HandlerPrompt<Option<R>>) : Exc by Maybe(p), AmbExc, Handler<Option<R>> by p {
-  override suspend fun flip(): Boolean = use { resume ->
-    resume(true).recover { resume(false).bind() }
+  block {
+    if (pos.get() >= input.length) raise("EOS")
+    else input[pos.get().also { pos.set(it + 1) }]
   }
 }
 
-suspend fun <R> backtrack2(block: suspend AmbExc.() -> R): Option<R> = handle {
-  Some(block(Backtrack2(this)))
+suspend fun <R> nondet(block: suspend context(Amb, Exc) () -> R): List<R> = handle {
+  listOf(block(Collect(this)) { discard { emptyList() } })
 }
 
-interface Generator2<A> {
-  suspend fun yield(value: A)
+suspend fun <R> backtrack2(block: suspend context(Amb, Exc) () -> R): Option<R> = handle {
+  val amb = Amb {
+    use { resume ->
+      resume(true).recover { resume(false).bind() }
+    }
+  }
+  Some(block(amb, Maybe(this)))
 }
 
-private suspend fun Generator2<Int>.numbers(upto: Int) {
-  for (i in 0..upto) yield(i)
+private suspend fun Generator<Int>.numbers(upto: Int) {
+  (0..upto).forEachIteratorless { i ->
+    yield(i)
+  }
 }
 
-class Iterate2<A>(val nextValue: StateScope.Field<(suspend (Unit) -> A)?>, p: HandlerPrompt<EffectfulIterator2<A>>) : Generator2<A>, Handler<EffectfulIterator2<A>> by p {
+private class Iterate2<A>(val nextValue: StateScope.Field<(suspend (Unit) -> A)?>, p: HandlerPrompt<EffectfulIterator2<A>>) :
+  Generator<A>, Handler<EffectfulIterator2<A>> by p {
   override suspend fun yield(value: A) = use { resume ->
     nextValue.set {
       resume(Unit)
@@ -162,7 +148,7 @@ class Iterate2<A>(val nextValue: StateScope.Field<(suspend (Unit) -> A)?>, p: Ha
   }
 }
 
-suspend fun <A> StateScope.iterate2(block: suspend Generator2<A>.() -> Unit) = handle {
+suspend fun <A> StateScope.iterate2(block: suspend Generator<A>.() -> Unit) = handle {
   block(Iterate2(field(null), this))
   EmptyEffectfulIterator
 }

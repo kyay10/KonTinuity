@@ -7,7 +7,7 @@ import kotlin.test.Test
 class StateTest {
   @Test
   fun simpleRead() = runTestCC {
-    stateFun<Int, Int>(42) { get() } shouldBe 42
+    stateFun(42) { get() } shouldBe 42
   }
 
   @Test
@@ -61,7 +61,7 @@ class StateTest {
   @Test
   fun countDown() = runTestCC {
     suspend fun State<Int>.countDown(): List<Int> {
-      val printed = mutableListOf<Int>(Int.MIN_VALUE)
+      val printed = mutableListOf(Int.MIN_VALUE)
       while (get() > 0) {
         printed.add(get())
         put(get() - 1)

@@ -4,7 +4,7 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 
-interface Exc {
+fun interface Exc {
   suspend fun raise(msg: String): Nothing
 }
 
