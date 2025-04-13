@@ -3,6 +3,7 @@ package io.github.kyay10.kontinuity.effekt
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.minutes
 
 class StateTest {
   @Test
@@ -75,7 +76,7 @@ class StateTest {
   }
 
   @Test
-  fun silentCountDown() = runTestCC {
+  fun silentCountDown() = runTestCC(timeout = 10.minutes) {
     suspend fun State<Int>.countDown() {
       while (get() > 0) {
         put(get() - 1)

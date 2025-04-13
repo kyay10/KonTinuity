@@ -145,7 +145,9 @@ class SkynetTest {
   }
 
   // every fiber suspends once before returning the result.
-  // TODO this runs forever when debugging
+  // This OOMs without the continuation clearing in CanResume.resume
+  // only when debugging, likely because spilled variables aren't nulled out
+  // when using kotlinx-coroutines debugging.
   @Test
   fun skynetSuspend() = runTestCC(timeout = 10.minutes) {
     suspend fun Suspendable.skynet(num: Int, size: Int, div: Int): Long {

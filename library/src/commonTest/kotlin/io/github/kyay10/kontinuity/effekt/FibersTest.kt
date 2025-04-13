@@ -92,12 +92,13 @@ interface Fibre<A> {
 
 class CanResume<A> : Fibre<A> {
   override var isDone = false
-  private var res: A? = null
+  @Suppress("UNCHECKED_CAST")
+  private var res: A = null as A
   override val result: A
     @Suppress("UNCHECKED_CAST")
     get() {
       check(isDone) { "This fiber is not yet done, can't get result" }
-      return res as A
+      return res
     }
 
   fun returnWith(value: A) {
@@ -105,9 +106,11 @@ class CanResume<A> : Fibre<A> {
     isDone = true
   }
 
-  private lateinit var k: suspend () -> Unit
+  private var k: (suspend () -> Unit)? = null
   override suspend fun resume() {
     check(!isDone) { "Can't resume this fiber anymore" }
+    val k = checkNotNull(k) { "This fiber is not yet set up" }
+    this.k = null
     k()
   }
 
