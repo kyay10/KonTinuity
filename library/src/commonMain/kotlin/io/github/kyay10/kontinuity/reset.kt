@@ -36,7 +36,7 @@ public class SubCont<in T, out R> internal constructor(
     isDelimiting: Boolean = false,
     value: suspend () -> T
   ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutineIntercepted(WrapperCont(composedWith(k, isDelimiting)))
+    value.startCoroutineIntercepted(composedWith(k, isDelimiting))
   }
 }
 
@@ -140,7 +140,7 @@ public suspend fun <T, R> Prompt<R>.takeSubCont(
 ): T = suspendCoroutineUnintercepted { k ->
   val stack = collectStack(k)
   val (init, rest) = stack.splitAt(this)
-  body.startCoroutineIntercepted(SubCont(init, this), WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this)))
+  body.startCoroutineIntercepted(SubCont(init, this), if (deleteDelimiter) rest else rest.pushPrompt(this))
 }
 
 context(p: Prompt<R>)
@@ -156,7 +156,7 @@ public suspend fun <T, R> Prompt<R>.takeSubContOnce(
 ): T = suspendCoroutineUnintercepted { k ->
   val stack = collectStack(k)
   val (init, rest) = stack.splitAtOnce(this)
-  body.startCoroutineIntercepted(SubCont(init, this), WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this)))
+  body.startCoroutineIntercepted(SubCont(init, this), if (deleteDelimiter) rest else rest.pushPrompt(this))
 }
 
 context(p: Prompt<R>)
@@ -175,7 +175,7 @@ public suspend fun <T, R> Prompt<R>.takeSubContWithFinal(
   val (init, rest) = stack.splitAtOnce(this)
   body.startCoroutineIntercepted(
     SubCont(reusableInit, this) to SubCont(init, this),
-    WrapperCont(if (deleteDelimiter) rest else rest.pushPrompt(this))
+    if (deleteDelimiter) rest else rest.pushPrompt(this)
   )
 }
 
@@ -232,7 +232,7 @@ private class AbortWithProducerException(
   private val prompt: Prompt<Any?>, private val value: suspend () -> Any?, private val deleteDelimiter: Boolean
 ) : SeekingStackException() {
   override fun use(stack: SplitSeq<*, *, *>) =
-    value.startCoroutineIntercepted(WrapperCont(stack.holeFor(prompt, deleteDelimiter)))
+    value.startCoroutineIntercepted(stack.holeFor(prompt, deleteDelimiter))
 }
 
 public class Prompt<R>
