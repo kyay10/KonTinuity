@@ -17,7 +17,6 @@ internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Conti
 @JvmInline
 internal value class Frame<in A, out B>(val cont: Continuation<A>) {
   fun resumeWith(value: Result<A>, into: Continuation<B>) = cont.copy(into).resumeWith(value)
-  fun resumeWithIntercepted(value: Result<A>, into: Continuation<B>) = cont.copy(into).intercepted().resumeWith(value)
 }
 
 @JvmInline
@@ -29,37 +28,29 @@ internal value class FrameList<in Start, First, out End>(val frame: Frame<Start,
     if (this.completion is WrapperCont) null else FrameList<First, Nothing, End>(Frame(this.completion))
 }
 
-internal sealed interface SplitSeq<in Start, First, out End>: CoroutineStackFrame {
+internal sealed interface SplitSeq<in Start, First, out End> : CoroutineStackFrame {
   val context: CoroutineContext
 }
 
-internal fun <Start, First, End> SplitSeq<Start, First, End>.resumeWith(result: Result<Start>, isIntercepted: Boolean) {
+internal fun <Start, First, End> SplitSeq<Start, First, End>.resumeWith(result: Result<Start>) {
   val exception = result.exceptionOrNull()
   if (exception is SeekingStackException) exception.use(this)
-  else resumeWithImpl(result, isIntercepted)
+  else resumeWithImpl(result)
 }
 
-private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithImpl(
-  result: Result<Start>, isIntercepted: Boolean
-) {
+private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithImpl(result: Result<Start>) {
   when (this) {
-    is EmptyCont -> (if (isIntercepted) underlying.intercepted() else underlying).resumeWith(
-      result
-    )
+    is EmptyCont -> underlying.resumeWith(result)
 
     is FramesCont<Start, First, *, End> -> if (wrapperCont == null) {
-      if (isIntercepted) {
-        head.resumeWithIntercepted(result, WrapperCont(tail))
-      } else {
-        val tail = tail
-        val wrapper = WrapperCont(tail, isWaitingForValue = true)
-        head.resumeWith(result, wrapper)
-        val res = wrapper.result
-        if (res != waitingForValue && res != hasBeenIntercepted) {
-          val exception = res.exceptionOrNull()
-          if (exception is SeekingStackException) exception.use(tail)
-          else tail.resumeWithImpl(res, false)
-        }
+      val tail = tail
+      val wrapper = WrapperCont(tail, isWaitingForValue = true)
+      head.resumeWith(result, wrapper)
+      val res = wrapper.result
+      if (res != waitingForValue && res != hasBeenIntercepted) {
+        val exception = res.exceptionOrNull()
+        if (exception is SeekingStackException) exception.use(tail)
+        else tail.resumeWithImpl(res)
       }
     } else {
       // TODO deduplicate
@@ -67,24 +58,19 @@ private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIm
       val rest = rest!! as SplitSeq<Any?, *, *>
       wrapper.seq = rest
       wrapper.realContext = rest.context
-      if (isIntercepted) {
-        wrapper.endWaitingForValue()
-        frames.head().cont.intercepted().resumeWith(result)
-      } else {
-        wrapper.beginWaitingForValue()
-        frames.head().cont.resumeWith(result)
-        val res = wrapper.result
-        if (res != waitingForValue && res != hasBeenIntercepted) {
-          val exception = res.exceptionOrNull()
-          if (exception is SeekingStackException) exception.use(rest)
-          else rest.resumeWithImpl(res, false)
-        }
+      wrapper.beginWaitingForValue()
+      frames.head().cont.resumeWith(result)
+      val res = wrapper.result
+      if (res != waitingForValue && res != hasBeenIntercepted) {
+        val exception = res.exceptionOrNull()
+        if (exception is SeekingStackException) exception.use(rest)
+        else rest.resumeWithImpl(res)
       }
     }
 
-    is PromptCont -> rest!!.resumeWithImpl(result, isIntercepted = isIntercepted)
+    is PromptCont -> rest!!.resumeWithImpl(result)
 
-    is ReaderCont<*, Start, First, End> -> rest!!.resumeWithImpl(result, isIntercepted = isIntercepted)
+    is ReaderCont<*, Start, First, End> -> rest!!.resumeWithImpl(result)
   }
 }
 
@@ -175,7 +161,9 @@ internal fun <Start, First, End, P> SplitSeq<Start, First, End>.splitAt(p: Promp
 internal fun <Start, First, End, P> SplitSeq<Start, First, End>.splitAtOnce(p: Prompt<P>): Pair<Segment<Start, *, P>, SplitSeq<P, *, End>> {
   val box = findGuyBefore(p, null)
   return if (box != null) {
-    SingleUseSegment(box, this) to (box.sequence!! as PromptCont).rest.also { box.sequence = null } as SplitSeq<P, *, End>
+    SingleUseSegment(box, this) to (box.sequence!! as PromptCont).rest.also {
+      box.sequence = null
+    } as SplitSeq<P, *, End>
   } else {
     EmptySegment to this as SplitSeq<P, *, End>
   }
@@ -224,7 +212,7 @@ internal class WrapperCont<T>(seq: SplitSeq<T, *, *>, isWaitingForValue: Boolean
   var seq: SplitSeq<T, *, *>? = seq
   var result: Result<T> = if (isWaitingForValue) waitingForValue else hasBeenIntercepted
     get() = field.also { endWaitingForValue() }
-  private set
+    private set
 
   fun beginWaitingForValue() {
     result = waitingForValue
@@ -245,7 +233,7 @@ internal class WrapperCont<T>(seq: SplitSeq<T, *, *>, isWaitingForValue: Boolean
     if (this.result == waitingForValue) {
       this.result = result
     } else {
-      checkNotNull(seq) { "No sequence to resume with result $result" }.resumeWith(result, isIntercepted = false)
+      checkNotNull(seq) { "No sequence to resume with result $result" }.resumeWith(result)
     }
   }
 
@@ -323,7 +311,13 @@ internal tailrec infix fun <Start, First, End, FurtherEnd> Segment<Start, First,
     is FramesSegment<Start, First, *, *, End> -> init prependTo FramesCont(frames, stack, null)
 
     is PromptSegment<Start, First, End> -> init prependTo PromptCont(prompt, stack)
-    is ReaderSegment<*, Start, First, End> -> init prependTo ReaderCont(prompt, state, fork, stack, forkOnFirstRead = true)
+    is ReaderSegment<*, Start, First, End> -> init prependTo ReaderCont(
+      prompt,
+      state,
+      fork,
+      stack,
+      forkOnFirstRead = true
+    )
 
     is SingleUseSegment<Start, First, End> -> {
       box.sequence = stack
@@ -350,7 +344,7 @@ internal data class SingleUseSegment<Start, First, End>(
   val box: ExpectsSequenceStartingWith<End>, val cont: SplitSeq<Start, First, *>
 ) : Segment<Start, First, End>
 
-internal sealed interface ExpectsSequenceStartingWith<Start>: CoroutineStackFrame {
+internal sealed interface ExpectsSequenceStartingWith<Start> : CoroutineStackFrame {
   var sequence: SplitSeq<Start, *, *>?
   override val callerFrame: CoroutineStackFrame? get() = sequence?.callerFrame
   override fun getStackTraceElement(): StackTraceElement? = sequence?.getStackTraceElement()

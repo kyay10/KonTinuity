@@ -43,7 +43,7 @@ private class SequenceResumeStep<Start, First, End>(
   private val result: Result<Start>
 ) : Step {
   override fun step() {
-    seq.resumeWith(result, isIntercepted = false)
+    seq.resumeWith(result)
   }
 }
 
