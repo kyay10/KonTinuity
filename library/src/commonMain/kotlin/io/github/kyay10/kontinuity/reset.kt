@@ -44,47 +44,34 @@ public class SubCont<in T, out R> internal constructor(
 public suspend fun <R> Prompt<R>.pushPrompt(
   body: suspend () -> R
 ): R = suspendCoroutineUninterceptedOrReturn { k ->
-  body.startCoroutineHere(collectStack(k).pushPrompt(this), k)
+  body.startCoroutineHere(collectStack(k).pushPrompt(this))
 }
 
 private fun <R> (suspend () -> R).startCoroutineHere(
-  stack: SplitSeq<R, *, *>,
-  k: Continuation<R>
-): Any? {
-  val result = runCatching {
-    startCoroutineUninterceptedOrReturn(WrapperCont(stack)).also {
-      if (it === COROUTINE_SUSPENDED) {
-        return@startCoroutineHere it
-      }
-    }
-  }
-  return result.seekingStackOrNull?.let {
-    it.use(stack)
-    COROUTINE_SUSPENDED
-  } ?: if (stack.reattachFrames(k)) {
-    result.getOrThrow()
-  } else {
-    stack.resumeWithIntercepted(result as Result<R>)
-    COROUTINE_SUSPENDED
-  }
+  stack: SplitSeq<R, *, *>
+): Any? = with(stack.frameCont()) {
+  val result = handleTrampolining(stack, runCatching { startCoroutineUninterceptedOrReturn(WrapperCont(stack)) })
+  //TODO justify that stack.frameCont() === this
+  // also justify the validity of all of this using the Reification Invariant
+  if (result != Result.success(COROUTINE_SUSPENDED)) reattachFrames()
+  result.getOrThrow()
 }
 
-private tailrec fun <R> SplitSeq<R, *, *>.reattachFrames(k: Continuation<R>): Boolean {
-  return when (this) {
-    is EmptyCont -> true
-    is FramesCont<*, *, *, *> -> {
-      if (this.head.cont !== k) return false
-      val wrapper = wrapperCont
-      if (wrapper == null) return false
-      val rest = rest!! as SplitSeq<Any?, *, *>
-      wrapper.seq = rest
-      wrapper.realContext = rest.context
-      true
-    }
-
-    is ExpectsSequenceStartingWith<*> -> {
-      sequence!!.reattachFrames(k)
-    }
+/**
+  Requires that this === stack.frameCont()
+ */
+private tailrec fun FrameCont<*, *, *>.handleTrampolining(
+  stack: SplitSeq<*, *, *>,
+  result: Result<Any?>,
+): Result<Any?> = if (result == Result.success(COROUTINE_SUSPENDED)) {
+  val trampoline = context.trampoline
+  val step = trampoline.nextStep?.takeIf { it.seq.frameCont() === this } ?: return Result.success(COROUTINE_SUSPENDED)
+  trampoline.nextStep = null
+  handleTrampolining(step.seq, step.stepOrReturn())
+} else result.onFailure {
+  if (it is SeekingStackException) {
+    it.use(stack)
+    return handleTrampolining(stack, Result.success(COROUTINE_SUSPENDED))
   }
 }
 
@@ -98,7 +85,7 @@ public suspend fun <R> pushPrompt(
 
 public suspend fun <T, R> Reader<T>.pushReader(value: T, fork: T.() -> T = ::identity, body: suspend () -> R): R =
   suspendCoroutineUninterceptedOrReturn { k ->
-    body.startCoroutineHere(collectStack(k).pushReader(this, value, fork), k)
+    body.startCoroutineHere(collectStack(k).pushReader(this, value, fork))
   }
 
 context(r: Reader<T>)
@@ -242,9 +229,6 @@ public class Reader<S>
 internal expect abstract class SeekingStackException() : CancellationException {
   abstract fun use(stack: SplitSeq<*, *, *>)
 }
-
-internal val Result<*>.seekingStackOrNull: SeekingStackException?
-  get() = exceptionOrNull() as? SeekingStackException
 
 public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
   body.startCoroutine(WrapperCont(EmptyCont(Continuation(it.context.withTrampoline(), it::resumeWith))))

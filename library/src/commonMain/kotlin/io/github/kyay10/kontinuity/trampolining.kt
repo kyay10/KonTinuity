@@ -2,17 +2,20 @@ package io.github.kyay10.kontinuity
 
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlin.coroutines.*
-import kotlin.coroutines.intrinsics.createCoroutineUnintercepted
+import kotlin.Suppress
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
+import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 
 internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: SplitSeq<T, *, *>) {
   seq.context.trampoline.next(SequenceBodyStep(this, seq))
 }
 
 private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: SplitSeq<T, *, *>) : Step {
-  override fun step() {
-    body.createCoroutineUnintercepted(WrapperCont(seq)).resume(Unit)
-  }
+  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(WrapperCont(seq)) }
 }
 
 internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
@@ -27,9 +30,7 @@ private class SequenceBodyReceiverStep<T, R>(
   private val receiver: R,
   override val seq: SplitSeq<T, *, *>
 ) : Step {
-  override fun step() {
-    body.createCoroutineUnintercepted(receiver, WrapperCont(seq)).resume(Unit)
-  }
+  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(receiver, WrapperCont(seq)) }
 }
 
 internal fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIntercepted(result: Result<Start>) {
@@ -42,9 +43,7 @@ private class SequenceResumeStep<Start, First, End>(
   override val seq: SplitSeq<Start, First, End>,
   private val result: Result<Start>
 ) : Step {
-  override fun step() {
-    seq.resumeWith(result)
-  }
+  override fun stepOrReturn() = result
 }
 
 @OptIn(InternalCoroutinesApi::class)
@@ -59,14 +58,21 @@ internal fun CoroutineContext.withTrampoline(): CoroutineContext {
 private class TrampolineWithDelay(interceptor: ContinuationInterceptor?, delay: Delay) :
   Trampoline(interceptor), Delay by delay
 
-private sealed interface Step {
-  fun step()
+internal sealed interface Step {
+  fun stepOrReturn(): Result<Any?>
   val seq: SplitSeq<*, *, *>
 }
 
-private open class Trampoline(val interceptor: ContinuationInterceptor?) :
+@Suppress("UNCHECKED_CAST")
+private fun Step.step() = when (val result = stepOrReturn()) {
+  Result.success(COROUTINE_SUSPENDED) -> Unit
+  else -> seq.resumeWith(result as Result<Nothing>)
+}
+
+internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
   AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
-  private var nextStep: Step? = null
+
+  var nextStep: Step? = null
   fun next(block: Step) {
     check(nextStep == null) { "Already running a block: $nextStep" }
     nextStep = block
@@ -93,6 +99,6 @@ private open class Trampoline(val interceptor: ContinuationInterceptor?) :
   }
 }
 
-private val CoroutineContext.trampoline: Trampoline
+internal val CoroutineContext.trampoline: Trampoline
   get() =
     this[ContinuationInterceptor] as? Trampoline ?: error("No trampoline in context: $this")

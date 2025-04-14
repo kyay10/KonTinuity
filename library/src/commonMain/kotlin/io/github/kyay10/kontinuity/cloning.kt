@@ -2,7 +2,6 @@ package io.github.kyay10.kontinuity
 
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.intrinsics.intercepted
 import kotlin.jvm.JvmInline
 
 internal expect class StackTraceElement
@@ -32,6 +31,8 @@ internal sealed interface SplitSeq<in Start, First, out End> : CoroutineStackFra
   val context: CoroutineContext
 }
 
+internal sealed interface FrameCont<in Start, First, out End> : SplitSeq<Start, First, End>
+
 internal fun <Start, First, End> SplitSeq<Start, First, End>.resumeWith(result: Result<Start>) {
   val exception = result.exceptionOrNull()
   if (exception is SeekingStackException) exception.use(this)
@@ -56,8 +57,7 @@ private tailrec fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIm
       // TODO deduplicate
       val wrapper = wrapperCont
       val rest = rest!! as SplitSeq<Any?, *, *>
-      wrapper.seq = rest
-      wrapper.realContext = rest.context
+      reattachFrames()
       wrapper.beginWaitingForValue()
       frames.head().cont.resumeWith(result)
       val res = wrapper.result
@@ -176,7 +176,7 @@ internal fun <S, P, First, End> SplitSeq<P, First, End>.pushReader(
   p: Reader<S>, value: S, fork: S.() -> S
 ): ReaderCont<S, P, First, End> = ReaderCont(p, value, fork, this)
 
-internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : SplitSeq<Start, Nothing, Nothing> {
+internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : FrameCont<Start, Nothing, Nothing> {
   override val context: CoroutineContext = underlying.context
   override val callerFrame: CoroutineStackFrame? = (underlying as? CoroutineStackFrame)?.callerFrame
   override fun getStackTraceElement(): StackTraceElement? = (underlying as? CoroutineStackFrame)?.getStackTraceElement()
@@ -186,7 +186,7 @@ internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : Spli
 internal data class FramesCont<Start, First, Last, End>(
   val frames: FrameList<Start, First, Last>, var rest: SplitSeq<Last, *, End>?,
   val wrapperCont: WrapperCont<Last>?,
-) : SplitSeq<Start, First, End>, ExpectsSequenceStartingWith<Last> {
+) : FrameCont<Start, First, End>, ExpectsSequenceStartingWith<Last> {
   val head get() = frames.head()
 
   @Suppress("UNCHECKED_CAST")
@@ -351,12 +351,32 @@ internal sealed interface ExpectsSequenceStartingWith<Start> : CoroutineStackFra
 }
 
 internal fun <R> collectStack(continuation: Continuation<R>): SplitSeq<R, *, *> =
-  findNearestWrapperCont(continuation).toFramesCont(continuation)
+  findNearestWrapperCont(continuation).deattachFrames(continuation)
 
-private fun <R, T> WrapperCont<T>.toFramesCont(
+private fun <R, T> WrapperCont<T>.deattachFrames(
   continuation: Continuation<R>
 ): FramesCont<R, Any?, T, Any?> =
   FramesCont(FrameList(Frame(continuation)), seq!!.also { seq = null }, this)
+
+internal tailrec fun <Start, First, End> SplitSeq<Start, First, End>.frameCont(): FrameCont<Start, First, End> = when (this) {
+  is FrameCont -> this
+  is ReaderCont<*, Start, First, End> -> this.rest!!.frameCont()
+  is PromptCont -> this.rest!!.frameCont()
+}
+
+internal fun FrameCont<*, *, *>.reattachFrames(): Boolean = when (this) {
+  is EmptyCont -> true
+  is FramesCont<*, *, *, *> -> reattachFrames()
+}
+
+private fun <Start, First, Last, End> FramesCont<Start, First, Last, End>.reattachFrames(): Boolean {
+  val wrapper = wrapperCont
+  if (wrapper == null) return false
+  val rest = rest!!
+  wrapper.seq = rest
+  wrapper.realContext = rest.context
+  return true
+}
 
 internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*, *, *> =
   findNearestWrapperCont(continuation).seq!!
