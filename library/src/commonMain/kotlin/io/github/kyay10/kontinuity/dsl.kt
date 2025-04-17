@@ -2,10 +2,12 @@ package io.github.kyay10.kontinuity
 
 import arrow.core.raise.Raise
 import arrow.core.raise.SingletonRaise
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.consumeEach
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.produceIn
 
 /** MonadFail-style errors */
 private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R) : Raise<Unit> {
@@ -22,10 +24,9 @@ public suspend fun <R> Choose.pushChoice(body: suspend () -> R, handler: suspend
 
 public suspend fun <R> runChoice(
   body: suspend context(SingletonRaise<Unit>, Choose) () -> R, handler: suspend (R) -> Unit
-) {
-  val prompt = Prompt<Unit>()
-  prompt.pushChoice({
-    body(SingletonRaise(PromptFail(prompt, Unit)), prompt)
+): Unit = with(Choose()) {
+  pushChoice({
+    body(SingletonRaise(PromptFail(this, Unit)), this)
   }, handler)
 }
 
@@ -77,18 +78,10 @@ public fun <R> runFlowCC(
   }
 }
 
-context(_: Choose)
+context(_: Choose, scope: CoroutineScope)
 @OptIn(ExperimentalCoroutinesApi::class)
 public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
-  // TODO using coroutineScope in such a way is generally unsafe unless a nonReentrant block is used
-  // inside of it. That's because we can't "see through" the coroutineScope and because it's stateful
-  coroutineScope {
-    nonReentrant {
-      produceIn(this).consumeEach { item ->
-        continuation(item)
-      }
-    }
-  }
+  produceIn(scope).consumeEach { item -> continuation(item) }
 }
 
 private inline fun IntRange.forEachIteratorless(block: (Int) -> Unit) {
