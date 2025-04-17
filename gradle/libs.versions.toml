@@ -1,7 +1,7 @@
 [versions]
 arrow = "2.0.0"
 kotest = "5.9.1"
-kotlin = "2.1.20"
+kotlin = "2.2.0-Beta1"
 kotlinxCoroutinesCore = "1.10.1"
 nexus-publish = "2.0.0"
 turbine = "1.2.0"
@@ -18,4 +18,4 @@ nexus-publish = { module = "io.github.gradle-nexus.publish-plugin:io.github.grad
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 
 [plugins]
-kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version = "2.2.0-Beta1-21" }
+kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

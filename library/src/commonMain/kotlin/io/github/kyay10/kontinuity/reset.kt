@@ -16,7 +16,7 @@ import kotlin.jvm.JvmName
 public annotation class ResetDsl
 
 public class SubCont<in T, out R> internal constructor(
-  private val init: Segment<T, *, R>,
+  private val init: Segment<T, R>,
   private val prompt: Prompt<R>
 ) {
   private fun composedWith(
@@ -48,7 +48,7 @@ public suspend fun <R> Prompt<R>.pushPrompt(
 }
 
 private fun <R> (suspend () -> R).startCoroutineHere(
-  stack: SplitSeq<R, *, *>
+  stack: SplitSeq<R>
 ): Any? = with(stack.frameCont()) {
   val result = handleTrampolining(stack, runCatching { startCoroutineUninterceptedOrReturn(WrapperCont(stack)) })
   //TODO justify that stack.frameCont() === this
@@ -58,10 +58,10 @@ private fun <R> (suspend () -> R).startCoroutineHere(
 }
 
 /**
-  Requires that this === stack.frameCont()
+ * Requires that this === stack.frameCont()
  */
-private tailrec fun FrameCont<*, *, *>.handleTrampolining(
-  stack: SplitSeq<*, *, *>,
+private tailrec fun FrameCont<*>.handleTrampolining(
+  stack: SplitSeq<*>,
   result: Result<Any?>,
 ): Result<Any?> = if (result == Result.success(COROUTINE_SUSPENDED)) {
   val trampoline = context.trampoline
@@ -99,24 +99,16 @@ public suspend fun <R> nonReentrant(
   body: suspend () -> R
 ): R = runCC(body)
 
-public suspend fun <S> Reader<S>.deleteBinding(): Unit = suspendCoroutineUnintercepted { k ->
+public suspend fun <S> Reader<S>.deleteBinding(): Unit = suspendCoroutineUninterceptedOrReturn { k ->
   val stack = collectStack(k)
-  val toResume: SplitSeq<Unit, *, *> = when (stack) {
-    is EmptyCont -> error("Reader not found $this")
-    is ReaderCont<*, Unit, *, *> if (this === stack.p) -> stack.rest!!
-    is ExpectsSequenceStartingWith<*> -> {
-      stack.sequence!!.deleteReader(this, stack)
-      stack
-    }
-  }
-  toResume.resumeWithIntercepted(Result.success(Unit))
+  stack.deleteReader(this, null).also { stack.frameCont().reattachFrames() }
 }
 
 context(r: Reader<S>)
 @JvmName("deleteBindingContext")
 public suspend fun <S> deleteBinding(): Unit = r.deleteBinding()
 
-private fun <T> SplitSeq<*, *, *>.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): SplitSeq<T, *, *> {
+private fun <T> SplitSeq<*>.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): SplitSeq<T> {
   val splitSeq = find(prompt)
   return if (deleteDelimiter) splitSeq else splitSeq.pushPrompt(prompt)
 }
@@ -194,41 +186,27 @@ public suspend fun <T, P> inHandlingContext(
   deleteDelimiter: Boolean = true, body: suspend () -> T
 ): T = p.inHandlingContext(deleteDelimiter, body)
 
-@Suppress("UNCHECKED_CAST")
 internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>): Nothing =
-  throw AbortWithValueException(this as Prompt<Any?>, value, deleteDelimiter)
+  throw SeekingStackException { stack ->
+    stack.holeFor(this, deleteDelimiter).resumeWithIntercepted(value)
+  }
 
-@Suppress("UNCHECKED_CAST")
 internal suspend fun <R> Prompt<R>.abortWithFast(deleteDelimiter: Boolean, value: Result<R>): Nothing =
   suspendCoroutineUnintercepted { k ->
     collectStack(k).holeFor(this, deleteDelimiter).resumeWithIntercepted(value)
   }
 
-private class AbortWithValueException(
-  private val prompt: Prompt<Any?>, private val value: Result<Any?>, private val deleteDelimiter: Boolean
-) : SeekingStackException() {
-  override fun use(stack: SplitSeq<*, *, *>) =
-    stack.holeFor(prompt, deleteDelimiter).resumeWithIntercepted(value)
-}
-
-@Suppress("UNCHECKED_CAST")
 internal fun <R> Prompt<R>.abortS(deleteDelimiter: Boolean = false, value: suspend () -> R): Nothing =
-  throw AbortWithProducerException(this as Prompt<Any?>, value, deleteDelimiter)
-
-private class AbortWithProducerException(
-  private val prompt: Prompt<Any?>, private val value: suspend () -> Any?, private val deleteDelimiter: Boolean
-) : SeekingStackException() {
-  override fun use(stack: SplitSeq<*, *, *>) =
-    value.startCoroutineIntercepted(stack.holeFor(prompt, deleteDelimiter))
-}
+  throw SeekingStackException { stack ->
+    value.startCoroutineIntercepted(stack.holeFor(this, deleteDelimiter))
+  }
 
 public class Prompt<R>
 public class Reader<S>
 
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
-internal expect abstract class SeekingStackException() : CancellationException {
-  abstract fun use(stack: SplitSeq<*, *, *>)
-}
+internal expect open class NoTrace() : CancellationException
+internal class SeekingStackException(val use: (SplitSeq<*>) -> Unit) : NoTrace()
 
 public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
   body.startCoroutine(WrapperCont(EmptyCont(Continuation(it.context.withTrampoline(), it::resumeWith))))

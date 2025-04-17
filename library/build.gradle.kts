@@ -21,6 +21,7 @@ kotlin {
     freeCompilerArgs.add("-Xcontext-parameters")
     freeCompilerArgs.add("-Xexpect-actual-classes")
     freeCompilerArgs.add("-Xwhen-guards")
+    freeCompilerArgs.add("-opt-in=kotlin.contracts.ExperimentalContracts")
   }
   explicitApi()
   // Matching the targets from Arrow

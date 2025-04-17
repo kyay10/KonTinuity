@@ -10,17 +10,17 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 
-internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: SplitSeq<T, *, *>) {
+internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
   seq.context.trampoline.next(SequenceBodyStep(this, seq))
 }
 
-private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: SplitSeq<T, *, *>) : Step {
+private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: SplitSeq<T>) : Step {
   override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(WrapperCont(seq)) }
 }
 
 internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
   receiver: R,
-  seq: SplitSeq<T, *, *>,
+  seq: SplitSeq<T>,
 ) {
   seq.context.trampoline.next(SequenceBodyReceiverStep(this, receiver, seq))
 }
@@ -28,19 +28,19 @@ internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
 private class SequenceBodyReceiverStep<T, R>(
   private val body: suspend R.() -> T,
   private val receiver: R,
-  override val seq: SplitSeq<T, *, *>
+  override val seq: SplitSeq<T>
 ) : Step {
   override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(receiver, WrapperCont(seq)) }
 }
 
-internal fun <Start, First, End> SplitSeq<Start, First, End>.resumeWithIntercepted(result: Result<Start>) {
+internal fun <Start> SplitSeq<Start>.resumeWithIntercepted(result: Result<Start>) {
   val exception = result.exceptionOrNull()
   if (exception is SeekingStackException) exception.use(this)
   else context.trampoline.next(SequenceResumeStep(this, result))
 }
 
-private class SequenceResumeStep<Start, First, End>(
-  override val seq: SplitSeq<Start, First, End>,
+private class SequenceResumeStep<Start>(
+  override val seq: SplitSeq<Start>,
   private val result: Result<Start>
 ) : Step {
   override fun stepOrReturn() = result
@@ -60,7 +60,7 @@ private class TrampolineWithDelay(interceptor: ContinuationInterceptor?, delay: 
 
 internal sealed interface Step {
   fun stepOrReturn(): Result<Any?>
-  val seq: SplitSeq<*, *, *>
+  val seq: SplitSeq<*>
 }
 
 @Suppress("UNCHECKED_CAST")

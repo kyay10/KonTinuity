@@ -95,7 +95,6 @@ class CanResume<A> : Fibre<A> {
   @Suppress("UNCHECKED_CAST")
   private var res: A = null as A
   override val result: A
-    @Suppress("UNCHECKED_CAST")
     get() {
       check(isDone) { "This fiber is not yet done, can't get result" }
       return res
