@@ -36,9 +36,10 @@ internal sealed interface SplitSeq<in Start> : CoroutineStackFrame {
 internal sealed interface FrameCont<in Start> : SplitSeq<Start>
 
 internal tailrec fun <Start> SplitSeq<Start>.resumeWith(result: Result<Start>) {
-  val exception = result.exceptionOrNull()
-  if (exception is SeekingStackException) exception.use(this)
-  else with(frameCont()) {
+  result.onFailure {
+    if (it is SeekingStackException) return it.use(this)
+  }
+  with(frameCont()) {
     when (this) {
       is EmptyCont -> underlying.resumeWith(result)
 
@@ -158,7 +159,7 @@ internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : Fram
 
 // frame :: frames ::: rest
 internal data class FramesCont<Start, First, Last>(
-  val frames: FrameList<Start, First, Last>, override var _rest: SplitSeq<Last>?,
+  private val frames: FrameList<Start, First, Last>, override var _rest: SplitSeq<Last>?,
   val wrapperCont: WrapperCont<Last>?,
 ) : FrameCont<Start>, Segmentable<Start, Last>() {
   val head get() = frames.head
@@ -269,7 +270,7 @@ internal data class PromptCont<Start>(
 }
 
 internal data class ReaderCont<State, Start>(
-  val p: Reader<State>, var _state: State, val fork: State.() -> State, override var _rest: SplitSeq<Start>?,
+  val p: Reader<State>, private var _state: State, private val fork: State.() -> State, override var _rest: SplitSeq<Start>?,
   private var forkOnFirstRead: Boolean = false
 ) : Segmentable<Start, Start>() {
   val state: State

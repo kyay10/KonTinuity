@@ -20,23 +20,23 @@ public class SubCont<in T, out R> internal constructor(
   private val prompt: Prompt<R>
 ) {
   private fun composedWith(
-    k: Continuation<R>, isDelimiting: Boolean
-  ) = init prependTo collectStack(k).let { if (isDelimiting) it.pushPrompt(prompt) else it }
+    stack: SplitSeq<R>, isDelimiting: Boolean
+  ) = init prependTo stack.letIf(isDelimiting) { it.pushPrompt(prompt) }
 
   @ResetDsl
   public suspend fun pushSubContWith(
     value: Result<T>,
     isDelimiting: Boolean = false,
-  ): R = suspendCoroutineUnintercepted { k ->
-    composedWith(k, isDelimiting).resumeWithIntercepted(value)
+  ): R = suspendCoroutineUnintercepted { stack ->
+    composedWith(stack, isDelimiting).resumeWithIntercepted(value)
   }
 
   @ResetDsl
   public suspend fun pushSubCont(
     isDelimiting: Boolean = false,
     value: suspend () -> T
-  ): R = suspendCoroutineUnintercepted { k ->
-    value.startCoroutineIntercepted(composedWith(k, isDelimiting))
+  ): R = suspendCoroutineUnintercepted { stack ->
+    value.startCoroutineIntercepted(composedWith(stack, isDelimiting))
   }
 }
 
@@ -47,10 +47,14 @@ public suspend fun <R> Prompt<R>.pushPrompt(
   body.startCoroutineHere(collectStack(k).pushPrompt(this))
 }
 
-private fun <R> (suspend () -> R).startCoroutineHere(
-  stack: SplitSeq<R>
+private fun <R> (suspend () -> R).startCoroutineHere(stack: SplitSeq<R>): Any? =
+  handleTrampolining(stack, runCatching { startCoroutineUninterceptedOrReturn(WrapperCont(stack)) })
+
+private fun handleTrampolining(
+  stack: SplitSeq<*>,
+  firstResult: Result<Any?>
 ): Any? = with(stack.frameCont()) {
-  val result = handleTrampolining(stack, runCatching { startCoroutineUninterceptedOrReturn(WrapperCont(stack)) })
+  val result = handleTrampoliningImpl(stack, firstResult)
   //TODO justify that stack.frameCont() === this
   // also justify the validity of all of this using the Reification Invariant
   if (result != Result.success(COROUTINE_SUSPENDED)) reattachFrames()
@@ -60,18 +64,18 @@ private fun <R> (suspend () -> R).startCoroutineHere(
 /**
  * Requires that this === stack.frameCont()
  */
-private tailrec fun FrameCont<*>.handleTrampolining(
+private tailrec fun FrameCont<*>.handleTrampoliningImpl(
   stack: SplitSeq<*>,
   result: Result<Any?>,
 ): Result<Any?> = if (result == Result.success(COROUTINE_SUSPENDED)) {
   val trampoline = context.trampoline
   val step = trampoline.nextStep?.takeIf { it.seq.frameCont() === this } ?: return Result.success(COROUTINE_SUSPENDED)
   trampoline.nextStep = null
-  handleTrampolining(step.seq, step.stepOrReturn())
+  handleTrampoliningImpl(step.seq, step.stepOrReturn())
 } else result.onFailure {
   if (it is SeekingStackException) {
     it.use(stack)
-    return handleTrampolining(stack, Result.success(COROUTINE_SUSPENDED))
+    return handleTrampoliningImpl(stack, Result.success(COROUTINE_SUSPENDED))
   }
 }
 
@@ -110,16 +114,15 @@ public suspend fun <S> deleteBinding(): Unit = r.deleteBinding()
 
 private fun <T> SplitSeq<*>.holeFor(prompt: Prompt<T>, deleteDelimiter: Boolean): SplitSeq<T> {
   val splitSeq = find(prompt)
-  return if (deleteDelimiter) splitSeq else splitSeq.pushPrompt(prompt)
+  return splitSeq.letUnless(deleteDelimiter) { it.pushPrompt(prompt) }
 }
 
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubCont(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
-): T = suspendCoroutineUnintercepted { k ->
-  val stack = collectStack(k)
+): T = suspendCoroutineUnintercepted { stack ->
   val (init, rest) = stack.splitAt(this)
-  body.startCoroutineIntercepted(SubCont(init, this), if (deleteDelimiter) rest else rest.pushPrompt(this))
+  body.startCoroutineIntercepted(SubCont(init, this), rest.letUnless(deleteDelimiter) { it.pushPrompt(this) })
 }
 
 context(p: Prompt<R>)
@@ -132,10 +135,9 @@ public suspend fun <T, R> takeSubCont(
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubContOnce(
   deleteDelimiter: Boolean = true, body: suspend (SubCont<T, R>) -> R
-): T = suspendCoroutineUnintercepted { k ->
-  val stack = collectStack(k)
+): T = suspendCoroutineUnintercepted { stack ->
   val (init, rest) = stack.splitAtOnce(this)
-  body.startCoroutineIntercepted(SubCont(init, this), if (deleteDelimiter) rest else rest.pushPrompt(this))
+  body.startCoroutineIntercepted(SubCont(init, this), rest.letUnless(deleteDelimiter) { it.pushPrompt(this) })
 }
 
 context(p: Prompt<R>)
@@ -148,13 +150,12 @@ public suspend fun <T, R> takeSubContOnce(
 @ResetDsl
 public suspend fun <T, R> Prompt<R>.takeSubContWithFinal(
   deleteDelimiter: Boolean = true, body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
-): T = suspendCoroutineUnintercepted { k ->
-  val stack = collectStack(k)
+): T = suspendCoroutineUnintercepted { stack ->
   val (reusableInit, _) = stack.splitAt(this)
   val (init, rest) = stack.splitAtOnce(this)
   body.startCoroutineIntercepted(
     SubCont(reusableInit, this) to SubCont(init, this),
-    if (deleteDelimiter) rest else rest.pushPrompt(this)
+    rest.letUnless(deleteDelimiter) { it.pushPrompt(this) }
   )
 }
 
@@ -192,8 +193,8 @@ internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>)
   }
 
 internal suspend fun <R> Prompt<R>.abortWithFast(deleteDelimiter: Boolean, value: Result<R>): Nothing =
-  suspendCoroutineUnintercepted { k ->
-    collectStack(k).holeFor(this, deleteDelimiter).resumeWithIntercepted(value)
+  suspendCoroutineUnintercepted { stack ->
+    stack.holeFor(this, deleteDelimiter).resumeWithIntercepted(value)
   }
 
 internal fun <R> Prompt<R>.abortS(deleteDelimiter: Boolean = false, value: suspend () -> R): Nothing =
@@ -213,8 +214,8 @@ public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
 }
 
 private suspend inline fun <T> suspendCoroutineUnintercepted(
-  crossinline block: (Continuation<T>) -> Unit
+  crossinline block: (SplitSeq<T>) -> Unit
 ): T = suspendCoroutineUninterceptedOrReturn {
-  block(it)
+  block(collectStack(it))
   COROUTINE_SUSPENDED
 }

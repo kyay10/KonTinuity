@@ -58,7 +58,7 @@ internal fun CoroutineContext.withTrampoline(): CoroutineContext {
 private class TrampolineWithDelay(interceptor: ContinuationInterceptor?, delay: Delay) :
   Trampoline(interceptor), Delay by delay
 
-internal sealed interface Step {
+internal interface Step {
   fun stepOrReturn(): Result<Any?>
   val seq: SplitSeq<*>
 }
