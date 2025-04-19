@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity
 
 import arrow.core.identity
-import arrow.core.nonFatalOrThrow
 import kotlinx.coroutines.CancellationException
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
@@ -177,25 +176,25 @@ public suspend inline fun <T, R> takeSubContWithFinal(
 ): T = p.takeSubContWithFinal(deleteDelimiter, body)
 
 // Acts like shift0/control { it(body()) }
-// TODO if `body` is multishot, we need to somehow
-//  evolve k to be multishot too. This is a more general issue with
-//  the `once` functionality. Maybe look to Scheme for ideas?
 @ResetDsl
 public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
-  deleteDelimiter: Boolean = true, noinline body: suspend () -> T
-): T = takeSubContOnce(deleteDelimiter) { k ->
-  val res = runCatching { body() }
-  // TODO test abortWith here
-  res.exceptionOrNull()?.nonFatalOrThrow()
-  k.pushSubContWith(res, isDelimiting = deleteDelimiter)
+  deleteDelimiter: Boolean = true, isDelimiting: Boolean = deleteDelimiter, noinline body: suspend () -> T
+): T = suspendCoroutineUninterceptedOrReturn { k ->
+  val stack = collectStack(k)
+  val (init, rest) = stack.splitAtOnce(this)
+  body.startCoroutineHere(
+    UnderCont(
+      init.letIf(isDelimiting) { it.pushPrompt(this) },
+      rest.letUnless(deleteDelimiter) { it.pushPrompt(this) })
+  )
 }
 
 context(p: Prompt<P>)
 @ResetDsl
 @JvmName("inHandlingContextContext")
 public suspend inline fun <T, P> inHandlingContext(
-  deleteDelimiter: Boolean = true, noinline body: suspend () -> T
-): T = p.inHandlingContext(deleteDelimiter, body)
+  deleteDelimiter: Boolean = true, isDelimiting: Boolean = deleteDelimiter, noinline body: suspend () -> T
+): T = p.inHandlingContext(deleteDelimiter, isDelimiting, body)
 
 public fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>): Nothing =
   throw SeekingStackException { stack ->
