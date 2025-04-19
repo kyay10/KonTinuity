@@ -3,6 +3,7 @@ package io.github.kyay10.kontinuity
 import kotlin.contracts.contract
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.jvm.JvmInline
 
 internal expect class StackTraceElement
@@ -40,7 +41,7 @@ internal tailrec fun <Start> SplitSeq<Start>.resumeWith(result: Result<Start>) {
     if (it is SeekingStackException) return it.use(this)
   }
   with(frameCont()) {
-    when (this) {
+    return when (this) {
       is EmptyCont -> underlying.resumeWith(result)
 
       is FramesCont<Start, *, *> if (wrapperCont != null) -> {
@@ -54,6 +55,8 @@ internal tailrec fun <Start> SplitSeq<Start>.resumeWith(result: Result<Start>) {
         // seq == tail
         usingResult { return seq.resumeWith(it) }
       }
+
+      is UnderCont<*, Start> -> (captured prependTo rest).resumeWith(result)
     }
   }
 }
@@ -168,7 +171,7 @@ internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : Fram
 internal data class FramesCont<Start, First, Last>(
   private var frames: FrameList<Start, First, Last>, override var _rest: SplitSeq<Last>?,
   val wrapperCont: WrapperCont<Last>?,
-) : FrameCont<Start>, Segmentable<Start, Last>() {
+) : FrameCont<Start>, Segmentable<Start, Last>(_rest?.context ?: EmptyCoroutineContext) {
   val head get() = frames.head
 
   @Suppress("UNCHECKED_CAST")
@@ -185,9 +188,21 @@ internal data class FramesCont<Start, First, Last>(
 
   override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>) = FramesSegment(frames, seg)
 
-  override val context = rest.context
   override val callerFrame: CoroutineStackFrame? get() = (head.cont as? CoroutineStackFrame)?.callerFrame
   override fun getStackTraceElement(): StackTraceElement? = (head.cont as? CoroutineStackFrame)?.getStackTraceElement()
+}
+
+// frame :: frames ::: rest
+internal data class UnderCont<Start, RealStart>(
+  val captured: Segment<RealStart, Start>, override var _rest: SplitSeq<Start>?
+) : Segmentable<RealStart, Start>(_rest?.context ?: EmptyCoroutineContext), FrameCont<RealStart> {
+  override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, RealStart>): Segment<FurtherStart, Start> =
+    UnderSegment(
+      when (captured) {
+        is SingleUseSegment -> captured.makeReusable()
+        else -> captured
+      }, seg
+    )
 }
 
 internal fun CoroutineContext.unwrap(): CoroutineContext =
@@ -272,15 +287,17 @@ private val hasBeenIntercepted = Result.failure<Nothing>(HasBeenIntercepted)
 
 internal data class PromptCont<Start>(
   val p: Prompt<Start>, override var _rest: SplitSeq<Start>?
-) : Segmentable<Start, Start>() {
-  override val context = rest.context
+) : Segmentable<Start, Start>(_rest?.context ?: EmptyCoroutineContext) {
   override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>) = PromptSegment(this.p, seg)
 }
 
 internal data class ReaderCont<State, Start>(
-  val p: Reader<State>, private var _state: State, private val fork: State.() -> State, override var _rest: SplitSeq<Start>?,
+  val p: Reader<State>,
+  private var _state: State,
+  private val fork: State.() -> State,
+  override var _rest: SplitSeq<Start>?,
   private var forkOnFirstRead: Boolean = false
-) : Segmentable<Start, Start>() {
+) : Segmentable<Start, Start>(_rest?.context ?: EmptyCoroutineContext) {
   val state: State
     get() {
       if (forkOnFirstRead) {
@@ -290,7 +307,6 @@ internal data class ReaderCont<State, Start>(
       return _state
     }
 
-  override val context = rest.context
   override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>) = ReaderSegment(p, _state, fork, seg)
 }
 
@@ -298,6 +314,10 @@ internal data class ReaderCont<State, Start>(
 // mirrors the stack, and so is in reverse order. allows easy access to the state
 // stored in the current prompt
 internal sealed interface Segment<in Start, out End>
+internal sealed interface Contable<in Start, Middle, out End> : Segment<Start, End> {
+  fun toCont(stack: SplitSeq<End>): SplitSeq<Middle>
+  val init: Segment<Start, Middle>
+}
 
 internal tailrec infix fun <Start, End> Segment<Start, End>.prependTo(stack: SplitSeq<End>): SplitSeq<Start> =
   when (this) {
@@ -307,43 +327,72 @@ internal tailrec infix fun <Start, End> Segment<Start, End>.prependTo(stack: Spl
       stack as SplitSeq<Start>
     }
 
-    is FramesSegment<Start, *, *, End> -> init prependTo FramesCont(frames, stack, null)
-
-    is PromptSegment -> init prependTo PromptCont(prompt, stack)
-    is ReaderSegment<*, Start, End> -> init prependTo ReaderCont(
-      prompt,
-      state,
-      fork,
-      stack,
-      forkOnFirstRead = true
-    )
-
     is SingleUseSegment -> {
       box.rest = stack
       cont
     }
+
+    is Contable<Start, *, End> -> init prependTo toCont(stack)
+  }
+
+internal infix fun <Start, End> Segment<Start, End>.pushPrompt(prompt: Prompt<End>): Segment<Start, End> =
+  when (this) {
+    is SingleUseSegment -> {
+      val newBox = PromptCont(prompt, null)
+      box.rest = newBox
+      SingleUseSegment(newBox, cont)
+    }
+    else -> PromptSegment(prompt, this)
   }
 
 internal data object EmptySegment : Segment<Any?, Nothing>
 
 internal data class FramesSegment<FurtherStart, Start, First, End>(
-  val frames: FrameList<Start, First, End>, val init: Segment<FurtherStart, Start>
-) : Segment<FurtherStart, End>
+  val frames: FrameList<Start, First, End>, override val init: Segment<FurtherStart, Start>
+) : Contable<FurtherStart, Start, End> {
+  override fun toCont(stack: SplitSeq<End>): SplitSeq<Start> = FramesCont(frames, stack, null)
+}
+
+internal data class UnderSegment<FurtherStart, Start, End>(
+  val captured: Segment<Start, End>, override val init: Segment<FurtherStart, Start>
+) : Contable<FurtherStart, Start, End> {
+  override fun toCont(stack: SplitSeq<End>): SplitSeq<Start> = UnderCont(captured, stack)
+}
 
 internal data class PromptSegment<Start, End>(
-  val prompt: Prompt<End>, val init: Segment<Start, End>
-) : Segment<Start, End>
+  val prompt: Prompt<End>, override val init: Segment<Start, End>
+) : Contable<Start, End, End> {
+  override fun toCont(stack: SplitSeq<End>): SplitSeq<End> = PromptCont(prompt, stack)
+}
 
 internal data class ReaderSegment<State, Start, End>(
-  val prompt: Reader<State>, val state: State, val fork: State.() -> State, val init: Segment<Start, End>
-) : Segment<Start, End>
+  val prompt: Reader<State>, val state: State, val fork: State.() -> State, override val init: Segment<Start, End>
+) : Contable<Start, End, End> {
+  override fun toCont(stack: SplitSeq<End>): SplitSeq<End> = ReaderCont(
+    prompt, state, fork, stack, forkOnFirstRead = true
+  )
+}
 
 // Expects that cont eventually refers to box
 internal data class SingleUseSegment<Start, End>(
   val box: ExpectsSequenceStartingWith<End>, val cont: SplitSeq<Start>
-) : Segment<Start, End>
+) : Segment<Start, End> {
+  fun makeReusable(): Segment<Start, End> = cont.makeReusable(box, EmptySegment)
+}
 
-internal sealed class ExpectsSequenceStartingWith<Start> : CoroutineStackFrame {
+private tailrec fun <Start, End, FurtherStart> SplitSeq<Start>.makeReusable(
+  box: ExpectsSequenceStartingWith<End>, seg: Segment<FurtherStart, Start>
+): Segment<FurtherStart, End> = when (this) {
+  is Segmentable<Start, *> if (box === this) -> {
+    this as Segmentable<Start, End>
+    toSegment(seg)
+  }
+
+  is EmptyCont -> error("Box not found $box in $seg")
+  is Segmentable<Start, *> -> rest.makeReusable(box, toSegment(seg))
+}
+
+internal sealed class ExpectsSequenceStartingWith<Start>(var context: CoroutineContext) : CoroutineStackFrame {
   val self: ExpectsSequenceStartingWith<Start> get() = this
   protected abstract var _rest: SplitSeq<Start>?
   fun clear() {
@@ -354,12 +403,13 @@ internal sealed class ExpectsSequenceStartingWith<Start> : CoroutineStackFrame {
     get() = _rest ?: error("No rest found")
     set(value) {
       _rest = value
+      context = value.context
     }
   override val callerFrame: CoroutineStackFrame? get() = _rest?.callerFrame
   override fun getStackTraceElement(): StackTraceElement? = _rest?.getStackTraceElement()
 }
 
-internal sealed class Segmentable<Start, Rest> : SplitSeq<Start>, ExpectsSequenceStartingWith<Rest>() {
+internal sealed class Segmentable<Start, Rest>(context: CoroutineContext) : SplitSeq<Start>, ExpectsSequenceStartingWith<Rest>(context) {
   abstract fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>): Segment<FurtherStart, Rest>
 }
 
@@ -381,9 +431,17 @@ internal tailrec fun <Start> SplitSeq<Start>.frameCont(): FrameCont<Start> =
   }
 
 @PublishedApi
-internal fun FrameCont<*>.reattachFrames() = when (this) {
-  is EmptyCont<*> -> Unit
-  is FramesCont<*, *, *> -> reattachFrames()
+internal tailrec fun FrameCont<*>.reattachFrames() {
+  when (this) {
+    is EmptyCont<*> -> Unit
+    is FramesCont<*, *, *> -> reattachFrames()
+    is UnderCont<*, *> -> {
+      (captured as? SingleUseSegment)?.let {
+        captured.prependTo(rest)
+        return it.cont.frameCont().reattachFrames()
+      }
+    }
+  }
 }
 
 private fun <Start, First, Last> FramesCont<Start, First, Last>.reattachFrames() {

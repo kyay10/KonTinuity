@@ -14,6 +14,7 @@ import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
 import io.github.kyay10.kontinuity.given
 import io.github.kyay10.kontinuity.Raise
+import io.github.kyay10.kontinuity.effekt.useTailResumptive
 import io.github.kyay10.kontinuity.raise
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -331,20 +332,18 @@ suspend fun printer(
   data class PrinterData(var pos: Int)
   handleStateful(PrinterData(0), PrinterData::copy) {
     block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(layoutChoice::choice), object : Emit {
-      override suspend fun emitText(text: String) = use { k ->
+      override suspend fun emitText(text: String) = useTailResumptive {
         get().pos += text.length
         if (get().pos > width) {
           raise()
         } else {
           emit.emitText(text)
-          k(Unit)
         }
       }
 
-      override suspend fun emitNewline() = use { k ->
+      override suspend fun emitNewline() = useTailResumptive {
         emit.emitNewline()
         get().pos = 0
-        k(Unit)
       }
     })
   }
