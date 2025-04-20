@@ -1,13 +1,18 @@
 package io.github.kyay10.kontinuity
 
 import arrow.core.raise.Raise
+import arrow.core.tail
 import io.github.kyay10.kontinuity.effekt.HandlerPrompt
 import io.github.kyay10.kontinuity.effekt.discard
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.TestScope
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.test.runTest as coroutinesRunTest
 
 private const val useRunSuspend = false
@@ -46,10 +51,23 @@ inline fun repeatIteratorless(
   }
 }
 
-inline fun IntRange.forEachIteratorless(block: (Int) -> Unit) {
-  var index = start
-  while (index <= endInclusive) {
-    block(index)
-    index++
+context(_: Choose)
+suspend fun <T> List<T>.insert(element: T): List<T> {
+  val index = (0..size).bind()
+  return toMutableList().apply { add(index, element) }
+}
+
+fun <T> List<T>.permutations(): Sequence<List<T>> = if (isEmpty()) sequenceOf(this)
+else sequence {
+  this@permutations.tail().permutations().forEach { perm ->
+    (0..perm.size).forEach { i ->
+      val newPerm = perm.toMutableList()
+      newPerm.add(i, this@permutations.first())
+      yield(newPerm)
+    }
   }
+}
+
+fun <T> flowOfWithDelay(vararg elements: T) = flowOf(*elements).onEach {
+  delay(1.milliseconds)
 }

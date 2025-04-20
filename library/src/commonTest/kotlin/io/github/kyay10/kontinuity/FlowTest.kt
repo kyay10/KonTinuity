@@ -3,14 +3,10 @@ package io.github.kyay10.kontinuity
 import app.cash.turbine.test
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flattenConcat
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlin.test.Test
-import kotlin.time.Duration.Companion.milliseconds
 
 class FlowTest {
   @Test
@@ -168,8 +164,18 @@ class FlowTest {
       awaitComplete()
     }
   }
-}
 
-private fun <T> flowOfWithDelay(vararg elements: T) = flowOf(*elements).onEach {
-  delay(1.milliseconds)
+  @Test
+  fun permutations() = runTest {
+    val numbers = (1..5).toList()
+    val result = runFlowCC {
+      numbers.foldRight(emptyList<Int>()) { i, acc -> acc.insert(i) }
+    }
+    result.test {
+      for (i in numbers.permutations()) {
+        awaitItem() shouldBe i
+      }
+      awaitComplete()
+    }
+  }
 }

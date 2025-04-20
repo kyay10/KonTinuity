@@ -84,10 +84,36 @@ public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
   produceIn(scope).consumeEach { item -> continuation(item) }
 }
 
-private inline fun IntRange.forEachIteratorless(block: (Int) -> Unit) {
-  var index = start
-  while (index <= endInclusive) {
-    block(index)
+public inline fun <T, R> List<T>.fold(initial: R, operation: (acc: R, T) -> R): R {
+  var accumulator = initial
+  forEachIteratorless { element ->
+    accumulator = operation(accumulator, element)
+  }
+  return accumulator
+}
+
+public inline fun <T, R> List<T>.foldRight(initial: R, operation: (T, acc: R) -> R): R {
+  var accumulator = initial
+  indices.reversed().forEachIteratorless { element ->
+    accumulator = operation(get(element), accumulator)
+  }
+  return accumulator
+}
+
+public inline fun IntProgression.forEachIteratorless(block: (Int) -> Unit) {
+  var value = first
+  if (isEmpty()) return
+  while (true) {
+    block(value)
+    if (value == last) break
+    value += step
+  }
+}
+
+public inline fun  <T> List<T>.forEachIteratorless(block: (T) -> Unit) {
+  var index = 0
+  while (index <= size - 1) {
+    block(get(index))
     index++
   }
 }
