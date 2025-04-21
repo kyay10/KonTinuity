@@ -115,13 +115,13 @@ suspend fun <A> once(block: suspend context(Amb, Exc) () -> A): A {
   return res
 }
 
-context(_: Exc, _: Logic)
+context(_: Logic)
 suspend fun <A> onceOrNull(block: suspend context(Amb, Exc) () -> A): A? {
   val (res, _) = split(block) ?: return null
   return res
 }
 
-context(_: Exc, _: Logic)
+context(__: Logic)
 suspend fun <A> onceOrNone(block: suspend context(Amb, Exc) () -> A): Option<A> {
   val (res, _) = split(block) ?: return None
   return Some(res)
