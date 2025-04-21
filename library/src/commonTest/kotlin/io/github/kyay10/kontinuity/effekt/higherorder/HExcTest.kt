@@ -7,6 +7,8 @@ import arrow.core.raise.Raise
 import io.github.kyay10.kontinuity.*
 import io.github.kyay10.kontinuity.effekt.Amb
 import io.github.kyay10.kontinuity.effekt.LogicDeep
+import io.github.kyay10.kontinuity.effekt.LogicShallow
+import io.github.kyay10.kontinuity.effekt.LogicTree
 import io.github.kyay10.kontinuity.effekt.collect
 import io.github.kyay10.kontinuity.effekt.discard
 import io.github.kyay10.kontinuity.effekt.discardWith
@@ -78,30 +80,32 @@ class HExcTest {
 
   @Test
   fun withNonDetTest() = runTestCC {
-    runHExc<Unit, _> {
-      LogicDeep.bagOfN {
-        recover({
-          if (flip()) raise(Unit)
-          true
-        }) { false }
-      }
-    } shouldBe Right(listOf(false, true))
-    runHExcTransactional<Unit, _> {
-      LogicDeep.bagOfN {
-        recover({
-          if (flip()) raise(Unit)
-          true
-        }) { false }
-      }
-    } shouldBe Right(listOf(false))
-    subJump {
-      LogicDeep.bagOfN {
-        recover.recover({
-          if (flip()) raise(Unit)
-          true
-        }) { false }
-      }
-    } shouldBe listOf(false)
+    for (logic in listOf(LogicDeep, LogicShallow, LogicTree)) with(logic) {
+      runHExc<Unit, _> {
+        bagOfN {
+          recover({
+            if (flip()) raise(Unit)
+            true
+          }) { false }
+        }
+      } shouldBe Right(listOf(false, true))
+      runHExcTransactional<Unit, _> {
+        bagOfN {
+          recover({
+            if (flip()) raise(Unit)
+            true
+          }) { false }
+        }
+      } shouldBe Right(listOf(false))
+      subJump {
+        bagOfN {
+          recover.recover({
+            if (flip()) raise(Unit)
+            true
+          }) { false }
+        }
+      } shouldBe listOf(false)
+    }
   }
 
   @Test
