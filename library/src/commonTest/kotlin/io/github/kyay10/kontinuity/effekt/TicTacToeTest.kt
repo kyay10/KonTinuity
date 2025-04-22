@@ -2,30 +2,33 @@ package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runTestCC
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.toPersistentList
 import kotlin.test.Ignore
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.minutes
 
-private const val n = 5  // Dimension of the board
+private const val n = 10  // Dimension of the board
 private const val m = 4 // Number of consecutive marks needed for win
-private const val globalBreadthLimit = 6
+private const val globalBreadthLimit = 10
 
 // Ported from section 7 of https://okmij.org/ftp/papers/LogicT.pdf
 class TicTacToeTest {
+  @Ignore
   @Test
-  fun aiPrimeTest() = runTestCC {
+  fun aiPrimeTest() = runTestCC(timeout =  10.minutes) {
     with(LogicTree) {
-      onceOrNull {
-        game(Mark.X, aiPrime, Mark.O, aiPrime)
-      }
+      game(Mark.X, aiPrime, Mark.O, aiPrime)
     }
   }
+
   @Ignore
   @Test
   fun aiTest() = runTestCC {
     with(LogicTree) {
-      onceOrNull {
-        game(Mark.X, ai, Mark.O, ai)
-      }
+      game(Mark.X, ai, Mark.O, ai)
     }
   }
 }
@@ -38,47 +41,80 @@ enum class Mark {
 }
 
 data class Location(val x: Int, val y: Int)
-typealias Board = Map<Location, Mark>
+typealias Board = PersistentMap<Location, Mark>
 
-data class Game(val winner: Pair<Location, Mark>?, val moves: List<Location>, val board: Board)
-typealias MoveFn = (Location) -> Location
+data class Game(val winner: Pair<Location, Mark>?, val moves: PersistentList<Location>, val board: Board)
 
-private val moveLocFn = listOf<Pair<MoveFn, MoveFn>>(
-  { (x, y): Location -> Location(x - 1, y) } to { (x, y) -> Location(x + 1, y) }, // up/down the column y
-  { (x, y): Location -> Location(x, y - 1) } to { (x, y) -> Location(x, y + 1) }, // left/right the row x
-  { (x, y): Location -> Location(x - 1, y - 1) } to { (x, y) -> Location(x + 1, y + 1) }, // diagonal \
-  { (x, y): Location -> Location(x - 1, y + 1) } to { (x, y) -> Location(x + 1, y - 1) } // diagonal /
-)
+enum class Move {
+  UP, DOWN, LEFT, RIGHT, UP_LEFT, UP_RIGHT, DOWN_LEFT, DOWN_RIGHT;
+
+  val inverse: Move
+    get() = when (this) {
+      UP -> DOWN
+      DOWN -> UP
+      LEFT -> RIGHT
+      RIGHT -> LEFT
+      UP_LEFT -> DOWN_RIGHT
+      UP_RIGHT -> DOWN_LEFT
+      DOWN_LEFT -> UP_RIGHT
+      DOWN_RIGHT -> UP_LEFT
+    }
+
+  operator fun invoke(loc: Location): Location = when (this) {
+    UP -> Location(loc.x - 1, loc.y)
+    DOWN -> Location(loc.x + 1, loc.y)
+    LEFT -> Location(loc.x, loc.y - 1)
+    RIGHT -> Location(loc.x, loc.y + 1)
+    UP_LEFT -> Location(loc.x - 1, loc.y - 1)
+    UP_RIGHT -> Location(loc.x - 1, loc.y + 1)
+    DOWN_LEFT -> Location(loc.x + 1, loc.y - 1)
+    DOWN_RIGHT -> Location(loc.x + 1, loc.y + 1)
+  }
+}
 
 val Location.isGood: Boolean
   get() = x in 0..<n && y in 0..<n
 
 // Move as far as possible from the location `loc` into the direction specified
-// by `moveFn` so long as the new location is still marked by `mark`. Return the
+// by `move` so long as the new location is still marked by `mark`. Return the
 // last location marked by `mark` and the number of moves performed.
-fun extendLoc(board: Board, moveFn: MoveFn, mark: Mark, loc: Location): Pair<Int, Location> {
-  tailrec fun loop(n: Int, currentLoc: Location, nextLoc: Location): Pair<Int, Location> =
-    if (nextLoc.isGood && board[nextLoc] == mark) {
-      loop(n + 1, nextLoc, moveFn(nextLoc))
-    } else {
-      n to currentLoc
-    }
-  return loop(0, loc, moveFn(loc))
+fun extendLoc(board: Board, move: Move, mark: Mark, loc: Location): Pair<Int, Location> {
+  return extendLocImpl(board, move, mark, 0, loc, move(loc))
 }
+private tailrec fun extendLocImpl(board: Board, move: Move, mark: Mark, n: Int, currentLoc: Location, nextLoc: Location): Pair<Int, Location> =
+  if (nextLoc.isGood && board[nextLoc] == mark) {
+    extendLocImpl(board, move, mark, n + 1, nextLoc, move(nextLoc))
+  } else {
+    n to currentLoc
+  }
 
 // Find the maximum cluster size for a given `mark` starting from a location `loc`.
 // It uses the `extendLoc` function in both directions of each move function pair
 // and combines the results.
-fun maxCluster(board: Board, mark: Mark, loc: Location) = moveLocFn.map { (moveFn1, moveFn2) ->
-  val (n1, end1) = extendLoc(board, moveFn1, mark, loc)
-  val (n2, _) = extendLoc(board, moveFn2, mark, loc)
-  (n1 + n2 + 1) to end1
-}.maxBy { it.first }
+fun maxCluster(board: Board, mark: Mark, loc: Location): Pair<Int, Location> {
+  val (upScore, upLocation) = maxCluster(board, mark, loc, Move.UP)
+  val (leftScore, leftLocation) = maxCluster(board, mark, loc, Move.LEFT)
+  val (upLeftScore, upLeftLocation) = maxCluster(board, mark, loc, Move.UP_LEFT)
+  val (upRightScore, upRightLocation) = maxCluster(board, mark, loc, Move.UP_RIGHT)
+  return when {
+    upScore >= leftScore && upScore >= upLeftScore && upScore >= upRightScore -> upScore to upLocation
+    leftScore >= upScore && leftScore >= upLeftScore && leftScore >= upRightScore -> leftScore to leftLocation
+    upLeftScore >= upScore && upLeftScore >= leftScore && upLeftScore >= upRightScore -> upLeftScore to upLeftLocation
+    else -> upRightScore to upRightLocation
+  }
+}
+
+private fun maxCluster(board: Board, mark: Mark, loc: Location, move: Move): Pair<Int, Location> {
+  val (n1, end1) = extendLoc(board, move, mark, loc)
+  val (n2, _) = extendLoc(board, move.inverse, mark, loc)
+  return (n1 + n2 + 1) to end1
+}
+
 
 // Initialize a new game with an empty board, all possible moves, and no winner.
 fun newGame(): Game {
-  val moves = (0 until n).flatMap { x -> (0 until n).map { y -> Location(x, y) } }
-  return Game(winner = null, moves = moves, board = emptyMap())
+  val moves = (0 until n).flatMap { x -> (0 until n).map { y -> Location(x, y) } }.toPersistentList()
+  return Game(winner = null, moves = moves, board = persistentMapOf())
 }
 
 // Generate a string representation of the board.
@@ -92,12 +128,12 @@ fun showBoard(board: Board): String {
 
 // Account for the move into location `loc` by the player `p`.
 fun takeMove(player: Mark, loc: Location, game: Game): Game {
-  val updatedBoard = game.board + (loc to player)
+  val updatedBoard = game.board.put(loc, player)
   val (clusterSize, clusterLoc) = maxCluster(updatedBoard, player, loc)
   val winner = if (clusterSize >= m) clusterLoc to player else null
   return Game(
     winner = winner,
-    moves = game.moves - loc,
+    moves = game.moves.remove(loc),
     board = updatedBoard
   )
 }
@@ -122,7 +158,7 @@ tailrec suspend fun game(
 
   else -> {
     val (_, nextGame) = player1(player1Mark, game)
-    println(showBoard(game.board))
+    //println(showBoard(game.board))
     game(player2Mark, player2, player1Mark, player1, nextGame)
   }
 }
@@ -145,6 +181,14 @@ suspend fun <T> List<T>.choose(): T {
     if (flip()) return it
   }
   raise()
+}
+
+context(_: Amb, _: Exc)
+tailrec suspend fun <T> List<T>.chooseBinary(start: Int = 0, endExclusive: Int = size): T {
+  if (start == endExclusive) raise()
+  if (start + 1 == endExclusive) return this[start]
+  val mid = (start + endExclusive) / 2
+  return if (flip()) chooseBinary(start, mid) else chooseBinary(mid, endExclusive)
 }
 
 

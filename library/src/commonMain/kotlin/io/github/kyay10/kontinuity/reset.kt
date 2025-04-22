@@ -193,8 +193,9 @@ internal fun <R> Prompt<R>.abortWith(deleteDelimiter: Boolean, value: Result<R>)
   }
 
 internal suspend fun <R> Prompt<R>.abortWithFast(deleteDelimiter: Boolean, value: Result<R>): Nothing =
-  suspendCoroutineUnintercepted { stack ->
-    stack.holeFor(this, deleteDelimiter).resumeWithIntercepted(value)
+  suspendCoroutineUninterceptedOrReturn { k ->
+    findNearestSplitSeq(k).holeFor(this, deleteDelimiter).resumeWithIntercepted(value)
+    COROUTINE_SUSPENDED
   }
 
 internal fun <R> Prompt<R>.abortS(deleteDelimiter: Boolean = false, value: suspend () -> R): Nothing =

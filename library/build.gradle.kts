@@ -83,6 +83,7 @@ kotlin {
       dependencies {
         implementation(libs.kotlin.test)
         implementation(libs.kotlinx.coroutines.test)
+        implementation(libs.kotlinx.immutable.collections)
         implementation(libs.kotest.assertions.core)
         implementation(libs.kotest.property)
         implementation(libs.turbine)

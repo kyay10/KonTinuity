@@ -290,8 +290,8 @@ object LogicTree : Logic {
 
   private suspend fun <A> reifyLogic(block: suspend context(Amb, Exc) () -> A): Tree<A> = handle {
     HOne(block({
-      use { resume ->
-        composeTrees(resume(true)) { resume(false) }
+      useWithFinal { (resumeCopy, resumeFinal) ->
+        composeTrees(resumeCopy(true)) { resumeFinal(false) }
       }
     }) {
       discardWithFast(Result.success(HZero))

@@ -159,17 +159,18 @@ internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : Fram
 
 // frame :: frames ::: rest
 internal data class FramesCont<Start, First, Last>(
-  private val frames: FrameList<Start, First, Last>, override var _rest: SplitSeq<Last>?,
+  private var frames: FrameList<Start, First, Last>, override var _rest: SplitSeq<Last>?,
   val wrapperCont: WrapperCont<Last>?,
 ) : FrameCont<Start>, Segmentable<Start, Last>() {
   val head get() = frames.head
 
   @Suppress("UNCHECKED_CAST")
-  val tail: SplitSeq<First>
-    get() = frames.tail?.let { FramesCont(it, rest, wrapperCont) }
-      ?: rest as SplitSeq<First> // First == Last, but the compiler doesn't get it
-
   fun resumeCopiedHeadAndCollectResult(result: Result<Start>): WrapperCont<First> {
+    val head = head
+    val tail: SplitSeq<First> = frames.tail?.let {
+      frames = it as FrameList<Start, First, Last>
+      this as FramesCont<First, *, Last>
+    } ?: rest as SplitSeq<First>
     val wrapper = WrapperCont(tail, isWaitingForValue = true)
     head.resumeWith(result, wrapper)
     return wrapper
@@ -178,7 +179,7 @@ internal data class FramesCont<Start, First, Last>(
   override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>) = FramesSegment(frames, seg)
 
   override val context = rest.context
-  override val callerFrame: CoroutineStackFrame? = (head.cont as? CoroutineStackFrame)?.callerFrame
+  override val callerFrame: CoroutineStackFrame? get() = (head.cont as? CoroutineStackFrame)?.callerFrame
   override fun getStackTraceElement(): StackTraceElement? = (head.cont as? CoroutineStackFrame)?.getStackTraceElement()
 }
 
