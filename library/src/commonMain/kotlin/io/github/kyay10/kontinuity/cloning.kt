@@ -193,6 +193,7 @@ internal data class FramesCont<Start, First, Last>(
 }
 
 // frame :: frames ::: rest
+@PublishedApi
 internal data class UnderCont<Start, RealStart>(
   val captured: Segment<RealStart, Start>, override var _rest: SplitSeq<Start>?
 ) : Segmentable<RealStart, Start>(_rest?.context ?: EmptyCoroutineContext), FrameCont<RealStart> {
@@ -335,6 +336,7 @@ internal tailrec infix fun <Start, End> Segment<Start, End>.prependTo(stack: Spl
     is Contable<Start, *, End> -> init prependTo toCont(stack)
   }
 
+@PublishedApi
 internal infix fun <Start, End> Segment<Start, End>.pushPrompt(prompt: Prompt<End>): Segment<Start, End> =
   when (this) {
     is SingleUseSegment -> {

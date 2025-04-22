@@ -51,6 +51,9 @@ public suspend inline fun <R> Prompt<R>.pushPrompt(
 internal fun <R> (suspend () -> R).startCoroutineHere(stack: SplitSeq<R>): Any? =
   handleTrampolining(stack, runCatching { startCoroutineUninterceptedOrReturn(WrapperCont(stack)) })
 
+private fun <T, R> (suspend (T) -> R).startCoroutineHere(param: T, stack: SplitSeq<R>): Any? =
+  handleTrampolining(stack, runCatching { startCoroutineUninterceptedOrReturn(param, WrapperCont(stack)) })
+
 private fun handleTrampolining(
   stack: SplitSeq<*>,
   firstResult: Result<Any?>
@@ -183,6 +186,22 @@ public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
   val stack = collectStack(k)
   val (init, rest) = stack.splitAtOnce(this)
   body.startCoroutineHere(
+    UnderCont(
+      init.letIf(isDelimiting) { it.pushPrompt(this) },
+      rest.letUnless(deleteDelimiter) { it.pushPrompt(this) })
+  )
+}
+
+// Acts like shift0/control { it(body()) }
+@ResetDsl
+public suspend fun <T, P> Prompt<P>.inHandlingContextWithSubCont(
+  deleteDelimiter: Boolean = true, isDelimiting: Boolean = deleteDelimiter, body: suspend (SubCont<T, P>) -> T
+): T = suspendCoroutineUninterceptedOrReturn { k ->
+  val stack = collectStack(k)
+  val (reusableInit, _) = stack.splitAt(this)
+  val (init, rest) = stack.splitAtOnce(this)
+  body.startCoroutineHere(
+    SubCont(reusableInit, this),
     UnderCont(
       init.letIf(isDelimiting) { it.pushPrompt(this) },
       rest.letUnless(deleteDelimiter) { it.pushPrompt(this) })
