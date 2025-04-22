@@ -8,6 +8,7 @@ import io.github.kyay10.kontinuity.abortWith0
 import io.github.kyay10.kontinuity.abortWithFast
 import io.github.kyay10.kontinuity.ask
 import io.github.kyay10.kontinuity.inHandlingContext
+import io.github.kyay10.kontinuity.inHandlingContextWithSubCont
 import io.github.kyay10.kontinuity.pushReader
 import io.github.kyay10.kontinuity.reset
 import io.github.kyay10.kontinuity.takeSubCont
@@ -36,6 +37,11 @@ public suspend inline fun <A, E> Handler<E>.useOnce(crossinline body: suspend (C
 
 public suspend fun <A> Handler<*>.useTailResumptive(body: suspend () -> A): A =
   prompt.p.inHandlingContext(deleteDelimiter = true, body = body)
+
+public suspend fun <A, R> Handler<R>.useTailResumptiveWithCont(body: suspend (Cont<A, R>) -> A): A =
+  prompt.p.inHandlingContextWithSubCont(deleteDelimiter = true) { sk ->
+    body(Cont(sk))
+  }
 
 public suspend inline fun <A, E> Handler<E>.useWithFinal(crossinline body: suspend (Pair<Cont<A, E>, Cont<A, E>>) -> E): A =
   prompt.p.takeSubContWithFinal { sk ->
