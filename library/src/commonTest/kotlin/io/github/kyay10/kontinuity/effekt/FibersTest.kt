@@ -91,9 +91,10 @@ interface Fibre<A> {
 }
 
 class CanResume<A> : Fibre<A> {
-  override var isDone = false
+  private data object EmptyResult
+  override val isDone get() = res != EmptyResult
   @Suppress("UNCHECKED_CAST")
-  private var res: A = null as A
+  private var res: A = EmptyResult as A
   override val result: A
     get() {
       check(isDone) { "This fiber is not yet done, can't get result" }
@@ -102,7 +103,6 @@ class CanResume<A> : Fibre<A> {
 
   fun returnWith(value: A) {
     res = value
-    isDone = true
   }
 
   private var k: (suspend () -> Unit)? = null
