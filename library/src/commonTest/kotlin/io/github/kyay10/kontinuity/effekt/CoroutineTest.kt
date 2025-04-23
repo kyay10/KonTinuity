@@ -6,26 +6,26 @@ import kotlin.test.Test
 
 // Example translated from http://drops.dagstuhl.de/opus/volltexte/2018/9208/
 class CoroutineTest {
-  context(amb: Amb, yield: Yield<*, Int>)
+  context(_: Amb, _: YieldAny<Int>)
   suspend fun randomYield() {
-    yield.yield(0)
-    if (amb.flip()) {
-      yield.yield(1)
+    yield(0)
+    if (flip()) {
+      yield(1)
     } else {
-      yield.yield(2)
+      yield(2)
     }
-    yield.yield(3)
+    yield(3)
   }
 
-  context(yield: Yield<*, A>)
+  context(_: YieldAny<A>)
   suspend fun <A> bucket(b: List<A>) {
     var i = 0
     while (i < b.size) {
-      yield.yield(b[i++])
+      yield(b[i++])
     }
   }
 
-  context(yield: Yield<*, A>)
+  context(_: YieldAny<A>)
   suspend fun <A> buckets(bs: List<List<A>>) {
     var i = 0
     while (i < bs.size) {
@@ -89,16 +89,14 @@ interface Coroutine<In, Out, Result> {
 
 suspend fun <In, Out, Result> coroutine(
   body: CoroutineBody<In, Out, Result>
-): Coroutine<In, Out, Result> {
-  val yielder = Yielder<In, Out, Result>(HandlerPrompt())
-  val instance = CoroutineInstance(yielder, null)
-  return instance.start(body)
-}
+): Coroutine<In, Out, Result> = handle {
+  CoroutineState.Done(body(Yielder(this)))
+}.let(::CoroutineInstance)
 
 suspend fun Coroutine<Unit, *, *>.resume(): Boolean = resume(Unit)
 
-class CoroutineInstance<In, Out, Result>(
-  private val yielder: Yielder<In, Out, Result>, private var state: CoroutineState<In, Out, Result>?
+data class CoroutineInstance<In, Out, Result>(
+  var state: CoroutineState<In, Out, Result>
 ) : Coroutine<In, Out, Result> {
   override val isDone: Boolean
     get() = state is CoroutineState.Done
@@ -108,7 +106,7 @@ class CoroutineInstance<In, Out, Result>(
       else -> error("This coroutine is not yet done, can't get result")
     }
 
-  override fun snapshot(): Coroutine<In, Out, Result> = CoroutineInstance(yielder, state)
+  override fun snapshot(): Coroutine<In, Out, Result> = copy()
   override val value: Out
     get() = when (val s = state) {
       is CoroutineState.Paused -> s.yieldValue
@@ -116,34 +114,23 @@ class CoroutineInstance<In, Out, Result>(
     }
 
   override suspend fun resume(input: In): Boolean {
-    val state = when (val s = state) {
-      is CoroutineState.Paused -> s
-      else -> error("Can't resume this coroutine anymore")
-    }
-    yielder.state = state
-    state.k(input)
-    this.state = yielder.state
+    val s = state as? CoroutineState.Paused ?: error("Can't resume this coroutine anymore")
+    state = s.k(input)
     return !isDone
-  }
-
-  suspend fun start(body: CoroutineBody<In, Out, Result>): CoroutineInstance<In, Out, Result> {
-    yielder.rehandle {
-      yielder.state = CoroutineState.Done(body(yielder))
-    }
-    state = yielder.state
-    return this
   }
 }
 
-class Yielder<In, Out, Result>(prompt: HandlerPrompt<Unit>) : Yield<In, Out>, Handler<Unit> by prompt {
-  lateinit var state: CoroutineState<In, Out, Result>
+class Yielder<In, Out, Result>(prompt: HandlerPrompt<CoroutineState<In, Out, Result>>) : Yield<In, Out>,
+  Handler<CoroutineState<In, Out, Result>> by prompt {
   override suspend fun yield(value: Out): In = use {
-    state = CoroutineState.Paused(it, value)
+    CoroutineState.Paused(it, value)
   }
 }
 
 sealed interface CoroutineState<in In, out Out, out Result> {
-  data class Paused<in In, out Out>(val k: Cont<In, Unit>, val yieldValue: Out) : CoroutineState<In, Out, Nothing>
+  data class Paused<in In, out Out, out Result>(val k: Cont<In, CoroutineState<In, Out, Result>>, val yieldValue: Out) :
+    CoroutineState<In, Out, Result>
+
   data class Done<Result>(val result: Result) : CoroutineState<Any?, Nothing, Result>
 }
 
@@ -151,4 +138,10 @@ typealias CoroutineBody<In, Out, Result> = suspend context(Yield<In, Out>) () ->
 
 interface Yield<out In, in Out> {
   suspend fun yield(value: Out): In
+}
+typealias YieldAny<Out> = Yield<*, Out>
+
+context(yield: YieldAny<Out>)
+suspend fun <Out> yield(value: Out) {
+  yield.yield(value)
 }
