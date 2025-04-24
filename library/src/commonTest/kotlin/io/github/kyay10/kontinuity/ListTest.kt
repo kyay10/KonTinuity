@@ -2,6 +2,7 @@ package io.github.kyay10.kontinuity
 
 import io.kotest.matchers.sequences.shouldContainExactly
 import io.kotest.matchers.shouldBe
+import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 
 class ListTest {
@@ -156,7 +157,7 @@ class ListTest {
   fun permutations() = runTestCC {
     val numbers = (1..5).toList()
     val result = runList {
-      numbers.foldRight(emptyList<Int>()) { i, acc -> acc.insert(i) }
+      numbers.foldRightIteratorless(persistentListOf<Int>()) { i, acc -> acc.insert(i) }
     }
     result.asSequence().shouldContainExactly(numbers.permutations())
   }

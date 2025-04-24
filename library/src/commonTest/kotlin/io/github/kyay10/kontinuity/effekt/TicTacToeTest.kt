@@ -184,6 +184,14 @@ suspend fun <T> List<T>.choose(): T {
 }
 
 context(_: Amb, _: Exc)
+suspend fun IntProgression.choose(): Int {
+  forEachIteratorless {
+    if (flip()) return it
+  }
+  raise()
+}
+
+context(_: Amb, _: Exc)
 tailrec suspend fun <T> List<T>.chooseBinary(start: Int = 0, endExclusive: Int = size): T {
   if (start == endExclusive) raise()
   if (start + 1 == endExclusive) return this[start]

@@ -4,6 +4,8 @@ import arrow.core.raise.Raise
 import arrow.core.tail
 import io.github.kyay10.kontinuity.effekt.HandlerPrompt
 import io.github.kyay10.kontinuity.effekt.discard
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
@@ -52,18 +54,17 @@ inline fun repeatIteratorless(
 }
 
 context(_: Choose)
-suspend fun <T> List<T>.insert(element: T): List<T> {
+suspend fun <T> List<T>.insert(element: T): PersistentList<T> {
   val index = (0..size).bind()
-  return toMutableList().apply { add(index, element) }
+  return toPersistentList().add(index, element)
 }
 
-fun <T> List<T>.permutations(): Sequence<List<T>> = if (isEmpty()) sequenceOf(this)
+fun <T> List<T>.permutations(): Sequence<List<T>> = if (isEmpty()) sequenceOf(toPersistentList())
 else sequence {
   this@permutations.tail().permutations().forEach { perm ->
     (0..perm.size).forEach { i ->
-      val newPerm = perm.toMutableList()
-      newPerm.add(i, this@permutations.first())
-      yield(newPerm)
+      val newPerm = perm.toPersistentList()
+      yield(newPerm.add(i, this@permutations.first()))
     }
   }
 }

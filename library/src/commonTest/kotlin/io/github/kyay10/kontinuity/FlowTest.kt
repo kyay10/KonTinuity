@@ -169,7 +169,7 @@ class FlowTest {
   fun permutations() = runTest {
     val numbers = (1..5).toList()
     val result = runFlowCC {
-      numbers.foldRight(emptyList<Int>()) { i, acc -> acc.insert(i) }
+      numbers.foldRightIteratorless(emptyList<Int>()) { i, acc -> acc.insert(i) }
     }
     result.test {
       for (i in numbers.permutations()) {

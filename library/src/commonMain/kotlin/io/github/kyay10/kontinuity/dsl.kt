@@ -84,7 +84,7 @@ public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
   produceIn(scope).consumeEach { item -> continuation(item) }
 }
 
-public inline fun <T, R> List<T>.fold(initial: R, operation: (acc: R, T) -> R): R {
+public inline fun <T, R> List<T>.foldIteratorless(initial: R, operation: (acc: R, T) -> R): R {
   var accumulator = initial
   forEachIteratorless { element ->
     accumulator = operation(accumulator, element)
@@ -92,7 +92,7 @@ public inline fun <T, R> List<T>.fold(initial: R, operation: (acc: R, T) -> R): 
   return accumulator
 }
 
-public inline fun <T, R> List<T>.foldRight(initial: R, operation: (T, acc: R) -> R): R {
+public inline fun <T, R> List<T>.foldRightIteratorless(initial: R, operation: (T, acc: R) -> R): R {
   var accumulator = initial
   indices.reversed().forEachIteratorless { element ->
     accumulator = operation(get(element), accumulator)
