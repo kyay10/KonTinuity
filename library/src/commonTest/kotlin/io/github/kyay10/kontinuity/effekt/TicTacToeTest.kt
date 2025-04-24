@@ -18,7 +18,7 @@ private const val globalBreadthLimit = 10
 class TicTacToeTest {
   @Ignore
   @Test
-  fun aiPrimeTest() = runTestCC(timeout =  10.minutes) {
+  fun aiPrimeTest() = runTestCC(timeout = 10.minutes) {
     with(LogicTree) {
       game(Mark.X, aiPrime, Mark.O, aiPrime)
     }

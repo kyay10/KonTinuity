@@ -1,17 +1,13 @@
 package io.github.kyay10.kontinuity.effekt
 
-import arrow.core.None
 import arrow.core.Option
-import arrow.core.Some
+import arrow.core.toOption
 import io.github.kyay10.kontinuity.ask
 import io.github.kyay10.kontinuity.runReader
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.persistentListOf
 
-class Stream<out A>(val value: A, val next: (suspend () -> Stream<A>?)?) {
-  operator fun component1(): A = value
-  operator fun component2(): suspend context(Amb, Exc) () -> A = tail
-
-  val tail: suspend context(Amb, Exc) () -> A get() = { next?.invoke().reflect() }
-
+data class Stream<out A>(val value: A, val next: (suspend () -> Stream<A>?)?) {
   context(_: Amb, _: Exc)
   suspend fun reflect(): A {
     forEach { isLast, a -> if (isLast || flip()) return a }
@@ -32,50 +28,6 @@ suspend inline fun <A> Stream<A>?.forEach(block: (isLast: Boolean, A) -> Unit) {
 
 interface Logic {
   suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>?
-
-  context(_: Amb, _: Exc)
-  suspend fun <A> interleave(
-    first: suspend context(Amb, Exc) () -> A,
-    second: suspend context(Amb, Exc) () -> A
-  ): A = interleaveImpl(first, second)
-
-  // TODO could we make this tailrec?
-  context(_: Amb, _: Exc)
-  suspend fun <A, B> fairBind(
-    first: suspend context(Amb, Exc) () -> A,
-    second: suspend context(Amb, Exc) (A) -> B
-  ): B {
-    val (res, branch) = split(first) ?: raise()
-    return interleave({ second(res) }) { fairBind(branch, second) }
-  }
-
-  suspend fun <A> bagOfN(count: Int = -1, block: suspend context(Amb, Exc) () -> A): List<A> =
-    bagOfNRec(count, emptyList(), block)
-
-  companion object {
-
-    // could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some block
-    // likely no because interleave delimits its arguments
-    context(_: Amb, _: Exc)
-    private tailrec suspend fun <A> Logic.interleaveImpl(
-      first: suspend context(Amb, Exc) () -> A,
-      second: suspend context(Amb, Exc) () -> A
-    ): A {
-      val (res, branch) = split(first) ?: return second()
-      return if (flip()) res
-      else interleaveImpl(second, branch)
-    }
-
-    private tailrec suspend fun <A> Logic.bagOfNRec(
-      count: Int,
-      acc: List<A>,
-      block: suspend context(Amb, Exc) () -> A
-    ): List<A> {
-      if (count < -1 || count == 0) return acc
-      val (res, branch) = split(block) ?: return acc
-      return bagOfNRec(if (count == -1) -1 else count - 1, acc + res, branch)
-    }
-  }
 }
 
 context(logic: Logic)
@@ -85,16 +37,48 @@ context(logic: Logic, _: Amb, _: Exc)
 suspend fun <A> interleave(
   first: suspend context(Amb, Exc) () -> A,
   second: suspend context(Amb, Exc) () -> A
-): A = logic.interleave(first, second)
+): A {
+  val branch = split(first) ?: return second()
+  return if (flip()) branch.value
+  else if (branch.next == null) second()
+  else interleaveImpl({ split(second) }, branch.next)
+}
+
+// could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some block
+// likely no because interleave delimits its arguments
+context(_: Amb, _: Exc)
+private tailrec suspend fun <A> interleaveImpl(
+  first: suspend () -> Stream<A>?,
+  second: suspend () -> Stream<A>?
+): A {
+  val (value, next) = first() ?: return second().reflect()
+  return if (flip()) value
+  else if (next == null) second().reflect()
+  else interleaveImpl(second, next)
+}
 
 // TODO could we make this tailrec?
-context(logic: Logic, _: Amb, _: Exc)
+context(_: Logic, _: Amb, _: Exc)
 suspend fun <A, B> fairBind(
   first: suspend context(Amb, Exc) () -> A,
   second: suspend context(Amb, Exc) (A) -> B
-): B = logic.fairBind(first, second)
+): B {
+  val (value, next) = split(first) ?: raise()
+  if (next == null) return second(value)
+  return interleave({ second(value) }) { fairBindImpl(next, second) }
+}
 
-//  I think nullOnFailure/noneOnFailure are better replacements
+context(_: Logic, _: Amb, _: Exc)
+private suspend fun <A, B> fairBindImpl(
+  first: suspend () -> Stream<A>?,
+  second: suspend context(Amb, Exc) (A) -> B
+): B {
+  val (value, next) = first() ?: raise()
+  return if (next == null) second(value)
+  else interleave({ second(value) }) { fairBindImpl(next, second) }
+}
+
+// I think nullOnFailure/noneOnFailure are better replacements
 context(_: Logic, _: Amb, _: Exc)
 suspend inline fun <A, B> ifte(
   noinline condition: suspend context(Amb, Exc) () -> A,
@@ -106,32 +90,21 @@ suspend inline fun <A, B> ifte(
 }
 
 context(_: Logic, _: Amb, _: Exc)
-suspend fun <A> nullOnFailure(
-  block: suspend context(Amb, Exc) () -> A,
-): A? = split(block)?.reflect()
+suspend fun <A> nullOnFailure(block: suspend context(Amb, Exc) () -> A): A? = split(block)?.reflect()
 
 context(_: Logic, _: Amb, _: Exc)
-suspend fun <A> noneOnFailure(
-  block: suspend context(Amb, Exc) () -> A,
-): Option<A> = split(block)?.let { Some(it.reflect()) } ?: None
+suspend fun <A> noneOnFailure(block: suspend context(Amb, Exc) () -> A): Option<A> =
+  split(block).toOption().map { it.reflect() }
 
 context(_: Exc, _: Logic)
-suspend fun <A> once(block: suspend context(Amb, Exc) () -> A): A {
-  val (res, _) = split(block) ?: raise()
-  return res
-}
+suspend fun <A> once(block: suspend context(Amb, Exc) () -> A): A = (split(block) ?: raise()).value
 
 context(_: Logic)
-suspend fun <A> onceOrNull(block: suspend context(Amb, Exc) () -> A): A? {
-  val (res, _) = split(block) ?: return null
-  return res
-}
+suspend fun <A> onceOrNull(block: suspend context(Amb, Exc) () -> A): A? = split(block)?.value
 
-context(__: Logic)
-suspend fun <A> onceOrNone(block: suspend context(Amb, Exc) () -> A): Option<A> {
-  val (res, _) = split(block) ?: return None
-  return Some(res)
-}
+context(_: Logic)
+suspend fun <A> onceOrNone(block: suspend context(Amb, Exc) () -> A): Option<A> =
+  split(block).toOption().map { it.value }
 
 context(_: Exc, _: Logic)
 suspend fun <A> gnot(block: suspend context(Amb, Exc) () -> A) {
@@ -143,7 +116,19 @@ suspend fun <A> succeeds(block: suspend context(Amb, Exc) () -> A) = split(block
 
 context(logic: Logic)
 suspend fun <A> bagOfN(count: Int = -1, block: suspend context(Amb, Exc) () -> A): List<A> =
-  logic.bagOfN(count, block)
+  bagOfNImpl(count, persistentListOf()) { split(block) }
+
+private tailrec suspend fun <A> bagOfNImpl(
+  count: Int,
+  acc: PersistentList<A>,
+  branch: suspend () -> Stream<A>?
+): List<A> {
+  if (count < -1 || count == 0) return acc
+  val (value, next) = branch() ?: return acc
+  val newAcc = acc.add(value)
+  return if (next == null) newAcc
+  else bagOfNImpl(if (count == -1) -1 else count - 1, newAcc, next)
+}
 
 object LogicDeep : Logic {
   // wrap with a handle that'll allow turning the iteration into an iterator-like thing
@@ -175,66 +160,17 @@ object LogicDeep : Logic {
         val branch = ask().removeFirstOrNull() ?: break
         val result = branch()
         val isLast = ask().isEmpty()
-        use {
-          Stream(result, if(isLast) null else ({ it(Unit) }))
+        useOnce {
+          Stream(result, if (isLast) null else ({ it(Unit) }))
         }
       }
       null
     }
   }
-
-  context(_: Amb, _: Exc)
-  override suspend fun <A> interleave(
-    first: suspend context(Amb, Exc) () -> A,
-    second: suspend context(Amb, Exc) () -> A
-  ): A {
-    val branch = split(first) ?: return second()
-    return if (flip()) branch.value
-    else if (branch.next == null) second()
-    else interleave2({ split(second) }, branch.next)
-  }
-
-  context(_: Amb, _: Exc)
-  tailrec suspend fun <A> interleave2(first: suspend () -> Stream<A>?, second: suspend () -> Stream<A>?): A {
-    val branch = first() ?: return second().reflect()
-    return if (flip()) branch.value
-    else if (branch.next == null) second().reflect()
-    else interleave2(second, branch.next)
-  }
-
-  context(_: Amb, _: Exc)
-  suspend fun <A, B> fairBind2(first: suspend () -> Stream<A>?, second: suspend context(Amb, Exc) (A) -> B): B {
-    val branch = first() ?: raise()
-    return if (branch.next == null) second(branch.value)
-    else
-      interleave({ second(branch.value) }) { fairBind2(branch.next, second) }
-  }
-
-  suspend fun <A> bagOfN2(count: Int = -1, block: suspend context(Amb, Exc) () -> A): List<A> =
-    bagOfNRec2(count, emptyList()) { split(block) }
-
-  private tailrec suspend fun <A> bagOfNRec2(count: Int, acc: List<A>, branch: suspend () -> Stream<A>?): List<A> {
-    if (count < -1 || count == 0) return acc
-    val branch = branch() ?: return acc
-    return if (branch.next == null) acc + branch.value
-    else
-      bagOfNRec2(if (count == -1) -1 else count - 1, acc + branch.value, branch.next)
-  }
 }
 
 object LogicTree : Logic {
-
-  override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A) = reifyLogic(block)
-
-  private suspend fun <A> composeTrees(value: Stream<A>?, next: suspend () -> Stream<A>?): Stream<A>? = when (value) {
-    null -> next()
-    else -> {
-      val nextPrime = value.next ?: return Stream(value.value, next)
-      Stream(value.value) { composeTrees(nextPrime(), next) }
-    }
-  }
-
-  private suspend fun <A> reifyLogic(block: suspend context(Amb, Exc) () -> A): Stream<A>? = handle {
+  override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A) = handle<Stream<A>?> {
     Stream(block({
       useWithFinal { (resumeCopy, resumeFinal) ->
         composeTrees(resumeCopy(true)) { resumeFinal(false) }
@@ -242,5 +178,34 @@ object LogicTree : Logic {
     }) {
       discardWithFast(Result.success(null))
     }, null)
+  }
+
+  private suspend fun <A> composeTrees(stream: Stream<A>?, next: suspend () -> Stream<A>?): Stream<A>? {
+    val (value, nextPrime) = stream ?: return next()
+    nextPrime ?: return Stream(value, next)
+    return Stream(value) { composeTrees(nextPrime(), next) }
+  }
+}
+
+object LogicSimple : Logic {
+  override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>? = handle {
+    effectfulLogic {
+      val res = block()
+      useOnce {
+        Stream(res) { it(Unit) }
+      }
+    }
+    null
+  }
+
+  private suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
+    block({
+      useWithFinal { (resumeCopy, resumeFinal) ->
+        resumeCopy(true)
+        resumeFinal(false)
+      }
+    }) {
+      discardWithFast(Result.success(Unit))
+    }
   }
 }

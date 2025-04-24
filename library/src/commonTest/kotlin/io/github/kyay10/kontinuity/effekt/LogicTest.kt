@@ -112,7 +112,7 @@ class LogicTest {
       split { raise() } shouldBe null
       val (x, rest) = split { sample() }.shouldNotBeNull()
       x shouldBe 1
-      split(rest).shouldNotBeNull().value shouldBe 2
+      rest?.invoke().shouldNotBeNull().value shouldBe 2
     }
   }
 
@@ -265,7 +265,7 @@ private suspend fun sample() = listOf(1, 2, 3).choose()
 private infix fun String.conc(other: String) = "$this $other"
 
 private inline fun withLogic(block: context(Logic) () -> Unit) {
-  for (logic in listOf(LogicDeep, LogicTree)) {
+  for (logic in listOf(LogicDeep, LogicTree, LogicSimple)) {
     block(logic)
   }
 }
