@@ -1,7 +1,8 @@
 package io.github.kyay10.kontinuity.effekt
 
-import io.github.kyay10.kontinuity.runTestCC
+import io.github.kyay10.kontinuity.runCC
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -11,32 +12,34 @@ import kotlin.time.Duration.Companion.milliseconds
 
 class AwaitTest {
   @Test
-  fun example() = runTestCC {
+  fun example() = coroutinesRunTest {
     val printed = StringBuilder()
-    mutableAwait {
-      // TODO this doesn't work with virtual delay. Investigate
-      //  Likely because of busy waiting in await
-      //  This is also slightly flaky because it's running on a different dispatcher
-      val d = async(Dispatchers.Default.limitedParallelism(1)) {
-        printed.appendLine("started future")
-        delay(100.milliseconds)
-        42
-      }
-      // Yield call here to try and reduce flakiness. This desperately needs looking at!
-      kotlinx.coroutines.yield()
-      if (fork()) {
-        printed.appendLine("hello 1")
-        yield()
-        printed.appendLine("world 1")
-        printed.appendLine(await(d) + 1)
-      } else {
-        printed.appendLine("hello 2")
-        yield()
-        printed.appendLine("world 2")
-        yield()
-        printed.appendLine("and it goes on 2")
-        yield()
-        printed.appendLine("and it goes on and on 2")
+    runCC {
+      mutableAwait {
+        // TODO this doesn't work with virtual delay. Investigate
+        //  Likely because of busy waiting in await
+        //  This is also slightly flaky because it's running on a different dispatcher
+        val d = async(Dispatchers.Default.limitedParallelism(1)) {
+          printed.appendLine("started future")
+          delay(100.milliseconds)
+          42
+        }
+        // Yield call here to try and reduce flakiness. This desperately needs looking at!
+        kotlinx.coroutines.yield()
+        if (fork()) {
+          printed.appendLine("hello 1")
+          yield()
+          printed.appendLine("world 1")
+          printed.appendLine(await(d) + 1)
+        } else {
+          printed.appendLine("hello 2")
+          yield()
+          printed.appendLine("world 2")
+          yield()
+          printed.appendLine("and it goes on 2")
+          yield()
+          printed.appendLine("and it goes on and on 2")
+        }
       }
     }
     printed.toString() shouldBe """

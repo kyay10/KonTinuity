@@ -71,10 +71,10 @@ public suspend fun <T> replicate(amount: Int, producer: suspend (Int) -> T): Lis
 }
 
 public fun <R> runFlowCC(
-  body: suspend context(SingletonRaise<Unit>, Choose) () -> R
+  body: suspend context(SingletonRaise<Unit>, Choose, CoroutineScope) () -> R
 ): Flow<R> = channelFlow {
   runCC {
-    runChoice(body, this::send)
+    runChoice({ body() }, this::send)
   }
 }
 

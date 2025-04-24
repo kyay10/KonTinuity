@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.runTestCC
+import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -173,7 +174,7 @@ class SkynetTest {
 
   @Ignore
   @Test
-  fun skynetCoroutinesBusy() = runTestCC(timeout = 10.minutes) {
+  fun skynetCoroutinesBusy() = coroutinesRunTest(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
@@ -199,7 +200,7 @@ class SkynetTest {
 
   @Ignore
   @Test
-  fun skynetCoroutinesAwaitAll() = runTestCC(timeout = 10.minutes) {
+  fun skynetCoroutinesAwaitAll() = coroutinesRunTest(timeout = 10.minutes) {
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       return (0..<div).map {
@@ -215,7 +216,7 @@ class SkynetTest {
 
   @Ignore
   @Test
-  fun skynetCoroutinesAwaitEach() = runTestCC(timeout = 10.minutes) {
+  fun skynetCoroutinesAwaitEach() = coroutinesRunTest(timeout = 10.minutes) {
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       return (0..<div).map {

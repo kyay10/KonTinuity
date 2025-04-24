@@ -1,7 +1,5 @@
 package io.github.kyay10.kontinuity.effekt
 
-import arrow.core.Either
-import arrow.fx.coroutines.raceN
 import io.github.kyay10.kontinuity.*
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
@@ -9,7 +7,7 @@ import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
 import kotlin.test.Test
@@ -254,14 +252,14 @@ context(_: Amb, _: Exc)
 private suspend fun iota(n: Int) = (1..n).choose()
 
 private suspend fun <R> assertNonTerminatingCC(block: suspend () -> R) =
-  nonTerminatingCC(block) shouldBe Either.Left(null)
+  nonTerminatingCC(block) shouldBe null
 
 private suspend fun <R> nonTerminatingCC(block: suspend () -> R) =
-  raceN(Dispatchers.Default.limitedParallelism(1), { withTimeoutOrNull(10.milliseconds) { awaitCancellation() } }) {
-    runCC(block)
+  withContext(Dispatchers.Default.limitedParallelism(1)) {
+    withTimeoutOrNull(10.milliseconds) { runCC(block) }
   }
 
-context(_: Amb, _: Exc)
+  context(_: Amb, _: Exc)
 private suspend fun sample() = listOf(1, 2, 3).choose()
 
 private infix fun String.conc(other: String) = "$this $other"

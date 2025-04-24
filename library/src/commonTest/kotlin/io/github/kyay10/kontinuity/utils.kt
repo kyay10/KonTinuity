@@ -10,7 +10,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.test.TestResult
-import kotlinx.coroutines.test.TestScope
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
@@ -22,17 +21,17 @@ private const val useRunSuspend = false
 fun runTestCC(
   context: CoroutineContext = EmptyCoroutineContext,
   timeout: Duration? = null,
-  testBody: suspend TestScope.() -> Unit
+  testBody: suspend () -> Unit
 ) = runTest(context, timeout) { runCC { testBody() } }
 
 fun runTest(
   context: CoroutineContext = EmptyCoroutineContext,
   timeout: Duration? = null,
-  testBody: suspend TestScope.() -> Unit
+  testBody: suspend () -> Unit
 ): TestResult {
   val block = if (useRunSuspend) ({ runSuspend { testBody() } }) else testBody
-  return if (timeout == null) coroutinesRunTest(context, testBody = block)
-  else coroutinesRunTest(context, timeout, block)
+  return if (timeout == null) coroutinesRunTest(context) { block() }
+  else coroutinesRunTest(context, timeout) { block() }
 }
 
 inline fun <Error, R> HandlerPrompt<R>.Raise(crossinline transform: (Error) -> R): Raise<Error> =
@@ -70,5 +69,5 @@ else sequence {
 }
 
 fun <T> flowOfWithDelay(vararg elements: T) = flowOf(*elements).onEach {
-  delay(1.milliseconds)
+  delay(0.milliseconds)
 }
