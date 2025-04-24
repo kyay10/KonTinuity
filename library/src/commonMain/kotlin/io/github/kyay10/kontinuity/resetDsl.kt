@@ -9,15 +9,15 @@ public fun interface Cont<in T, out R> {
 }
 
 @ResetDsl
-public suspend fun <R> Prompt<R>.reset(body: suspend () -> R): R = pushPrompt(body = body)
+public suspend inline fun <R> Prompt<R>.reset(noinline body: suspend () -> R): R = pushPrompt(body = body)
 
 context(p: Prompt<R>)
 @ResetDsl
 @JvmName("resetContext")
-public suspend fun <R> reset(body: suspend () -> R): R = p.reset(body)
+public suspend inline fun <R> reset(noinline body: suspend () -> R): R = p.reset(body)
 
 @ResetDsl
-public suspend fun <R> newReset(body: suspend Prompt<R>.() -> R): R = with(Prompt<R>()) { reset { body() } }
+public suspend inline fun <R> newReset(crossinline body: suspend Prompt<R>.() -> R): R = with(Prompt<R>()) { reset { body() } }
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(crossinline block: suspend (Cont<T, R>) -> R): T =

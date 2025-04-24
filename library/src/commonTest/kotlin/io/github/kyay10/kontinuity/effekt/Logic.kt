@@ -143,9 +143,9 @@ object LogicDeep : Logic {
       ask().addFirst {
         handle ambExc@{
           block({
-            use { resume ->
-              ask().addFirst { resume(false) }
-              resume(true)
+            useWithFinal { (resumeCopy, resumeFinal) ->
+              ask().addFirst { resumeFinal(false) }
+              resumeCopy(true)
             }
           }, {
             discard {

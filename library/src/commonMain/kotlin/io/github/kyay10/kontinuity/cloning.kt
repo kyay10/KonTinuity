@@ -72,6 +72,7 @@ internal tailrec fun <Start, P, FurtherStart> SplitSeq<Start>.splitAtAux(
   is Segmentable<Start, *> -> rest.splitAtAux(prompt, toSegment(seg))
 }
 
+@PublishedApi
 internal tailrec fun <Start> SplitSeq<Start>.deleteReader(
   p: Reader<*>, previous: ExpectsSequenceStartingWith<Start>?
 ): Unit = when (this) {
@@ -106,6 +107,7 @@ internal tailrec fun <Start, P> SplitSeq<Start>.findSeqBefore(
   is ExpectsSequenceStartingWith<*> -> rest.findSeqBefore(p, self)
 }
 
+@PublishedApi
 internal tailrec fun <Start, S> SplitSeq<Start>.find(p: Reader<S>): S = when (this) {
   is ReaderCont<*, Start> if (p === this.p) -> {
     // S == this.S
@@ -117,6 +119,7 @@ internal tailrec fun <Start, S> SplitSeq<Start>.find(p: Reader<S>): S = when (th
   is ExpectsSequenceStartingWith<*> -> rest.find(p)
 }
 
+@PublishedApi
 internal tailrec fun <Start, S> SplitSeq<Start>.findOrNull(p: Reader<S>): S? = when (this) {
   is ReaderCont<*, Start> if (p === this.p) -> {
     @Suppress("UNCHECKED_CAST")
@@ -127,9 +130,11 @@ internal tailrec fun <Start, S> SplitSeq<Start>.findOrNull(p: Reader<S>): S? = w
   is ExpectsSequenceStartingWith<*> -> rest.findOrNull(p)
 }
 
+@PublishedApi
 internal fun <Start, P> SplitSeq<Start>.splitAt(p: Prompt<P>): Pair<Segment<Start, P>, SplitSeq<P>> =
   splitAtAux(p, EmptySegment)
 
+@PublishedApi
 internal fun <Start, P> SplitSeq<Start>.splitAtOnce(p: Prompt<P>): Pair<Segment<Start, P>, SplitSeq<P>> {
   val box = findSeqBefore(p, null)
   return if (box != null) {
@@ -144,9 +149,11 @@ internal fun <Start, P> SplitSeq<Start>.splitAtOnce(p: Prompt<P>): Pair<Segment<
   }
 }
 
+@PublishedApi
 internal fun <P> SplitSeq<P>.pushPrompt(p: Prompt<P>): PromptCont<P> =
   PromptCont(p, this)
 
+@PublishedApi
 internal fun <S, P> SplitSeq<P>.pushReader(
   p: Reader<S>, value: S, fork: S.() -> S
 ): ReaderCont<S, P> = ReaderCont(p, value, fork, this)
@@ -356,6 +363,7 @@ internal sealed class Segmentable<Start, Rest> : SplitSeq<Start>, ExpectsSequenc
   abstract fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>): Segment<FurtherStart, Rest>
 }
 
+@PublishedApi
 internal fun <R> collectStack(continuation: Continuation<R>): SplitSeq<R> =
   findNearestWrapperCont(continuation).deattachFrames(continuation)
 
@@ -364,6 +372,7 @@ private fun <R, T> WrapperCont<T>.deattachFrames(
 ): FramesCont<R, Any?, T> =
   FramesCont(FrameList(Frame(continuation)), seq.also { clear() }, this)
 
+@PublishedApi
 internal tailrec fun <Start> SplitSeq<Start>.frameCont(): FrameCont<Start> =
   when (this) {
     is FrameCont -> this
@@ -371,6 +380,7 @@ internal tailrec fun <Start> SplitSeq<Start>.frameCont(): FrameCont<Start> =
     is PromptCont -> rest.frameCont()
   }
 
+@PublishedApi
 internal fun FrameCont<*>.reattachFrames() = when (this) {
   is EmptyCont<*> -> Unit
   is FramesCont<*, *, *> -> reattachFrames()
@@ -380,6 +390,7 @@ private fun <Start, First, Last> FramesCont<Start, First, Last>.reattachFrames()
   (wrapperCont ?: return).seq = rest
 }
 
+@PublishedApi
 internal fun findNearestSplitSeq(continuation: Continuation<*>): SplitSeq<*> =
   findNearestWrapperCont(continuation).seq
 

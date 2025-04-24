@@ -21,7 +21,7 @@ public interface StatefulHandler<E, S> : Handler<E> {
   public val reader: Reader<S>
 }
 
-public suspend fun <E, S> StatefulHandler<E, S>.get(): S = reader.ask()
+public suspend inline fun <E, S> StatefulHandler<E, S>.get(): S = reader.ask()
 
 public suspend inline fun <A, E> Handler<E>.use(crossinline body: suspend (Cont<A, E>) -> E): A =
   prompt.p.takeSubCont { sk ->
@@ -42,24 +42,23 @@ public fun <E> Handler<E>.discard(body: suspend () -> E): Nothing = prompt.p.abo
 
 public fun <E> Handler<E>.discardWith(value: Result<E>): Nothing = prompt.p.abortWith0(value)
 
-public suspend fun <E> Handler<E>.discardWithFast(value: Result<E>): Nothing = prompt.p.abortWithFast(deleteDelimiter = true, value)
+public suspend inline fun <E> Handler<E>.discardWithFast(value: Result<E>): Nothing = prompt.p.abortWithFast(deleteDelimiter = true, value)
 
-public suspend fun <E> handle(body: suspend HandlerPrompt<E>.() -> E): E = with(HandlerPrompt<E>()) {
+public suspend inline fun <E> handle(crossinline body: suspend HandlerPrompt<E>.() -> E): E = with(HandlerPrompt<E>()) {
   rehandle { body() }
 }
 
 // TODO maybe we should remove this? Effekt gets by without it (but their lambdas are restricted)
-public suspend fun <E> Handler<E>.rehandle(body: suspend () -> E): E = prompt.p.reset(body)
+public suspend inline fun <E> Handler<E>.rehandle(noinline body: suspend () -> E): E = prompt.p.reset(body)
 
-public suspend fun <E, S> handleStateful(
-  value: S, fork: S.() -> S, body: suspend StatefulPrompt<E, S>.() -> E
+public suspend inline fun <E, S> handleStateful(
+  value: S, noinline fork: S.() -> S, crossinline body: suspend StatefulPrompt<E, S>.() -> E
 ): E = with(StatefulPrompt<E, S>()) {
   rehandleStateful(value, fork) { body() }
 }
 
-public suspend fun <E, S> StatefulHandler<E, S>.rehandleStateful(
-  value: S, fork: S.() -> S,
-  body: suspend () -> E
+public suspend inline fun <E, S> StatefulHandler<E, S>.rehandleStateful(
+  value: S, noinline fork: S.() -> S, noinline body: suspend () -> E
 ): E = reader.pushReader(value, fork) {
   rehandle(body)
 }
@@ -75,16 +74,16 @@ public class StatefulPrompt<E, S>(
 ) : StatefulHandler<E, S>, Handler<E> by prompt
 
 // TODO: turn into value class when KT-76583 is fixed
-public class Cont<in T, out R> @PublishedApi internal constructor(private val subCont: SubCont<T, R>) {
-  public suspend fun resumeWith(value: Result<T>): R =
+public class Cont<in T, out R> @PublishedApi internal constructor(@PublishedApi internal val subCont: SubCont<T, R>) {
+  public suspend inline fun resumeWith(value: Result<T>): R =
     subCont.pushSubContWith(value, isDelimiting = true)
 
-  public suspend fun locally(value: suspend () -> T): R =
+  public suspend inline fun locally(noinline value: suspend () -> T): R =
     subCont.pushSubCont(isDelimiting = true, value)
 
-  public suspend operator fun invoke(value: T): R =
+  public suspend inline operator fun invoke(value: T): R =
     resumeWith(Result.success(value))
 
-  public suspend fun resumeWithException(exception: Throwable): R =
+  public suspend inline fun resumeWithException(exception: Throwable): R =
     resumeWith(Result.failure(exception))
 }

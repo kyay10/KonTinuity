@@ -10,6 +10,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 
+@PublishedApi
 internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
   seq.context.trampoline.next(SequenceBodyStep(this, seq))
 }
@@ -18,6 +19,7 @@ private class SequenceBodyStep<T>(private val body: suspend () -> T, override va
   override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(WrapperCont(seq)) }
 }
 
+@PublishedApi
 internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
   receiver: R,
   seq: SplitSeq<T>,
@@ -33,6 +35,7 @@ private class SequenceBodyReceiverStep<T, R>(
   override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(receiver, WrapperCont(seq)) }
 }
 
+@PublishedApi
 internal fun <Start> SplitSeq<Start>.resumeWithIntercepted(result: Result<Start>) {
   val exception = result.exceptionOrNull()
   if (exception is SeekingStackException) exception.use(this)

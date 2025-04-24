@@ -49,10 +49,10 @@ public interface Stateful<S : Stateful<S>> {
   public fun fork(): S
 }
 
-public suspend fun <E, S : Stateful<S>> handleStateful(
-  value: S, body: suspend StatefulPrompt<E, S>.() -> E
+public suspend inline fun <E, S : Stateful<S>> handleStateful(
+  value: S, crossinline body: suspend StatefulPrompt<E, S>.() -> E
 ): E = handleStateful(value, Stateful<S>::fork, body)
 
-public suspend fun <E, S : Stateful<S>> StatefulHandler<E, S>.rehandleStateful(
-  value: S, body: suspend () -> E
+public suspend inline fun <E, S : Stateful<S>> StatefulHandler<E, S>.rehandleStateful(
+  value: S, noinline body: suspend () -> E
 ): E = rehandleStateful(value, Stateful<S>::fork, body)
