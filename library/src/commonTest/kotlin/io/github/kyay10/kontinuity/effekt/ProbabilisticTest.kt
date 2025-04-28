@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.ranges.shouldBeIn
 import io.kotest.matchers.shouldBe
@@ -97,7 +98,7 @@ suspend fun tracing(body: suspend Tracing<Int>.() -> Int): Int = handle {
   }
 }
 
-data class SamplePoint<out R>(val choices: MutableList<Boolean>, val k: Cont<Boolean, R>)
+data class SamplePoint<out R>(val choices: MutableList<Boolean>, val k: SubCont<Boolean, R>)
 
 interface Prob {
   suspend fun flip(): Boolean

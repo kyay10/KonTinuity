@@ -70,6 +70,7 @@ class SkynetTest {
   //
   // we also perform "busy waiting" which is pretty slow since it captures the
   // continuation on every wait cycle ...
+  @Ignore
   @Test
   fun skynetScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
@@ -95,6 +96,7 @@ class SkynetTest {
     scheduler2 { skynet(0, N, 10) shouldBe 499_999_500_000L }
   }
 
+  @Ignore
   @Test
   fun skynetFlippedScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)

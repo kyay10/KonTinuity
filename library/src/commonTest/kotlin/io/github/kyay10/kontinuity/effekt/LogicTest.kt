@@ -19,14 +19,14 @@ class LogicTest {
     withLogic {
       runReader(0) {
         bagOfN {
-          pushReader(ask() + 5) {
+          runReader(ask() + 5) {
             ask()
           }
         } shouldBe listOf(5)
       }
       runReader(0) {
         bagOfN {
-          pushReader(ask() + 5) {
+          runReader(ask() + 5) {
             ask()
           } to ask()
         } shouldBe listOf(5 to 0)
@@ -34,10 +34,10 @@ class LogicTest {
 
       runReader(0) {
         bagOfN {
-          if (flip()) pushReader(ask() + 5) {
+          if (flip()) runReader(ask() + 5) {
             ask()
           } else if (flip()) raise()
-          else pushReader(ask() + 3) {
+          else runReader(ask() + 3) {
             ask()
           }
         } shouldBe listOf(5, 3)
