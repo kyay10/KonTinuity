@@ -38,7 +38,7 @@ private class SequenceBodyReceiverStep<T, R>(
 @PublishedApi
 internal fun <Start> SplitSeq<Start>.resumeWithIntercepted(result: Result<Start>) {
   val exception = result.exceptionOrNull()
-  if (exception is SeekingStackException) exception.use(this)
+  if (exception is SuspendedException) Unit
   else context.trampoline.next(SequenceResumeStep(this, result))
 }
 

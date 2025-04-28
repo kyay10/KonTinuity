@@ -2,7 +2,6 @@ package io.github.kyay10.kontinuity.effekt
 
 import arrow.core.Option
 import arrow.core.toOption
-import io.github.kyay10.kontinuity.ask
 import io.github.kyay10.kontinuity.runReader
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
@@ -200,9 +199,9 @@ object LogicSimple : Logic {
 
   private suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
     block({
-      useWithFinal { (resumeCopy, resumeFinal) ->
-        resumeCopy(true)
-        resumeFinal(false)
+      useTailResumptive { resume ->
+        resume(true)
+        false
       }
     }) {
       discardWithFast(Result.success(Unit))
