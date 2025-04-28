@@ -8,7 +8,7 @@ import kotlin.test.Test
 class FibersTest {
   private val printed = StringBuilder()
   suspend fun Scheduler2.user1() {
-    fork {
+    fastFork {
       printed.appendLine("Hello from fork")
       yield()
       printed.appendLine("World from fork 2")

@@ -1,10 +1,14 @@
 package io.github.kyay10.kontinuity
 
+import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.jvm.JvmInline
+
+@PublishedApi
+internal const val constantTimeOps: Boolean = true
 
 internal expect class StackTraceElement
 internal expect interface CoroutineStackFrame {
@@ -65,8 +69,11 @@ internal tailrec fun <Start, P, FurtherStart> SplitSeq<Start>.splitAtAux(
   prompt: Prompt<P>, seg: Segment<FurtherStart, Start>
 ): Pair<Segment<FurtherStart, P>, SplitSeq<P>> = when (this) {
   is PromptCont if (prompt === this.p) -> {
+    if (this.p.cont !== this) {
+      println("this.p.cont !== this")
+    }
     // Start and P are now unified, but the compiler doesn't get it
-    val pair: Pair<Segment<FurtherStart, Start>, SplitSeq<Start>> = seg to rest
+    val pair: Pair<Segment<FurtherStart, Start>, SplitSeq<Start>> = toSegment(seg) to rest
     @Suppress("UNCHECKED_CAST")
     pair as Pair<Segment<FurtherStart, P>, SplitSeq<P>>
   }
@@ -76,50 +83,60 @@ internal tailrec fun <Start, P, FurtherStart> SplitSeq<Start>.splitAtAux(
 }
 
 @PublishedApi
-internal tailrec fun <Start> SplitSeq<Start>.deleteReader(
-  p: Reader<*>, previous: ExpectsSequenceStartingWith<Start>?
-): Unit = when (this) {
-  is ReaderCont<*, Start> if (p === this.p) -> previous?.rest = rest
-  is EmptyCont -> error("Reader not found $p")
-  is ExpectsSequenceStartingWith<*> -> rest.deleteReader(p, self)
-}
+internal fun <Start, P> SplitSeq<Start>.find(p: Prompt<P>): SplitSeq<P> = if(constantTimeOps) {
+  p.cont!!.rest
+} else findImpl(p)
 
-internal tailrec fun <Start, P> SplitSeq<Start>.find(p: Prompt<P>): SplitSeq<P> = when (this) {
+internal tailrec fun <Start, P> SplitSeq<Start>.findImpl(p: Prompt<P>): SplitSeq<P> = when (this) {
   is PromptCont if (p === this.p) -> {
+    if (this.p.cont !== this) {
+      println("this.p.cont !== this")
+    }
     // Start and P are now unified, but the compiler doesn't get it
     @Suppress("UNCHECKED_CAST")
     rest as SplitSeq<P>
   }
 
   is EmptyCont -> error("Prompt not found $p")
-  is ExpectsSequenceStartingWith<*> -> rest.find(p)
+  is ExpectsSequenceStartingWith<*> -> rest.findImpl(p)
 }
 
-internal tailrec fun <Start, P> SplitSeq<Start>.findSeqBefore(
-  p: Prompt<P>,
-  previous: ExpectsSequenceStartingWith<Start>?
-): ExpectsSequenceStartingWith<P>? = when (this) {
+internal fun <Start, P> SplitSeq<Start>.findCont(p: Prompt<P>): PromptCont<P> = if(constantTimeOps) {
+  p.cont!!
+} else findContImpl(p)
+
+internal tailrec fun <Start, P> SplitSeq<Start>.findContImpl(p: Prompt<P>): PromptCont<P> = when (this) {
   is PromptCont if (p === this.p) -> {
+    if (this.p.cont !== this) {
+      println("this.p.cont !== this")
+    }
     // Start and P are now unified, but the compiler doesn't get it
     @Suppress("UNCHECKED_CAST")
-    previous as ExpectsSequenceStartingWith<P>?
+    this as PromptCont<P>
   }
 
   is EmptyCont -> error("Prompt not found $p")
-
-  is ExpectsSequenceStartingWith<*> -> rest.findSeqBefore(p, self)
+  is ExpectsSequenceStartingWith<*> -> rest.findContImpl(p)
 }
 
 @PublishedApi
-internal tailrec fun <Start, S> SplitSeq<Start>.find(p: Reader<S>): S = when (this) {
+internal fun <Start, S> SplitSeq<Start>.find(p: Reader<S>): S = if(constantTimeOps) {
+  p.cont!!.state
+} else findImpl(p)
+
+@PublishedApi
+internal tailrec fun <Start, S> SplitSeq<Start>.findImpl(p: Reader<S>): S = when (this) {
   is ReaderCont<*, Start> if (p === this.p) -> {
+    if (this.p.cont !== this) {
+      println("reader: this.p.cont !== this")
+    }
     // S == this.S
     @Suppress("UNCHECKED_CAST")
     state as S
   }
 
   is EmptyCont -> error("Reader not found $p")
-  is ExpectsSequenceStartingWith<*> -> rest.find(p)
+  is ExpectsSequenceStartingWith<*> -> rest.findImpl(p)
 }
 
 @PublishedApi
@@ -134,32 +151,38 @@ internal tailrec fun <Start, S> SplitSeq<Start>.findOrNull(p: Reader<S>): S? = w
 }
 
 @PublishedApi
-internal fun <Start, P> SplitSeq<Start>.splitAt(p: Prompt<P>): Pair<Segment<Start, P>, SplitSeq<P>> =
-  splitAtAux(p, EmptySegment)
+internal fun <Start, P> SplitSeq<Start>.splitAt(p: Prompt<P>): Pair<Segment<Start, P>, SplitSeq<P>> {
+  return if(constantTimeOps) {
+    SingleUseSegment(p.cont!!, this).makeReusable() to p.cont!!.rest
+  } else splitAtAux(p, EmptySegment)
+}
 
 @PublishedApi
 internal fun <Start, P> SplitSeq<Start>.splitAtOnce(p: Prompt<P>): Pair<Segment<Start, P>, SplitSeq<P>> {
-  val box = findSeqBefore(p, null)
-  return if (box != null) {
-    SingleUseSegment(box, this) to (box.rest as PromptCont).rest.also {
-      box.clear()
+  if (constantTimeOps) {
+    return SingleUseSegment(p.cont!!, this) to p.cont!!.rest.also {
+      p.cont!!.clear()
     }
-  } else {
-    // Start and P are now unified, but the compiler doesn't get it
-    // because box == null iff this is PromptCont && p === this.p
-    @Suppress("UNCHECKED_CAST")
-    EmptySegment to this as SplitSeq<P>
+  }
+  val box = findCont(p)
+  if (box != p.cont) println("box != p.cont")
+  return SingleUseSegment(box, this) to box.rest.also {
+      box.clear()
   }
 }
 
 @PublishedApi
 internal fun <P> SplitSeq<P>.pushPrompt(p: Prompt<P>): PromptCont<P> =
-  PromptCont(p, this)
+  PromptCont(p, this).also {
+    p.cont = it
+  }
 
 @PublishedApi
 internal fun <S, P> SplitSeq<P>.pushReader(
   p: Reader<S>, value: S, fork: S.() -> S
-): ReaderCont<S, P> = ReaderCont(p, value, fork, this)
+): ReaderCont<S, P> = ReaderCont(p, value, fork, this).also {
+    p.cont = it
+  }
 
 internal data class EmptyCont<Start>(val underlying: Continuation<Start>) : FrameCont<Start> {
   override val context: CoroutineContext = underlying.context
@@ -235,7 +258,7 @@ internal class WrapperCont<T>(seq: SplitSeq<T>, isWaitingForValue: Boolean = fal
 
   inline fun usingResult(block: (Result<T>) -> Unit) {
     contract {
-      callsInPlace(block, kotlin.contracts.InvocationKind.AT_MOST_ONCE)
+      callsInPlace(block, InvocationKind.AT_MOST_ONCE)
     }
     val result = result
     endWaitingForValue()
@@ -295,9 +318,9 @@ internal data class PromptCont<Start>(
 internal data class ReaderCont<State, Start>(
   val p: Reader<State>,
   private var _state: State,
-  private val fork: State.() -> State,
+  val fork: State.() -> State,
   override var _rest: SplitSeq<Start>?,
-  private var forkOnFirstRead: Boolean = false
+  var forkOnFirstRead: Boolean = false
 ) : Segmentable<Start, Start>(_rest?.context ?: EmptyCoroutineContext) {
   val state: State
     get() {
@@ -330,21 +353,13 @@ internal tailrec infix fun <Start, End> Segment<Start, End>.prependTo(stack: Spl
 
     is SingleUseSegment -> {
       box.rest = stack
+      if (hasBeenCopied) {
+        repushValues()
+      }
       cont
     }
 
     is Contable<Start, *, End> -> init prependTo toCont(stack)
-  }
-
-@PublishedApi
-internal infix fun <Start, End> Segment<Start, End>.pushPrompt(prompt: Prompt<End>): Segment<Start, End> =
-  when (this) {
-    is SingleUseSegment -> {
-      val newBox = PromptCont(prompt, null)
-      box.rest = newBox
-      SingleUseSegment(newBox, cont)
-    }
-    else -> PromptSegment(prompt, this)
   }
 
 internal data object EmptySegment : Segment<Any?, Nothing>
@@ -364,23 +379,49 @@ internal data class UnderSegment<FurtherStart, Start, End>(
 internal data class PromptSegment<Start, End>(
   val prompt: Prompt<End>, override val init: Segment<Start, End>
 ) : Contable<Start, End, End> {
-  override fun toCont(stack: SplitSeq<End>): SplitSeq<End> = PromptCont(prompt, stack)
+  override fun toCont(stack: SplitSeq<End>): SplitSeq<End> = stack.pushPrompt(prompt)
 }
 
 internal data class ReaderSegment<State, Start, End>(
   val prompt: Reader<State>, val state: State, val fork: State.() -> State, override val init: Segment<Start, End>
 ) : Contable<Start, End, End> {
-  override fun toCont(stack: SplitSeq<End>): SplitSeq<End> = ReaderCont(
-    prompt, state, fork, stack, forkOnFirstRead = true
-  )
+  override fun toCont(stack: SplitSeq<End>): SplitSeq<End> = stack.pushReader(prompt, state, fork).apply {
+    forkOnFirstRead = true
+  }
 }
 
 // Expects that cont eventually refers to box
+@PublishedApi
 internal data class SingleUseSegment<Start, End>(
-  val box: ExpectsSequenceStartingWith<End>, val cont: SplitSeq<Start>
+  val box: ExpectsSequenceStartingWith<End>, val cont: SplitSeq<Start>, var hasBeenCopied: Boolean = false
 ) : Segment<Start, End> {
-  fun makeReusable(): Segment<Start, End> = cont.makeReusable(box, EmptySegment)
+  @PublishedApi internal fun makeReusable(): Segment<Start, End> = cont.makeReusable(box, EmptySegment).also {
+    this.hasBeenCopied = true
+  }
+
+  fun repushValues() {
+    cont.repushValues(box)
+  }
 }
+
+private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
+  box: ExpectsSequenceStartingWith<End>
+): Unit = when (this) {
+  is PromptCont -> {
+    p.cont = this
+    if(box !== this) rest.repushValues(box) else Unit
+  }
+  is ReaderCont<*, Start> -> {
+    p as Reader<Any?>
+    p.cont = this as ReaderCont<Any?, Start>
+    rest.repushValues(box)
+  }
+  is EmptyCont -> error("Box not found $box in $this")
+  is ExpectsSequenceStartingWith<*> -> {
+    rest.repushValues(box)
+  }
+}
+
 
 private tailrec fun <Start, End, FurtherStart> SplitSeq<Start>.makeReusable(
   box: ExpectsSequenceStartingWith<End>, seg: Segment<FurtherStart, Start>

@@ -32,24 +32,18 @@ class ArrowTest {
   @Test
   fun resetTest() = runTestCC {
     newReset {
-      reset {
-        shift { it(1) }
-      }
+      shift { it(1) }
     } shouldBe 1
   }
 
   // This comes from http://homes.sice.indiana.edu/ccshan/recur/recur.pdf and shows how reset/shift should behave
   @Test
   fun multishotResetShift() = runTestCC {
-    newReset<List<Char>> {
-      listOf('a') + reset {
-        listOf('b') + shift<List<Char>, _> { f -> listOf('1') + f(f(listOf('c'))) }
-      }
+    listOf('a') + newReset<List<Char>> {
+      listOf('b') + shift<List<Char>, _> { f -> listOf('1') + f(f(listOf('c'))) }
     } shouldBe listOf('a', '1', 'b', 'b', 'c')
-    newReset<List<Char>> {
-      listOf('a') + reset {
-        listOf('b') + shift<List<Char>, _> { f -> listOf('1') + f(f(listOf('c'))) }
-      }
+    listOf('a') + newReset<List<Char>> {
+      listOf('b') + shift<List<Char>, _> { f -> listOf('1') + f(f(listOf('c'))) }
     } shouldBe listOf('a', '1', 'b', 'b', 'c')
   }
 
@@ -57,12 +51,6 @@ class ArrowTest {
   //  captured continuation and the function receiving it with reset.
   @Test
   fun shiftAndControlDistinction() = runTestCC {
-    newReset<String> {
-      reset {
-        suspend fun y() = shift<String, _> { f -> "a" + f("") }
-        shift<String, _> { y() }
-      }
-    } shouldBe "a"
     // TODO this is not very accurate, probably not correct either
     newReset<String> {
       shift { it("") }

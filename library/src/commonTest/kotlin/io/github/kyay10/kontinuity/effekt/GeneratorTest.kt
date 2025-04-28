@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -103,7 +104,7 @@ class EffectfulIteratorImpl<A>(var current: EffectfulIteratorStep<A>) : Effectfu
 }
 
 sealed interface EffectfulIteratorStep<out A> {
-  data class Value<A>(val value: A, val next: Cont<Unit, EffectfulIteratorStep<A>>) : EffectfulIteratorStep<A>
+  data class Value<A>(val value: A, val next: SubCont<Unit, EffectfulIteratorStep<A>>) : EffectfulIteratorStep<A>
   object Done : EffectfulIteratorStep<Nothing>
 }
 

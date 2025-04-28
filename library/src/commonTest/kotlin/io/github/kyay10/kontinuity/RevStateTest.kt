@@ -55,10 +55,4 @@ suspend fun <S, R> RevState<S, R>.setLazy(value: suspend () -> S): Unit = shift 
   value to r
 }
 
-suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> {
-  val state = RevState<S, R>()
-  return state.pushRevState(value) { state.body() }
-}
-
-suspend fun <S, R> RevState<S, R>.pushRevState(value: S, body: suspend () -> R): Pair<suspend () -> S, R> =
-  pushPrompt { suspend { value } to body() }
+suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> = newReset { suspend { value } to body() }

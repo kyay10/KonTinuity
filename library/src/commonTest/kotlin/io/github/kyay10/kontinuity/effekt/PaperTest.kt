@@ -3,8 +3,6 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
-import arrow.core.identity
-import io.github.kyay10.kontinuity.pushReader
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
 import io.kotest.matchers.shouldBe
@@ -195,27 +193,29 @@ suspend fun <R> firstResult(block: suspend context(Amb, Exc) () -> R): Option<R>
 class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Unit, Queue> by prompt {
   override suspend fun exit(): Nothing = discard {}
   override suspend fun fork(): Boolean = use { resume ->
-    run(listOf(suspend { resume(true) }, suspend { resume(false) }) + get())
+    get().add(0) { resume(false) }
+    get().add(0) { resume(true) }
+    run()
   }
 
   override suspend fun suspend() = use { resume ->
-    run(get() + { resume(Unit) })
+    get().add { resume(Unit) }
+    run()
   }
 }
 
-suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(emptyList(), ::identity) {
+suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(mutableListOf(), Queue::toMutableList) {
   Scheduler(this).block()
 }
 
-private suspend fun StatefulHandler<Unit, Queue>.run(q: Queue) {
+private suspend fun StatefulHandler<Unit, Queue>.run() {
+  val q = get()
   if (q.isNotEmpty()) {
-    reader.pushReader(q.drop(1)) {
-      q.first()()
-    }
+    q.removeFirst()()
   }
 }
 
-typealias Queue = List<suspend () -> Unit>
+typealias Queue = MutableList<suspend () -> Unit>
 
 fun interface Input {
   suspend fun read(): Char

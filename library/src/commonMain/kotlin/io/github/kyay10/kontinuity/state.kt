@@ -12,9 +12,4 @@ public suspend fun <T> State<T>.get() = ask().value
 
 public suspend inline fun <T> State<T>.modify(f: (T) -> T) = set(f(get()))
 
-public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R = with(State<T>()) {
-  pushState(value) { body() }
-}
-
-public suspend fun <T, R> State<T>.pushState(value: T, body: suspend () -> R): R =
-  pushReader(StateValue(value), { copy() }, body)
+public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R = runReader(StateValue(value), { copy() }, body)

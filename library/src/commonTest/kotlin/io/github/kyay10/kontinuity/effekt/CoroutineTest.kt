@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -128,7 +129,7 @@ class Yielder<In, Out, Result>(prompt: HandlerPrompt<CoroutineState<In, Out, Res
 }
 
 sealed interface CoroutineState<in In, out Out, out Result> {
-  data class Paused<in In, out Out, out Result>(val k: Cont<In, CoroutineState<In, Out, Result>>, val yieldValue: Out) :
+  data class Paused<in In, out Out, out Result>(val k: SubCont<In, CoroutineState<In, Out, Result>>, val yieldValue: Out) :
     CoroutineState<In, Out, Result>
 
   data class Done<Result>(val result: Result) : CoroutineState<Any?, Nothing, Result>

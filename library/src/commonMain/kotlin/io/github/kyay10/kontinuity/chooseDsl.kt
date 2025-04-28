@@ -11,32 +11,16 @@ import kotlinx.coroutines.flow.produceIn
 
 /** MonadFail-style errors */
 private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R) : Raise<Unit> {
-  override fun raise(r: Unit): Nothing = prompt.abort(failValue)
+  override fun raise(r: Unit): Nothing = prompt.abortWith(Result.success(failValue))
 }
 
 public typealias Choose = Prompt<Unit>
 
-public suspend fun <R> Choose.pushChoice(body: suspend () -> R, handler: suspend (R) -> Unit) {
-  pushPrompt {
-    handler(body())
-  }
-}
-
 public suspend fun <R> runChoice(
   body: suspend context(SingletonRaise<Unit>, Choose) () -> R, handler: suspend (R) -> Unit
-): Unit = with(Choose()) {
-  pushChoice({
-    body(SingletonRaise(PromptFail(this, Unit)), this)
-  }, handler)
+): Unit = newReset {
+  handler(body(SingletonRaise(PromptFail(this, Unit)), this))
 }
-
-public suspend fun <R> Choose.pushList(body: suspend () -> R): List<R> =
-  runReader(mutableListOf(), MutableList<R>::toMutableList) {
-    pushChoice(body) {
-      ask().add(it)
-    }
-    ask()
-  }
 
 public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =
   runReader(mutableListOf(), MutableList<R>::toMutableList) {
@@ -110,7 +94,7 @@ public inline fun IntProgression.forEachIteratorless(block: (Int) -> Unit) {
   }
 }
 
-public inline fun  <T> List<T>.forEachIteratorless(block: (T) -> Unit) {
+public inline fun <T> List<T>.forEachIteratorless(block: (T) -> Unit) {
   var index = 0
   while (index <= size - 1) {
     block(get(index))
