@@ -10,7 +10,8 @@ public interface StatefulHandler<E, S> : Handler<E> {
   public val reader: Reader<S>
 }
 
-public suspend inline fun <E, S> StatefulHandler<E, S>.get(): S = reader.ask()
+public fun <E, S> StatefulHandler<E, S>.get(): S = reader.ask()
+public val <E, S> StatefulHandler<E, S>.value: S get() = reader.value
 
 public suspend inline fun <A, E> Handler<E>.use(noinline body: suspend (SubCont<A, E>) -> E): A =
   prompt.shift(body)
@@ -18,11 +19,8 @@ public suspend inline fun <A, E> Handler<E>.use(noinline body: suspend (SubCont<
 public suspend inline fun <A, E> Handler<E>.useOnce(noinline body: suspend (SubCont<A, E>) -> E): A =
   prompt.shiftOnce(body)
 
-public suspend fun <A> Handler<*>.useTailResumptive(body: suspend () -> A): A =
+public suspend fun <A, R> Handler<R>.useTailResumptive(body: suspend (SubCont<A, R>) -> A): A =
   prompt.inHandlingContext(body)
-
-public suspend fun <A, R> Handler<R>.useTailResumptiveWithCont(body: suspend (SubCont<A, R>) -> A): A =
-  prompt.inHandlingContextWithSubCont(body)
 
 public suspend inline fun <A, E> Handler<E>.useWithFinal(noinline body: suspend (Pair<SubCont<A, E>, SubCont<A, E>>) -> E): A =
   prompt.shiftWithFinal(body)

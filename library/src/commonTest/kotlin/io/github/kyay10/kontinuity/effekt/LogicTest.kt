@@ -231,6 +231,15 @@ class LogicTest {
       } shouldBe (1..9 step 2).toList()
     }
   }
+
+  @Test
+  fun readerInside() = runTestCC {
+    withLogic {
+      bagOfN(2) {
+        runReader(0) { if(flip()) 0 else 1 }
+      } shouldBe (0..1).toList()
+    }
+  }
 }
 
 context(_: Logic, _: Amb, _: Exc)

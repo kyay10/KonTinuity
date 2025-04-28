@@ -19,7 +19,7 @@ class TicTacToeTest {
   @Ignore
   @Test
   fun aiPrimeTest() = runTestCC(timeout = 10.minutes) {
-    with(LogicTree) {
+    with(LogicSimple) {
       game(Mark.X, aiPrime, Mark.O, aiPrime)
     }
   }

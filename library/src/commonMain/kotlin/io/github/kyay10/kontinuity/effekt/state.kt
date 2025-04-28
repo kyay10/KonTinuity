@@ -1,18 +1,17 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.Reader
-import io.github.kyay10.kontinuity.ask
 import io.github.kyay10.kontinuity.runReader
 
 public interface StateScope {
-  public suspend fun <T> field(init: T): Field<T>
+  public fun <T> field(init: T): Field<T>
   public interface Field<T> {
-    public suspend fun get(): T
-    public suspend fun set(value: T)
+    public fun get(): T
+    public fun set(value: T)
   }
 }
 
-public suspend inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
+public inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
   set(f(get()))
 }
 
@@ -33,13 +32,13 @@ private class TypedMutableMap private constructor(private val map: MutableMap<Ke
 }
 
 private class StateScopeImpl(private val reader: Reader<TypedMutableMap>) : StateScope {
-  override suspend fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().also {
+  override fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().also {
     reader.ask()[it] = init
   }
 
   private inner class FieldImpl<T> : StateScope.Field<T>, TypedMutableMap.Key<T> {
-    override suspend fun get(): T = reader.ask()[this]
-    override suspend fun set(value: T) {
+    override fun get(): T = reader.ask()[this]
+    override fun set(value: T) {
       reader.ask()[this] = value
     }
   }
