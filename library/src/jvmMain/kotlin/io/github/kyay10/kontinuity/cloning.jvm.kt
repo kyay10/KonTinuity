@@ -14,17 +14,9 @@ private val contClass = Class.forName("kotlin.coroutines.jvm.internal.Continuati
 private val completionField = baseContClass.getDeclaredField("completion").apply { isAccessible = true }
 private val interceptedField = contClass.getDeclaredField("intercepted").apply { isAccessible = true }
 private val contextField = contClass.getDeclaredField("_context").apply { isAccessible = true }
-private val coroutineOwnerClass = Class.forName("kotlinx.coroutines.debug.internal.DebugProbesImpl\$CoroutineOwner")
-private val coroutineOwnerConstructor = coroutineOwnerClass.declaredConstructors.first().apply { isAccessible = true }
-private val delegateField = coroutineOwnerClass.getDeclaredField("delegate").apply { isAccessible = true }
-private val infoField = coroutineOwnerClass.getDeclaredField("info").apply { isAccessible = true }
 
 internal actual val Continuation<*>.completion: Continuation<*>
-  get() = when {
-    coroutineOwnerClass.isInstance(this) -> delegateField.get(this) as? Continuation<*>
-    this is CoroutineStackFrame -> callerFrame as? Continuation<*>
-    else -> null
-  } ?: error("Not a compiler generated or debug continuation $this")
+  get() = (this as? CoroutineStackFrame)?.callerFrame as? Continuation<*> ?: error("Not a compiler generated or debug continuation $this")
 private val cache = hashMapOf<Class<*>, Array<java.lang.reflect.Field>>()
 
 private tailrec fun <T> copyDeclaredFields(
@@ -52,20 +44,14 @@ private tailrec fun <T> copyDeclaredFields(
 }
 
 @Suppress("UNCHECKED_CAST")
-internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> = when {
-  baseContClass.isInstance(this) -> {
-    val clazz = javaClass
-    val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
-    completionField.set(copy, completion)
-    if (contClass.isInstance(this)) {
-      contextField.set(copy, completion.context)
-      interceptedField.set(copy, null)
-    }
-    copyDeclaredFields(this, copy, clazz)
-    copy
+internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>{
+  val clazz = javaClass
+  val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
+  completionField.set(copy, completion)
+  if (contClass.isInstance(this)) {
+    contextField.set(copy, completion.context)
+    interceptedField.set(copy, null)
   }
-
-  else -> {
-    coroutineOwnerConstructor.newInstance(completion, infoField.get(this)) as Continuation<T>
-  }
+  copyDeclaredFields(this, copy, clazz)
+  return copy
 }
