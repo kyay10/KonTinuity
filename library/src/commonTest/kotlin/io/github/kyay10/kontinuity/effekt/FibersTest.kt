@@ -120,31 +120,6 @@ class CanResume<A> : Fibre<A> {
 
 class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit>) :
   Handler<Unit> by prompt {
-  suspend fun fork(): Boolean = useWithFinal { (k, final) ->
-    tasks.addLast { final(true) }
-    k(false)
-  }
-
-  suspend inline fun forkFlipped(task: Task) {
-    if (!fork()) {
-      task()
-      discardWithFast(Result.success(Unit))
-    }
-  }
-
-  suspend inline fun fork(task: Task) {
-    // TODO this reveals an inefficiency in the SplitSeq code
-    //  because here the frames up to the prompt are never used
-    //  so we should never have to copy them, but seemingly we copy
-    //  at least the SplitSeq elements by turning them into Segments
-    //  so maybe we can delay segment creation?
-    // Something something reflection without remorse?
-    if (fork()) {
-      task()
-      discardWithFast(Result.success(Unit))
-    }
-  }
-
   fun fastFork(task: suspend Scheduler2.() -> Unit) {
     tasks.addLast {
       handle {
