@@ -76,6 +76,7 @@ kotlin {
       dependencies {
         implementation(libs.arrow.core)
         implementation(libs.arrow.fx.coroutines)
+        implementation(libs.kotlinx.immutable.collections)
         api(libs.kotlinx.coroutines.core)
       }
     }
@@ -83,7 +84,6 @@ kotlin {
       dependencies {
         implementation(libs.kotlin.test)
         implementation(libs.kotlinx.coroutines.test)
-        implementation(libs.kotlinx.immutable.collections)
         implementation(libs.kotest.assertions.core)
         implementation(libs.kotest.property)
         implementation(libs.turbine)
