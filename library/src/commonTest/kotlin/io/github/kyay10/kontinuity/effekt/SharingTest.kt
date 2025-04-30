@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import arrow.core.getOrElse
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.PersistentList
@@ -68,18 +69,17 @@ class SharingTest {
   }
 }
 
-sealed interface Thunk<out A>
-data class Uneval<out A>(val thunk: suspend () -> A) : Thunk<A>
-data class Eval<out A>(val value: A) : Thunk<A>
-
 context(_: StateScope)
-suspend fun <A> memo(block: suspend () -> A): suspend () -> A {
-  val key = field<Thunk<A>>(Uneval(block))
-  return {
-    when (val thunk = key.get()) {
-      is Eval -> thunk.value
-      is Uneval -> thunk.thunk().also { key.set(Eval(it)) }
-    }
+suspend fun <A> memo(block: suspend () -> A): suspend () -> A = Memoized(field(), block)
+
+private class Memoized<A>(
+  private val key: StateScope.OptionalField<A>,
+  private val block: suspend () -> A
+) : suspend () -> A {
+  override suspend fun invoke(): A = key.getOrNone().getOrElse {
+    val value = block()
+    key.set(value)
+    value
   }
 }
 
@@ -104,6 +104,7 @@ suspend fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
 
 suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R = persistentRegion {
   block(object : Sharing {
-    override suspend fun <A> share(block: suspend () -> A): suspend () -> A = memo { block().shareArgs() }
+    override suspend fun <A> share(block: suspend () -> A): suspend () -> A =
+      if (block is Memoized<*>) block else memo { block().shareArgs() }
   })
 }
