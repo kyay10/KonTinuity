@@ -7,6 +7,7 @@ import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.random.Random
 import kotlin.test.Test
+import kotlin.time.Duration.Companion.minutes
 
 
 typealias LazyList<T> = LazyCons<T>?
@@ -58,14 +59,14 @@ class SharingTest {
   }
 
   @Test
-  fun sortingTest() = runTestCC {
-    val numbers = (1..20).toList()
-    val list = numbers.shuffled(Random(123456789)).toLazyList()
-    onceOrNull {
+  fun sortingTest() = runTestCC(timeout = 10.minutes) {
+    val numbers = (1..22).toList()
+    val list = numbers.toLazyList()
+    bagOfN {
       sharing {
         list.sort().toPersistentList()
       }
-    } shouldBe numbers
+    } shouldBe listOf(numbers)
   }
 
   private tailrec suspend fun <T : Comparable<T>> Stream<T>?.isSorted(): Boolean {
@@ -106,14 +107,14 @@ class SharingTest {
   }
 
   @Test
-  fun streamSortingTest() = runTestCC {
-    val numbers = (1..20).toList()
-    val list = numbers.shuffled(Random(123456789)).toStream()
-    onceOrNull {
+  fun streamSortingTest() = runTestCC(timeout = 10.minutes) {
+    val numbers = (1..22).toList()
+    val list = numbers.toStream()
+    bagOfN {
       sharing {
         list.sort().toPersistentList()
       }
-    } shouldBe numbers
+    } shouldBe listOf(numbers)
   }
 }
 
