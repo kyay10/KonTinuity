@@ -26,7 +26,11 @@ internal value class Frame<in A, B>(val cont: Continuation<A>) {
 @JvmInline
 internal value class FrameList<in Start, First, out End>(val frame: Frame<Start, First>) {
   val head get() = frame
-  val tail: FrameList<First, *, End>? get() = frame.completion.takeUnless { it.cont is WrapperCont }?.let(::FrameList)
+  val tail: FrameList<First, *, End>? get() {
+    val completion = frame.completion
+    return if (completion.cont is WrapperCont) null
+    else FrameList(completion)
+  }
 }
 
 internal sealed interface SplitSeq<in Start> : CoroutineStackFrame {
@@ -207,14 +211,17 @@ internal class WrapperCont<T>(seq: SplitSeq<T>, isWaitingForValue: Boolean = fal
     _seq = null
   }
 
-  private var result: Result<T> = if (isWaitingForValue) waitingForValue else hasBeenIntercepted
+  @Suppress("UNCHECKED_CAST")
+  private var result: Result<T> = (if (isWaitingForValue) waitingForValue else hasBeenIntercepted) as Result<T>
 
+  @Suppress("UNCHECKED_CAST")
   fun beginWaitingForValue() {
-    result = waitingForValue
+    result = waitingForValue as Result<T>
   }
 
+  @Suppress("UNCHECKED_CAST")
   fun endWaitingForValue() {
-    result = hasBeenIntercepted
+    result = hasBeenIntercepted as Result<T>
   }
 
   inline fun usingResult(block: (Result<T>) -> Unit) {
@@ -222,8 +229,9 @@ internal class WrapperCont<T>(seq: SplitSeq<T>, isWaitingForValue: Boolean = fal
       callsInPlace(block, kotlin.contracts.InvocationKind.AT_MOST_ONCE)
     }
     val result = result
+    val resultOrNull = result.getOrNull()
     endWaitingForValue()
-    if (result != waitingForValue && result != hasBeenIntercepted) {
+    if (Sentinel.WaitingForValue !== resultOrNull && Sentinel.HasBeenIntercepted !== resultOrNull) {
       block(result)
     }
   }
@@ -236,7 +244,7 @@ internal class WrapperCont<T>(seq: SplitSeq<T>, isWaitingForValue: Boolean = fal
   override val context: CoroutineContext get() = this
 
   override fun resumeWith(result: Result<T>) {
-    if (this.result == waitingForValue) {
+    if (this.result.getOrNull() === Sentinel.WaitingForValue) {
       this.result = result
     } else {
       checkNotNull(_seq) { "No sequence to resume with result $result" }.resumeWith(result)
@@ -262,13 +270,13 @@ internal class WrapperCont<T>(seq: SplitSeq<T>, isWaitingForValue: Boolean = fal
     realContext[key]
 }
 
-private data object WaitingForValue : Throwable()
+internal enum class Sentinel {
+  WaitingForValue, HasBeenIntercepted
+}
 
-private val waitingForValue = Result.failure<Nothing>(WaitingForValue)
+private val waitingForValue: Result<*> = Result.success(Sentinel.WaitingForValue)
 
-private data object HasBeenIntercepted : Throwable()
-
-private val hasBeenIntercepted = Result.failure<Nothing>(HasBeenIntercepted)
+private val hasBeenIntercepted = Result.success(Sentinel.HasBeenIntercepted)
 
 internal data class PromptCont<Start>(
   val p: Prompt<Start>, override var _rest: SplitSeq<Start>?

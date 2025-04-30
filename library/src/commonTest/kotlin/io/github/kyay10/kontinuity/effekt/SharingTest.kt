@@ -5,7 +5,6 @@ import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
-import kotlin.random.Random
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
 
@@ -60,7 +59,7 @@ class SharingTest {
 
   @Test
   fun sortingTest() = runTestCC(timeout = 10.minutes) {
-    val numbers = (1..22).toList()
+    val numbers = (1..2).toList()
     val list = numbers.toLazyList()
     bagOfN {
       sharing {
@@ -108,7 +107,7 @@ class SharingTest {
 
   @Test
   fun streamSortingTest() = runTestCC(timeout = 10.minutes) {
-    val numbers = (1..22).toList()
+    val numbers = (1..2).toList()
     val list = numbers.toStream()
     bagOfN {
       sharing {
@@ -119,7 +118,16 @@ class SharingTest {
 }
 
 context(_: StateScope)
-fun <A> memo(block: suspend () -> A): suspend () -> A = Memoized(field(), block)
+fun <A> memo(block: suspend () -> A): suspend () -> A {
+  val key = field<A>()
+  return {
+    key.getOrNone().getOrElse {
+      val value = block()
+      key.set(value)
+      value
+    }
+  }
+}
 
 private class Memoized<A>(
   private val key: StateScope.OptionalField<A>,

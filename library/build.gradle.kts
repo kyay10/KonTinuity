@@ -2,7 +2,6 @@
 
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
@@ -25,11 +24,8 @@ kotlin {
   }
   explicitApi()
   // Matching the targets from Arrow
-  jvm {
-    compilerOptions {
-      jvmTarget = JvmTarget.JVM_11
-    }
-  }
+  jvm()
+  jvmToolchain(11)
   js(IR) {
     browser()
     nodejs {
