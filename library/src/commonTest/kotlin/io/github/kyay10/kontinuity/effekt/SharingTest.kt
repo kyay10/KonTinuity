@@ -67,6 +67,54 @@ class SharingTest {
       }
     } shouldBe numbers
   }
+
+  private tailrec suspend fun <T : Comparable<T>> Stream<T>?.isSorted(): Boolean {
+    this ?: return true
+    val stream = tail() ?: return true
+    return if (value <= stream.value) stream.isSorted() else false
+  }
+
+  context(_: Amb, _: Exc)
+  private suspend fun <T> Stream<T>?.perm(): Stream<T>? {
+    this ?: return null
+    return insertStream(value) { tail()?.perm() }
+  }
+
+  context(_: Sharing, _: Amb, _: Exc)
+  private suspend fun <T : Comparable<T>> Stream<T>?.sort(): Stream<T>? {
+    val permutation = share { perm() }
+    ensure(permutation().isSorted())
+    return permutation()
+  }
+
+  context(_: Amb, _: Exc)
+  private suspend fun <T> insertStream(x: T, mxs: (suspend () -> Stream<T>?)?): Stream<T> = when {
+    flip() -> Stream(x, mxs)
+    else -> {
+      val (y, mys) = mxs?.invoke() ?: raise()
+      Stream(y) { insertStream(x, mys) }
+    }
+  }
+
+  private suspend fun <T> Stream<T>?.toPersistentList(): PersistentList<T> {
+    this ?: return persistentListOf()
+    return tail().toPersistentList().add(0, value)
+  }
+
+  private fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
+    Stream(i) { acc }
+  }
+
+  @Test
+  fun streamSortingTest() = runTestCC {
+    val numbers = (1..20).toList()
+    val list = numbers.shuffled(Random(123456789)).toStream()
+    onceOrNull {
+      sharing {
+        list.sort().toPersistentList()
+      }
+    } shouldBe numbers
+  }
 }
 
 context(_: StateScope)
