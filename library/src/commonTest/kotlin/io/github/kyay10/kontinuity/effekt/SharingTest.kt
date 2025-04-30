@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import arrow.core.getOrElse
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.PersistentList
@@ -12,7 +13,7 @@ typealias LazyList<T> = LazyCons<T>?
 
 data class LazyCons<out T>(val head: suspend () -> T, val tail: suspend () -> LazyList<T>) : Shareable<LazyCons<T>> {
   context(_: Sharing)
-  override suspend fun shareArgs() = LazyCons(share(head), share(tail))
+  override fun shareArgs() = LazyCons(share(head), share(tail))
 }
 
 class SharingTest {
@@ -68,35 +69,34 @@ class SharingTest {
   }
 }
 
-sealed interface Thunk<out A>
-data class Uneval<out A>(val thunk: suspend () -> A) : Thunk<A>
-data class Eval<out A>(val value: A) : Thunk<A>
-
 context(_: StateScope)
-fun <A> memo(block: suspend () -> A): suspend () -> A {
-  val key = field<Thunk<A>>(Uneval(block))
-  return {
-    when (val thunk = key.get()) {
-      is Eval -> thunk.value
-      is Uneval -> thunk.thunk().also { key.set(Eval(it)) }
-    }
+fun <A> memo(block: suspend () -> A): suspend () -> A = Memoized(field(), block)
+
+private class Memoized<A>(
+  private val key: StateScope.OptionalField<A>,
+  private val block: suspend () -> A
+) : suspend () -> A {
+  override suspend fun invoke(): A = key.getOrNone().getOrElse {
+    val value = block()
+    key.set(value)
+    value
   }
 }
 
 interface Sharing {
-  suspend fun <A> share(block: suspend () -> A): suspend () -> A
+  fun <A> share(block: suspend () -> A): suspend () -> A
 }
 
 context(s: Sharing)
-suspend fun <A> share(block: suspend () -> A): suspend () -> A = s.share(block)
+fun <A> share(block: suspend () -> A): suspend () -> A = s.share(block)
 
 interface Shareable<out A : Shareable<A>> {
   context(_: Sharing)
-  suspend fun shareArgs(): A
+  fun shareArgs(): A
 }
 
 context(_: Sharing)
-suspend fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
+fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
   // Technically unsafe, but as long as all implementations use a self-type, we're fine
   @Suppress("UNCHECKED_CAST")
   shareArgs() as A
@@ -104,6 +104,7 @@ suspend fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
 
 suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R = persistentRegion {
   block(object : Sharing {
-    override suspend fun <A> share(block: suspend () -> A): suspend () -> A = memo { block().shareArgs() }
+    override fun <A> share(block: suspend () -> A): suspend () -> A =
+      if (block is Memoized<*>) block else memo { block().shareArgs() }
   })
 }
