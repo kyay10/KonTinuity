@@ -7,12 +7,16 @@ import arrow.core.toOption
 import io.github.kyay10.kontinuity.ask
 import io.github.kyay10.kontinuity.runReader
 
-data class Stream<out A>(val value: A, val next: (suspend () -> Stream<A>?)?) {
+data class Stream<out A>(val value: A, val next: (suspend () -> Stream<A>?)?): Shareable<Stream<A>> {
   context(_: Amb, _: Exc)
   suspend fun reflect(): A {
     forEach { isLast, a -> if (isLast || flip()) return a }
     raise()
   }
+  suspend fun tail(): Stream<A>? = next?.invoke()
+
+  context(_: Sharing)
+  override fun shareArgs(): Stream<A> = Stream(value.shareArgs(), next?.let { share(it) })
 }
 
 context(_: Amb, _: Exc)
@@ -22,7 +26,7 @@ suspend inline fun <A> Stream<A>?.forEach(block: (isLast: Boolean, A) -> Unit) {
   var branch = this
   while (branch != null) {
     block(branch.next == null, branch.value)
-    branch = branch.next?.invoke()
+    branch = branch.tail()
   }
 }
 

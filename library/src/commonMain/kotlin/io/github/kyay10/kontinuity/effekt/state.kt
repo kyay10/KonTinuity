@@ -9,7 +9,7 @@ import kotlinx.collections.immutable.persistentMapOf
 
 public interface StateScope {
   public suspend fun <T> field(init: T): Field<T>
-  public suspend fun <T> field(): OptionalField<T>
+  public fun <T> field(): OptionalField<T>
 
   public interface Field<T> {
     public suspend fun get(): T
@@ -26,7 +26,7 @@ context(s: StateScope)
 public suspend inline fun <T> field(init: T): StateScope.Field<T> = s.field(init)
 
 context(s: StateScope)
-public suspend inline fun <T> field(): StateScope.OptionalField<T> = s.field()
+public fun <T> field(): StateScope.OptionalField<T> = s.field()
 
 public suspend inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
   set(f(get()))
@@ -88,7 +88,7 @@ private class MutableStateScope(private val reader: Reader<MutableTypedMap>) : S
     reader.ask()[it] = init
   }
 
-  override suspend fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
+  override fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
 
   private inner class FieldImpl<T> : StateScope.Field<T>, StateScope.OptionalField<T>, MutableTypedMap.Key<T> {
     override suspend fun get(): T = reader.ask()[this]
@@ -104,7 +104,7 @@ private class PersistentStateScope(private val state: State<PersistentTypedMap>)
     state.modify { it.put(field, init) }
   }
 
-  override suspend fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
+  override fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
 
   private inner class FieldImpl<T> : StateScope.Field<T>, StateScope.OptionalField<T>, PersistentTypedMap.Key<T> {
     override suspend fun get(): T = state.get()[this]
