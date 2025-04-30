@@ -2,6 +2,7 @@ package io.github.kyay10.kontinuity
 
 import kotlin.coroutines.Continuation
 import java.lang.reflect.Modifier
+import kotlin.coroutines.jvm.internal.CloningUtils
 
 internal actual typealias CoroutineStackFrame = kotlin.coroutines.jvm.internal.CoroutineStackFrame
 internal actual typealias StackTraceElement = java.lang.StackTraceElement
@@ -12,11 +13,10 @@ private val UNSAFE = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsaf
 private val baseContClass = Class.forName("kotlin.coroutines.jvm.internal.BaseContinuationImpl")
 private val contClass = Class.forName("kotlin.coroutines.jvm.internal.ContinuationImpl")
 private val completionField = baseContClass.getDeclaredField("completion").apply { isAccessible = true }
-private val interceptedField = contClass.getDeclaredField("intercepted").apply { isAccessible = true }
 private val contextField = contClass.getDeclaredField("_context").apply { isAccessible = true }
 
 internal actual val Continuation<*>.completion: Continuation<*>
-  get() = (this as? CoroutineStackFrame)?.callerFrame as? Continuation<*> ?: error("Not a compiler generated or debug continuation $this")
+  get() = CloningUtils.getParentContinuation(this) ?: error("Not a compiler generated or debug continuation $this")
 private val cache = hashMapOf<Class<*>, Array<java.lang.reflect.Field>>()
 
 private tailrec fun <T> copyDeclaredFields(
@@ -50,7 +50,6 @@ internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Conti
   completionField.set(copy, completion)
   if (contClass.isInstance(this)) {
     contextField.set(copy, completion.context)
-    interceptedField.set(copy, null)
   }
   copyDeclaredFields(this, copy, clazz)
   return copy

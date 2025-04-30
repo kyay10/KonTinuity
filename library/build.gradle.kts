@@ -25,11 +25,8 @@ kotlin {
   }
   explicitApi()
   // Matching the targets from Arrow
-  jvm {
-    compilerOptions {
-      jvmTarget = JvmTarget.JVM_11
-    }
-  }
+  jvm()
+  jvmToolchain(11)
   js(IR) {
     browser()
     nodejs {
