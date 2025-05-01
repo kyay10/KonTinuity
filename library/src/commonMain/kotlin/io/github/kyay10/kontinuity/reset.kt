@@ -125,7 +125,7 @@ public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
   throw SuspendedException
 }
 
-public suspend fun <R> Prompt<R>.abortWithFast(value: Result<R>): Nothing =
+public suspend inline fun <R> Prompt<R>.abortWithFast(value: Result<R>): Nothing =
   suspendCoroutineUninterceptedOrReturn {
     cont.rest.resumeWithIntercepted(value)
     COROUTINE_SUSPENDED

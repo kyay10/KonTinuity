@@ -1,13 +1,13 @@
 package kotlin.coroutines.jvm.internal;
 
-import io.github.kyay10.kontinuity.ResultConverter;
+import kotlin.Result;
 import kotlin.coroutines.Continuation;
 import kotlin.coroutines.CoroutineContext;
 import kotlin.coroutines.EmptyCoroutineContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class CloningUtils extends BaseContinuationImpl implements ResultConverter {
+public class CloningUtils extends BaseContinuationImpl {
     public CloningUtils() {
         super(null);
     }
@@ -19,8 +19,12 @@ public class CloningUtils extends BaseContinuationImpl implements ResultConverte
         return null;
     }
 
-    public static @Nullable Object magic(@NotNull Continuation<?> cont) {
-        return ((BaseContinuationImpl) cont).invokeSuspend(cont);
+    public static @Nullable <T> Object invokeSuspend(@NotNull Continuation<T> cont, T value) {
+        return ((BaseContinuationImpl) cont).invokeSuspend(value);
+    }
+
+    public static @Nullable Object invokeSuspendWithException(@NotNull Continuation<?> cont, Throwable exception) {
+        return ((BaseContinuationImpl) cont).invokeSuspend(new Result.Failure(exception));
     }
 
     @Override
@@ -31,9 +35,5 @@ public class CloningUtils extends BaseContinuationImpl implements ResultConverte
     @Override
     public @NotNull CoroutineContext getContext() {
         return EmptyCoroutineContext.INSTANCE;
-    }
-
-    public @Nullable Object convert(@Nullable Object result) {
-        return result;
     }
 }

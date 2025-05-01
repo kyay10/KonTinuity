@@ -1,7 +1,7 @@
 package io.github.kyay10.kontinuity
 
-import kotlin.coroutines.Continuation
 import java.lang.reflect.Modifier
+import kotlin.coroutines.Continuation
 import kotlin.coroutines.jvm.internal.CloningUtils
 
 internal actual typealias CoroutineStackFrame = kotlin.coroutines.jvm.internal.CoroutineStackFrame
@@ -44,7 +44,7 @@ private tailrec fun <T> copyDeclaredFields(
 }
 
 @Suppress("UNCHECKED_CAST")
-internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>{
+internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> {
   val clazz = javaClass
   val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
   completionField.set(copy, completion)
@@ -54,3 +54,10 @@ internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Conti
   copyDeclaredFields(this, copy, clazz)
   return copy
 }
+
+internal actual fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any? =
+  result.fold({
+    CloningUtils.invokeSuspend(this, it)
+  }, {
+    CloningUtils.invokeSuspendWithException(this, it)
+  })
