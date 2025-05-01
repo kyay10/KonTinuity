@@ -1,6 +1,8 @@
 package io.github.kyay10.kontinuity.effekt
 
-import arrow.core.getOrElse
+import io.github.kyay10.kontinuity.Reader
+import io.github.kyay10.kontinuity.ask
+import io.github.kyay10.kontinuity.runReader
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.PersistentList
@@ -117,26 +119,39 @@ class SharingTest {
   }
 }
 
-context(_: StateScope)
-fun <A> memo(block: suspend () -> A): suspend () -> A {
-  val key = field<A>()
-  return {
-    key.getOrNone().getOrElse {
-      val value = block()
-      key.set(value)
-      value
+context(r: Reader<MutableList<Field<*>>?>)
+private fun <A> memo(block: suspend () -> A): suspend () -> A = Memoized(r, Field(), block)::invoke
+
+private class Memoized<A>(
+  private val reader: Reader<MutableList<Field<*>>?>,
+  private val key: Field<A>,
+  private val block: suspend () -> A
+) {
+  suspend operator fun invoke(): A = key.getOrElse {
+    block().also {
+      key.set(it)
+      reader.ask()?.add(key)
     }
   }
 }
 
-private class Memoized<A>(
-  private val key: StateScope.OptionalField<A>,
-  private val block: suspend () -> A
-) : suspend () -> A {
-  override suspend fun invoke(): A = key.getOrNone().getOrElse {
-    val value = block()
-    key.set(value)
-    value
+private class Field<T> {
+  object EmptyValue
+
+  @Suppress("UNCHECKED_CAST")
+  private var value: T = EmptyValue as T
+  fun set(value: T) {
+    this.value = value
+  }
+
+  inline fun getOrElse(block: () -> T): T = when (val value = value) {
+    EmptyValue -> block()
+    else -> value
+  }
+
+  @Suppress("UNCHECKED_CAST")
+  fun clear() {
+    value = EmptyValue as T
   }
 }
 
@@ -159,9 +174,11 @@ fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
   shareArgs() as A
 } else this
 
-suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R = persistentRegion {
-  block(object : Sharing {
-    override fun <A> share(block: suspend () -> A): suspend () -> A =
-      if (block is Memoized<*>) block else memo { block().shareArgs() }
-  })
-}
+suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R =
+  runReader(null as MutableList<Field<*>>?, { mutableListOf() }) {
+    block(object : Sharing {
+      override fun <A> share(block: suspend () -> A): suspend () -> A = memo { block().shareArgs() }
+    }).also {
+      ask()?.forEach { it.clear() }
+    }
+  }
