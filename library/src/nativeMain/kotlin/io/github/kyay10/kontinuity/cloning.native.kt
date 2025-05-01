@@ -8,3 +8,7 @@ internal actual val Continuation<*>.completion: Continuation<*>
 internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> {
   TODO("Not yet implemented")
 }
+
+internal actual fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any? {
+  TODO("Not yet implemented")
+}

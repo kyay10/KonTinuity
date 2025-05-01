@@ -12,3 +12,5 @@ internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Conti
   descriptors._intercepted_1.value = null
   return js("Object.defineProperties(Object.create(Object.getPrototypeOf(cont)), descriptors)")
 }
+
+internal actual fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any? = Resumer.magic(this, result)

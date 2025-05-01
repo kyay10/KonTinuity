@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.Reader
-import io.github.kyay10.kontinuity.ask
 import io.github.kyay10.kontinuity.runReader
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
