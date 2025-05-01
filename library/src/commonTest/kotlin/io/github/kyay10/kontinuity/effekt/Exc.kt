@@ -19,7 +19,7 @@ context(_: Exc) suspend fun ensure(condition: Boolean) {
   contract {
     returns() implies condition
   }
-  if (!condition) raise()
+  return if (!condition) raise() else Unit
 }
 
 class Maybe<R>(p: HandlerPrompt<Option<R>>) : Exc, Handler<Option<R>> by p {
