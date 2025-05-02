@@ -1,8 +1,8 @@
 package io.github.kyay10.kontinuity.effekt
 
-import io.kotest.matchers.shouldBe
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
+import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class FibersTest {
@@ -92,7 +92,9 @@ interface Fibre<A> {
 
 class CanResume<A> : Fibre<A> {
   private data object EmptyResult
+
   override val isDone get() = res != EmptyResult
+
   @Suppress("UNCHECKED_CAST")
   private var res: A = EmptyResult as A
   override val result: A
@@ -120,6 +122,31 @@ class CanResume<A> : Fibre<A> {
 
 class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit>) :
   Handler<Unit> by prompt {
+  suspend fun fork(): Boolean = useWithFinal { (k, final) ->
+    tasks.addLast { final(true) }
+    k(false)
+  }
+
+  suspend inline fun forkFlipped(task: Task) {
+    if (!fork()) {
+      task()
+      discardWithFast(Result.success(Unit))
+    }
+  }
+
+  suspend inline fun fork(task: Task) {
+    // TODO this reveals an inefficiency in the SplitSeq code
+    //  because here the frames up to the prompt are never used
+    //  so we should never have to copy them, but seemingly we copy
+    //  at least the SplitSeq elements by turning them into Segments
+    //  so maybe we can delay segment creation?
+    // Something something reflection without remorse?
+    if (fork()) {
+      task()
+      discardWithFast(Result.success(Unit))
+    }
+  }
+
   fun fastFork(task: suspend Scheduler2.() -> Unit) {
     tasks.addLast {
       handle {
@@ -132,6 +159,10 @@ class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit
   // to allow cooperative multitasking
   suspend fun yield() = useOnce {
     tasks.addLast { it(Unit) }
+  }
+
+  suspend fun yieldAndRepush() = useWithFinal { (_, final) ->
+    tasks.addLast { final(Unit) }
   }
 }
 

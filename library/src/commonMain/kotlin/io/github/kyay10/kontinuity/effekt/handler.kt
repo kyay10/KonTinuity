@@ -25,6 +25,9 @@ public suspend fun <A, R> Handler<R>.useTailResumptive(body: suspend (SubCont<A,
 public suspend inline fun <A, E> Handler<E>.useWithFinal(noinline body: suspend (Pair<SubCont<A, E>, SubCont<A, E>>) -> E): A =
   prompt.shiftWithFinal(body)
 
+public suspend inline fun <A, E> Handler<E>.useRepushing(noinline body: suspend (Pair<SubCont<A, E>, SubCont<A, E>>) -> E): A =
+  prompt.shiftWithFinal(body)
+
 public fun <E> Handler<E>.discard(body: suspend () -> E): Nothing = prompt.abortS(body)
 
 public fun <E> Handler<E>.discardWith(value: Result<E>): Nothing = prompt.abortWith(value)
