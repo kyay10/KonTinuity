@@ -22,6 +22,9 @@ public suspend inline fun <A, E> Handler<E>.useOnce(noinline body: suspend (SubC
 public suspend fun <A, R> Handler<R>.useTailResumptive(body: suspend (SubCont<A, R>) -> A): A =
   prompt.inHandlingContext(body)
 
+public suspend fun <A, R> Handler<R>.useTailResumptiveTwice(body: suspend (SubCont<A, R>) -> A): A =
+  prompt.inHandlingContextTwice(body)
+
 public suspend inline fun <A, E> Handler<E>.useWithFinal(noinline body: suspend (Pair<SubCont<A, E>, SubCont<A, E>>) -> E): A =
   prompt.shiftWithFinal(body)
 

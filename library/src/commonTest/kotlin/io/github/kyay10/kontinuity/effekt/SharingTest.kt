@@ -90,9 +90,9 @@ class SharingTest {
 
   context(_: Amb, _: Exc)
   private suspend fun <T> insertStream(x: T, mxs: (suspend () -> Stream<T>?)?): Stream<T> = when {
-    flip() -> Stream(x, mxs)
+    mxs == null || flip() -> Stream(x, mxs)
     else -> {
-      val (y, mys) = mxs?.invoke() ?: raise()
+      val (y, mys) = mxs() ?: raise()
       Stream(y) { insertStream(x, mys) }
     }
   }
@@ -103,7 +103,7 @@ class SharingTest {
   }
 
   private fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
-    Stream(i) { acc }
+    Stream(i, acc?.let { { acc } })
   }
 
   @Test
