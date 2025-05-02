@@ -111,6 +111,22 @@ public suspend inline fun <T, R> shiftWithFinal(
   noinline body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
 ): T = p.shiftWithFinal(body)
 
+@ResetDsl
+public suspend inline fun <T, R> Prompt<R>.shiftRepushing(
+  noinline body: suspend (SubCont<T, R>) -> R
+): T = suspendCoroutineToTrampoline { stack ->
+  val (init, rest) = stack.splitAt(this)
+  init.hasBeenCopied = true
+  body.startCoroutineIntercepted(SubCont(init), rest)
+}
+
+context(p: Prompt<R>)
+@ResetDsl
+@JvmName("shiftRepushingContext")
+public suspend inline fun <T, R> shiftRepushing(
+  noinline body: suspend (SubCont<T, R>) -> R
+): T = p.shiftRepushing(body)
+
 // Acts like shift0/control { it(body()) }
 @ResetDsl
 public suspend fun <T, P> Prompt<P>.inHandlingContext(

@@ -247,6 +247,7 @@ internal tailrec infix fun <Start, End> Segment<Start, End>.prependTo(stack: Spl
     is SingleUseSegment -> {
       repushValues()
       delimiter.rest = stack
+      delimiter.p.cont = delimiter
       cont
     }
 
