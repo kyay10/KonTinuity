@@ -50,11 +50,11 @@ private class SequenceResumeStep<Start>(
 }
 
 @OptIn(InternalCoroutinesApi::class)
-internal fun CoroutineContext.withTrampoline(): CoroutineContext {
+internal fun CoroutineContext.makeTrampoline(): CoroutineContext {
   val interceptor = this[ContinuationInterceptor].let {
     if (it is Trampoline) it.interceptor else it
   }
-  return this + if (interceptor is Delay) TrampolineWithDelay(interceptor, interceptor) else Trampoline(interceptor)
+  return if (interceptor is Delay) TrampolineWithDelay(interceptor, interceptor) else Trampoline(interceptor)
 }
 
 @InternalCoroutinesApi

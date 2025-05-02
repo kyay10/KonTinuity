@@ -1,7 +1,8 @@
 package io.github.kyay10.kontinuity
 
 import kotlinx.coroutines.CancellationException
-import kotlin.coroutines.Continuation
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
@@ -136,6 +137,14 @@ public suspend fun <T, P> Prompt<P>.inHandlingContext(
   body.startCoroutineUninterceptedOrReturn(SubCont(init.makeReusable()), WrapperCont(UnderCont(init, rest)))
 }
 
+@ResetDsl
+public suspend fun <T, P> Prompt<P>.inHandlingContextTwice(
+  body: suspend (SubCont<T, P>) -> T
+): T = suspendCoroutineAndTrampoline { stack ->
+  val (init, rest) = stack.splitAt(this)
+  body.startCoroutineUninterceptedOrReturn(SubCont(init.copyOnce()), WrapperCont(UnderCont(init, rest)))
+}
+
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
   cont.rest.resumeWithIntercepted(value)
   throw SuspendedException
@@ -168,8 +177,10 @@ public class Reader<S> {
 internal expect open class NoTrace() : CancellationException
 internal data object SuspendedException : NoTrace()
 
-public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine {
-  body.startCoroutine(WrapperCont(EmptyCont(Continuation(it.context.withTrampoline(), it::resumeWith))))
+public suspend fun <R> runCC(body: suspend () -> R): R = withContext(coroutineContext.makeTrampoline()) {
+  suspendCoroutine {
+    body.startCoroutine(WrapperCont(EmptyCont(it)))
+  }
 }
 
 @PublishedApi
