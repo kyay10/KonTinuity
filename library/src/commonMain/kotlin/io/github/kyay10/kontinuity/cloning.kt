@@ -70,7 +70,7 @@ internal fun <P> SplitSeq<P>.pushPrompt(p: Prompt<P>): PromptCont<P> = PromptCon
 @PublishedApi
 internal fun <S, P> SplitSeq<P>.pushReader(
   p: Reader<S>, value: S, fork: S.() -> S
-): ReaderCont<S, P> = ReaderCont(p, value, fork, this).also { p.cont = it }
+): ReaderCont<S, P> = ReaderCont(p, value, fork, this)
 
 internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>) : FrameCont<Start> {
   override val context: CoroutineContext = underlying.context
@@ -95,7 +95,7 @@ internal class FramesCont<Start, First, Last>(
   inline fun resumeCopiedAndCollectResult(result: Result<Start>, resumer: (SplitSeq<First>, Result<First>) -> Unit) {
     val head = head
     val t = frames.tail
-    val tail: SplitSeq<First> = if (t != null)  {
+    val tail: SplitSeq<First> = if (t != null) {
       this as FramesCont<First, First, Last>
       frames = t
       this
@@ -145,10 +145,12 @@ internal class UnderCont<Start, RealStart>(
   override fun <End> copyOnce(
     delimiter: SplitSeq<End>,
     newDelimiter: SplitSeq<End>
-  ): SplitSeq<RealStart> = UnderCont(when (captured) {
-    is SingleUseSegment -> captured.copyOnce()
-    else -> captured
-  }, rest.copyOnce(delimiter, newDelimiter))
+  ): SplitSeq<RealStart> = UnderCont(
+    when (captured) {
+      is SingleUseSegment -> captured.copyOnce()
+      else -> captured
+    }, rest.copyOnce(delimiter, newDelimiter)
+  )
 }
 
 internal fun CoroutineContext.unwrap(): CoroutineContext =
@@ -227,8 +229,13 @@ internal class PromptCont<Start>(
   @JvmField val p: Prompt<Start>, override var rest: SplitSeq<Start>
 ) : Segmentable<Start, Start>(rest.context) {
   init {
+    pushValue()
+  }
+
+  fun pushValue() {
     p.cont = this
   }
+
   override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>) = PromptSegment(this.p, seg)
   override fun <End> copyOnce(
     delimiter: SplitSeq<End>,
@@ -248,8 +255,13 @@ internal class ReaderCont<State, Start>(
   @JvmField var forkOnFirstRead: Boolean = false
 ) : Segmentable<Start, Start>(rest.context) {
   init {
+    pushValue()
+  }
+
+  fun pushValue() {
     p.cont = this
   }
+
   val state: State
     get() {
       if (forkOnFirstRead) {
@@ -286,7 +298,7 @@ internal tailrec infix fun <Start, End> Segment<Start, End>.prependTo(stack: Spl
     is SingleUseSegment -> {
       repushValues()
       delimiter.rest = stack
-      delimiter.p.cont = delimiter
+      delimiter.pushValue()
       cont
     }
 
@@ -358,14 +370,12 @@ private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
   delimiter: PromptCont<End>
 ): Unit = when (this) {
   is PromptCont -> {
-    p.cont = this
+    pushValue()
     if (delimiter !== this) rest.repushValues(delimiter) else Unit
   }
 
   is ReaderCont<*, Start> -> {
-    p as Reader<Any?>
-    @Suppress("UNCHECKED_CAST")
-    p.cont = this as ReaderCont<Any?, Start>
+    pushValue()
     rest.repushValues(delimiter)
   }
 

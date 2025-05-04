@@ -118,11 +118,11 @@ class SharingTest {
   }
 }
 
-context(r: Reader<MutableList<Field<*>>?>)
+context(r: Reader<out MutableList<in Field<*>>?>)
 private fun <A> memo(block: suspend () -> A): suspend () -> A = Memoized(r, Field(), block)::invoke
 
 private class Memoized<A>(
-  private val reader: Reader<MutableList<Field<*>>?>,
+  private val reader: Reader<out MutableList<in Field<*>>?>,
   private val key: Field<A>,
   private val block: suspend () -> A
 ) {

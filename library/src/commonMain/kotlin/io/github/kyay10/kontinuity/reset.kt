@@ -168,7 +168,7 @@ public class Prompt<R> @PublishedApi internal constructor() {
 
 public class Reader<S> {
   @PublishedApi
-  internal lateinit var cont: ReaderCont<S, *>
+  internal lateinit var cont: ReaderCont<out S, *>
   public val value: S get() = cont.state
   public fun ask(): S = value
 }
