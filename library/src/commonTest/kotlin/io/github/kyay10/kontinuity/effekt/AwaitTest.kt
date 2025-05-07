@@ -77,8 +77,7 @@ suspend fun <A> Await.await(d: Deferred<A>): A {
   return d.await()
 }
 
-class MutableAwait(prompt: HandlerPrompt<Unit>) : Await, Handler<Unit> by prompt {
-  internal val processes = mutableListOf<suspend () -> Unit>()
+class MutableAwait(prompt: HandlerPrompt<Unit>, private val processes: MutableList<suspend () -> Unit>) : Await, Handler<Unit> by prompt {
   override suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A = use { k ->
     body {
       processes.add { k(it) }
@@ -92,9 +91,8 @@ class MutableAwait(prompt: HandlerPrompt<Unit>) : Await, Handler<Unit> by prompt
   }
 }
 
-suspend fun mutableAwait(body: suspend MutableAwait.() -> Unit) = handle {
-  with(MutableAwait(this)) {
-    body()
-    if (processes.isNotEmpty()) processes.removeFirst()()
-  }
+suspend fun mutableAwait(body: suspend MutableAwait.() -> Unit) {
+  val processes = mutableListOf<suspend () -> Unit>()
+  handle { body(MutableAwait(this, processes)) }
+  while (processes.isNotEmpty()) processes.removeFirst()()
 }

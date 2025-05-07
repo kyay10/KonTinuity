@@ -4,10 +4,10 @@ import java.lang.reflect.Modifier
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.jvm.internal.CloningUtils
 
-internal actual typealias StackTraceElement = Any
-internal actual interface CoroutineStackFrame {
-  actual val callerFrame: CoroutineStackFrame?
-  actual fun getStackTraceElement(): StackTraceElement?
+public actual typealias StackTraceElement = Any
+public actual interface CoroutineStackFrame {
+  public actual val callerFrame: CoroutineStackFrame?
+  public actual fun getStackTraceElement(): StackTraceElement?
 }
 private val UNSAFE = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe").apply { isAccessible = true }
   .get(null) as sun.misc.Unsafe

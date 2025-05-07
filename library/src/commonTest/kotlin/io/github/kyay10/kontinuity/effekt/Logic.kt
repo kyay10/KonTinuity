@@ -217,7 +217,7 @@ object LogicSimple : Logic {
 
 suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
   block({
-    useTailResumptiveTwice { resume ->
+    useTailResumptive { resume ->
       resume(true)
       false
     }

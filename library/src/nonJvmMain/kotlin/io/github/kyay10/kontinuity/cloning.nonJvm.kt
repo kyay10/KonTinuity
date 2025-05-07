@@ -1,7 +1,7 @@
 package io.github.kyay10.kontinuity
 
-internal actual typealias StackTraceElement = Any
-internal actual interface CoroutineStackFrame {
-  actual val callerFrame: CoroutineStackFrame?
-  actual fun getStackTraceElement(): StackTraceElement?
+public actual typealias StackTraceElement = Any
+public actual interface CoroutineStackFrame {
+  public actual val callerFrame: CoroutineStackFrame?
+  public actual fun getStackTraceElement(): StackTraceElement?
 }
