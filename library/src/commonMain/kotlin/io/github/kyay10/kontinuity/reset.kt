@@ -15,7 +15,7 @@ import kotlin.jvm.JvmName
 public annotation class ResetDsl
 
 public class SubCont<in T, out R> @PublishedApi internal constructor(
-  private val init: Segment<T, R>,
+  private val init: SingleUseSegment<T, R>,
 ) {
   @PublishedApi
   internal fun composedWith(stack: SplitSeq<R>): SplitSeq<T> = init prependTo stack
@@ -38,8 +38,8 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 @ResetDsl
 public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R): R =
   suspendCoroutineAndTrampoline { stack ->
-    val prompt = Prompt<R>()
-    body.startCoroutineUninterceptedOrReturn(prompt, WrapperCont(stack.pushPrompt(prompt)))
+    val prompt = Prompt(stack)
+    body.startCoroutineUninterceptedOrReturn(prompt, WrapperCont(prompt))
   }
 
 @PublishedApi
@@ -58,8 +58,8 @@ public suspend inline fun <T, R> runReader(
   noinline fork: T.() -> T = { this },
   noinline body: suspend Reader<T>.() -> R
 ): R = suspendCoroutineAndTrampoline { stack ->
-  val reader = Reader<T>()
-  body.startCoroutineUninterceptedOrReturn(reader, WrapperCont(stack.pushReader(reader, value, fork)))
+  val reader = ReaderT(stack, value, fork)
+  body.startCoroutineUninterceptedOrReturn(reader, WrapperCont(reader))
 }
 
 @ResetDsl
@@ -117,7 +117,7 @@ public suspend inline fun <T, R> Prompt<R>.shiftRepushing(
   noinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
-  init.hasBeenCopied = true
+  init.makeReusable()
   body.startCoroutineIntercepted(SubCont(init), rest)
 }
 
@@ -132,45 +132,24 @@ public suspend inline fun <T, R> shiftRepushing(
 @ResetDsl
 public suspend fun <T, P> Prompt<P>.inHandlingContext(
   body: suspend (SubCont<T, P>) -> T
-): T = suspendCoroutineAndTrampoline { stack ->
-  val (init, rest) = stack.splitAt(this)
-  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeReusable()), WrapperCont(UnderCont(init, rest)))
-}
-
-@ResetDsl
-public suspend fun <T, P> Prompt<P>.inHandlingContextTwice(
-  body: suspend (SubCont<T, P>) -> T
-): T = suspendCoroutineAndTrampoline { stack ->
-  val (init, rest) = stack.splitAt(this)
-  body.startCoroutineUninterceptedOrReturn(SubCont(init.copyOnce()), WrapperCont(UnderCont(init, rest)))
+): T = shiftWithFinal { (subCont, final) ->
+  final.resumeWith(runCatching { body(subCont) })
 }
 
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
-  cont.rest.resumeWithIntercepted(value)
+  rest.resumeWithIntercepted(value)
   throw SuspendedException
 }
 
 public suspend inline fun <R> Prompt<R>.abortWithFast(value: Result<R>): Nothing =
   suspendCoroutineUninterceptedOrReturn {
-    cont.rest.resumeWithIntercepted(value)
+    rest.resumeWithIntercepted(value)
     COROUTINE_SUSPENDED
   }
 
 public fun <R> Prompt<R>.abortS(value: suspend () -> R): Nothing {
-  value.startCoroutineIntercepted(cont.rest)
+  value.startCoroutineIntercepted(rest)
   throw SuspendedException
-}
-
-public class Prompt<R> @PublishedApi internal constructor() {
-  @PublishedApi
-  internal lateinit var cont: PromptCont<R>
-}
-
-public class Reader<S> {
-  @PublishedApi
-  internal lateinit var cont: ReaderCont<out S, *>
-  public val value: S get() = cont.state
-  public fun ask(): S = value
 }
 
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")

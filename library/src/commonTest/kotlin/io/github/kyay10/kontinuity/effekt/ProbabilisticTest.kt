@@ -2,7 +2,6 @@ package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
-import io.kotest.matchers.ranges.shouldBeIn
 import io.kotest.matchers.shouldBe
 import kotlin.random.Random
 import kotlin.test.Test
@@ -18,7 +17,7 @@ class ProbabilisticTest {
           else -> 4
         }
       }
-      res shouldBeIn 1..4
+      res shouldBe 1
     }
   }
 
@@ -69,9 +68,8 @@ suspend fun <R> probabilistic(body: suspend ProbHandler<R>.() -> R): List<Weight
 
 data class Weighted<T>(val value: T, val weight: Double)
 
-class Tracing<R>(prompt: HandlerPrompt<R>) : Amb, Handler<R> by prompt {
-  // use mutable state for now.
-  internal val pts = mutableListOf<SamplePoint<R>>()
+// use mutable state for now.
+class Tracing<R>(prompt: HandlerPrompt<R>, internal val pts: MutableList<SamplePoint<R>>) : Amb, Handler<R> by prompt {
   override suspend fun flip(): Boolean = use { k ->
     val choice = Random.nextBoolean()
     pts.add(SamplePoint(mutableListOf(choice), k))
@@ -79,23 +77,21 @@ class Tracing<R>(prompt: HandlerPrompt<R>) : Amb, Handler<R> by prompt {
   }
 }
 
-suspend fun tracing(body: suspend Tracing<Int>.() -> Int): Int = handle {
-  with(Tracing(this)) {
-    val res = body()
-    // ok some very specialized sampling:
-    //   We are trying to find a result which is == 1
-    if (res != 1) {
-      pts.shuffle()
-      // find first samplePoint that is not exhausted
-      val pt = pts.firstOrNull { it.choices.size < 2 } ?: error("Could not find samples to produce expected result")
-      val alternative = !pt.choices[0]
-      // mark as having tried that one
-      pt.choices.add(alternative)
-      pt.k(alternative)
-    } else {
-      res
-    }
+suspend fun tracing(body: suspend Tracing<Int>.() -> Int): Int {
+  val pts = mutableListOf<SamplePoint<Int>>()
+  var res = handle { body(Tracing(this, pts)) }
+  // ok some very specialized sampling:
+  //   We are trying to find a result which is == 1
+  while (res != 1) {
+    pts.shuffle()
+    // find the first samplePoint that is not exhausted
+    val pt = pts.firstOrNull { it.choices.size < 2 } ?: error("Could not find samples to produce expected result")
+    val alternative = !pt.choices[0]
+    // mark as having tried that one
+    pt.choices.add(alternative)
+    res = pt.k(alternative)
   }
+  return res
 }
 
 data class SamplePoint<out R>(val choices: MutableList<Boolean>, val k: SubCont<Boolean, R>)

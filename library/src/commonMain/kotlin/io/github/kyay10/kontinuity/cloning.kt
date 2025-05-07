@@ -8,10 +8,10 @@ import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmInline
 
-internal expect class StackTraceElement
-internal expect interface CoroutineStackFrame {
-  val callerFrame: CoroutineStackFrame?
-  fun getStackTraceElement(): StackTraceElement?
+public expect class StackTraceElement
+public expect interface CoroutineStackFrame {
+  public val callerFrame: CoroutineStackFrame?
+  public fun getStackTraceElement(): StackTraceElement?
 }
 
 internal expect val Continuation<*>.completion: Continuation<*>
@@ -39,9 +39,8 @@ internal value class FrameList<in Start, First, out End>(val frame: Frame<Start,
     }
 }
 
-internal sealed interface SplitSeq<in Start> : CoroutineStackFrame {
-  val context: CoroutineContext
-  fun <End> copyOnce(delimiter: SplitSeq<End>, newDelimiter: SplitSeq<End>): SplitSeq<Start>
+public sealed interface SplitSeq<in Start> : CoroutineStackFrame {
+  public val context: CoroutineContext
 }
 
 internal sealed interface FrameCont<in Start> : SplitSeq<Start>
@@ -55,39 +54,24 @@ internal tailrec fun <Start> SplitSeq<Start>.resumeWith(result: Result<Start>): 
 
   is FramesCont<Start, *, *> -> resumeCopiedAndCollectResult(result) { seq, res -> return seq.resumeWith(res) }
 
-  is UnderCont<*, Start> -> (captured prependTo rest).resumeWith(result)
-  is PromptCont<Start> -> rest.resumeWith(result)
-  is ReaderCont<*, Start> -> rest.resumeWith(result)
+  is Prompt<Start> -> rest.resumeWith(result)
+  is ReaderT<*, Start> -> rest.resumeWith(result)
 }
 
 @PublishedApi
 internal fun <Start, P> SplitSeq<Start>.splitAt(p: Prompt<P>) =
-  SingleUseSegment(p.cont, this) to p.cont.rest
-
-@PublishedApi
-internal fun <P> SplitSeq<P>.pushPrompt(p: Prompt<P>): PromptCont<P> = PromptCont(p, this)
-
-@PublishedApi
-internal fun <S, P> SplitSeq<P>.pushReader(
-  p: Reader<S>, value: S, fork: S.() -> S
-): ReaderCont<S, P> = ReaderCont(p, value, fork, this)
+  SingleUseSegment(p, this) to p.rest
 
 internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>) : FrameCont<Start> {
   override val context: CoroutineContext = underlying.context
   override val callerFrame: CoroutineStackFrame? = underlying as? CoroutineStackFrame
   override fun getStackTraceElement(): StackTraceElement? = null
-  override fun <End> copyOnce(
-    delimiter: SplitSeq<End>,
-    newDelimiter: SplitSeq<End>
-  ): SplitSeq<Start> {
-    error("EmptyCont.copyOnce should never be called")
-  }
 }
 
 // frame :: frames ::: rest
 internal class FramesCont<Start, First, Last>(
-  private var frames: FrameList<Start, First, Last>, override val rest: SplitSeq<Last>,
-  private val wrapperCont: WrapperCont<Last>, @JvmField val copied: Boolean = false
+  var frames: FrameList<Start, First, Last>, override val rest: SplitSeq<Last>,
+  private val wrapperCont: WrapperCont<Last>, override var copied: Boolean = false
 ) : FrameCont<Start>, Segmentable<Start, Last>(rest.context) {
   val head get() = frames.head
 
@@ -119,38 +103,14 @@ internal class FramesCont<Start, First, Last>(
     return wrapperCont
   }
 
-  override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>) = FramesSegment(frames, seg, wrapperCont)
-  override fun <End> copyOnce(
-    delimiter: SplitSeq<End>,
-    newDelimiter: SplitSeq<End>
-  ): SplitSeq<Start> = FramesCont(frames, rest.copyOnce(delimiter, newDelimiter), wrapperCont, true)
-
   override val callerFrame: CoroutineStackFrame? get() = head.cont as? CoroutineStackFrame
   override fun getStackTraceElement(): StackTraceElement? = null
-}
-
-// frame :: frames ::: rest
-@PublishedApi
-internal class UnderCont<Start, RealStart>(
-  @JvmField val captured: Segment<RealStart, Start>, override val rest: SplitSeq<Start>
-) : Segmentable<RealStart, Start>(rest.context), FrameCont<RealStart> {
-  override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, RealStart>): Segment<FurtherStart, Start> =
-    UnderSegment(
-      when (captured) {
-        is SingleUseSegment -> captured.makeReusable()
-        else -> captured
-      }, seg
-    )
-
-  override fun <End> copyOnce(
-    delimiter: SplitSeq<End>,
-    newDelimiter: SplitSeq<End>
-  ): SplitSeq<RealStart> = UnderCont(
-    when (captured) {
-      is SingleUseSegment -> captured.copyOnce()
-      else -> captured
-    }, rest.copyOnce(delimiter, newDelimiter)
-  )
+  override var value: Any?
+    get() = frames.frame.cont
+    set(value) {
+      @Suppress("UNCHECKED_CAST")
+      frames = FrameList(Frame(value as Continuation<Start>))
+    }
 }
 
 internal fun CoroutineContext.unwrap(): CoroutineContext =
@@ -224,45 +184,30 @@ private val waitingForValue: Result<*> = Result.success(Sentinel.WaitingForValue
 
 private val hasBeenIntercepted = Result.success(Sentinel.HasBeenIntercepted)
 
-@PublishedApi
-internal class PromptCont<Start>(
-  @JvmField val p: Prompt<Start>, override var rest: SplitSeq<Start>
-) : Segmentable<Start, Start>(rest.context) {
-  init {
-    pushValue()
-  }
-
-  fun pushValue() {
-    p.cont = this
-  }
-
-  override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>) = PromptSegment(this.p, seg)
-  override fun <End> copyOnce(
-    delimiter: SplitSeq<End>,
-    newDelimiter: SplitSeq<End>
-  ): SplitSeq<Start> = if (delimiter === this) {
-    newDelimiter as SplitSeq<Start>
-  } else {
-    PromptCont(p, rest.copyOnce(delimiter, newDelimiter))
-  }
+public class Prompt<Start> @PublishedApi internal constructor(
+  @PublishedApi override var rest: SplitSeq<Start>
+): Segmentable<Start, Start>(rest.context) {
+  override var value: Any?
+    get() = rest
+    set(value) {
+      @Suppress("UNCHECKED_CAST")
+      rest = value as SplitSeq<Start>
+    }
+  override var copied: Boolean
+    get() = false
+    set(value) {}
 }
 
-internal class ReaderCont<State, Start>(
-  @JvmField val p: Reader<State>,
-  private var _state: State,
-  @JvmField val fork: State.() -> State,
+public typealias Reader<S> = ReaderT<S, *>
+
+public class ReaderT<S, Start> @PublishedApi internal constructor(
   override val rest: SplitSeq<Start>,
-  @JvmField var forkOnFirstRead: Boolean = false
-) : Segmentable<Start, Start>(rest.context) {
-  init {
-    pushValue()
-  }
-
-  fun pushValue() {
-    p.cont = this
-  }
-
-  val state: State
+  @PublishedApi internal var _state: S,
+  @PublishedApi internal val fork: S.() -> S,
+): Segmentable<Start, Start>(rest.context) {
+  @PublishedApi internal var forkOnFirstRead: Boolean = false
+  @PublishedApi
+  internal val state: S
     get() {
       if (forkOnFirstRead) {
         forkOnFirstRead = false
@@ -271,135 +216,79 @@ internal class ReaderCont<State, Start>(
       return _state
     }
 
-  override fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>) = ReaderSegment(p, _state, fork, seg)
-  override fun <End> copyOnce(
-    delimiter: SplitSeq<End>,
-    newDelimiter: SplitSeq<End>
-  ): SplitSeq<Start> = ReaderCont(p, _state, fork, rest.copyOnce(delimiter, newDelimiter), true)
-}
-
-// sub continuations / stack segments
-// mirrors the stack, and so is in reverse order. allows easy access to the state
-// stored in the current prompt
-internal sealed interface Segment<in Start, out End>
-internal sealed interface Contable<in Start, Middle, out End> : Segment<Start, End> {
-  fun toCont(stack: SplitSeq<End>): SplitSeq<Middle>
-  val init: Segment<Start, Middle>
-}
-
-internal tailrec infix fun <Start, End> Segment<Start, End>.prependTo(stack: SplitSeq<End>): SplitSeq<Start> =
-  when (this) {
-    is EmptySegment -> {
-      // Start == End
+  public fun ask(): S = state
+  override var value: Any?
+    get() = _state
+    set(value) {
       @Suppress("UNCHECKED_CAST")
-      stack as SplitSeq<Start>
+      _state = value as S
     }
-
-    is SingleUseSegment -> {
-      repushValues()
-      delimiter.rest = stack
-      delimiter.pushValue()
-      cont
-    }
-
-    is Contable<Start, *, End> -> init prependTo toCont(stack)
-  }
-
-internal data object EmptySegment : Segment<Any?, Nothing>
-
-internal data class FramesSegment<FurtherStart, Start, First, End>(
-  val frames: FrameList<Start, First, End>,
-  override val init: Segment<FurtherStart, Start>,
-  private val wrapperCont: WrapperCont<End>
-) : Contable<FurtherStart, Start, End> {
-  override fun toCont(stack: SplitSeq<End>): SplitSeq<Start> = FramesCont(frames, stack, wrapperCont, true)
+  override var copied: Boolean by ::forkOnFirstRead
 }
 
-internal data class UnderSegment<FurtherStart, Start, End>(
-  @JvmField val captured: Segment<Start, End>, override val init: Segment<FurtherStart, Start>
-) : Contable<FurtherStart, Start, End> {
-  override fun toCont(stack: SplitSeq<End>): SplitSeq<Start> = UnderCont(captured, stack)
-}
-
-internal data class PromptSegment<Start, End>(
-  @JvmField val prompt: Prompt<End>, override val init: Segment<Start, End>
-) : Contable<Start, End, End> {
-  override fun toCont(stack: SplitSeq<End>): SplitSeq<End> = stack.pushPrompt(prompt)
-}
-
-internal data class ReaderSegment<State, Start, End>(
-  @JvmField val prompt: Reader<State>,
-  @JvmField val state: State,
-  @JvmField val fork: State.() -> State,
-  override val init: Segment<Start, End>
-) : Contable<Start, End, End> {
-  override fun toCont(stack: SplitSeq<End>): SplitSeq<End> = stack.pushReader(prompt, state, fork).apply {
-    forkOnFirstRead = true
-  }
+internal infix fun <Start, End> SingleUseSegment<Start, End>.prependTo(stack: SplitSeq<End>): SplitSeq<Start> {
+  repushValues()
+  delimiter.rest = stack
+  return cont
 }
 
 // Expects that cont eventually refers to box
 @PublishedApi
-internal data class SingleUseSegment<Start, End>(
-  @JvmField val delimiter: PromptCont<End>,
+internal class SingleUseSegment<Start, End>(
+  @JvmField val delimiter: Prompt<End>,
   @JvmField val cont: SplitSeq<Start>,
-  @JvmField var hasBeenCopied: Boolean = false
-) : Segment<Start, End> {
-  @PublishedApi
-  internal fun makeReusable(): Segment<Start, End> = cont.makeReusable(delimiter, EmptySegment).also {
-    this.hasBeenCopied = true
+  @JvmField var values: Array<Any?> = emptyArray(),
+  @JvmField val copying: Boolean = false
+) {
+  fun makeReusable(): SingleUseSegment<Start, End> {
+    values = ArrayList<Any?>(10).apply {
+      cont.collectValues(delimiter, this)
+    }.toTypedArray()
+    return SingleUseSegment(delimiter, cont, values, true)
   }
-
-  @PublishedApi
-  internal fun copyOnce(): SingleUseSegment<Start, End> {
-    val delimiter = delimiter
-    val newDelimiter = PromptCont(delimiter.p, delimiter.rest)
-    val cont = cont
-    this.hasBeenCopied = true
-    return SingleUseSegment(newDelimiter, cont.copyOnce(delimiter, newDelimiter), true)
-  }
-
   fun repushValues() {
-    if (hasBeenCopied) {
-      cont.repushValues(delimiter)
-    }
+    val values = values
+    if (values.isEmpty()) return
+    cont.repushValues(delimiter, values, copying, 0)
+  }
+}
+
+private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
+  delimiter: Prompt<End>,
+  values: MutableList<Any?>
+): Unit = when (this) {
+  is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
+  is Prompt<*> if this === delimiter -> {}
+  is Segmentable<*, *> -> {
+    values.add(value)
+    values.add(copied)
+    rest.collectValues(delimiter, values)
   }
 }
 
 private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
-  delimiter: PromptCont<End>
+  delimiter: Prompt<End>,
+  values: Array<Any?>,
+  copying: Boolean,
+  index: Int
 ): Unit = when (this) {
-  is PromptCont -> {
-    pushValue()
-    if (delimiter !== this) rest.repushValues(delimiter) else Unit
+  is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
+  is Prompt<*> if this === delimiter -> {}
+  is Segmentable<*, *> -> {
+    val value = values[index]
+    val copied = values[index + 1] as Boolean
+    this.value = value
+    this.copied = copied || copying
+    rest.repushValues(delimiter, values, copying, index + 2)
   }
-
-  is ReaderCont<*, Start> -> {
-    pushValue()
-    rest.repushValues(delimiter)
-  }
-
-  is EmptyCont -> error("Box not found $delimiter in $this")
-  is Segmentable<*, *> -> rest.repushValues(delimiter)
 }
 
-private tailrec fun <Start, End, FurtherStart> SplitSeq<Start>.makeReusable(
-  delimiter: PromptCont<End>, seg: Segment<FurtherStart, Start>
-): Segment<FurtherStart, End> = when (this) {
-  is PromptCont<Start> if (delimiter === this) -> {
-    @Suppress("UNCHECKED_CAST")
-    (this as Segmentable<Start, End>).toSegment(seg)
-  }
-
-  is EmptyCont -> error("Box not found $delimiter in $seg")
-  is Segmentable<Start, *> -> rest.makeReusable(delimiter, toSegment(seg))
-}
-
-internal sealed class Segmentable<Start, Rest>(override val context: CoroutineContext) : SplitSeq<Start> {
-  abstract val rest: SplitSeq<Rest>
+public sealed class Segmentable<Start, Rest>(override val context: CoroutineContext) : SplitSeq<Start> {
+  internal abstract val rest: SplitSeq<Rest>
   override val callerFrame: CoroutineStackFrame? get() = rest
   override fun getStackTraceElement(): StackTraceElement? = null
-  abstract fun <FurtherStart> toSegment(seg: Segment<FurtherStart, Start>): Segment<FurtherStart, Rest>
+  internal abstract var value: Any?
+  internal abstract var copied: Boolean
 }
 
 @PublishedApi
