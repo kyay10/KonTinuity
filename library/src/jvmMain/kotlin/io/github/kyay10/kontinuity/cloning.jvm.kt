@@ -17,8 +17,8 @@ private val contClass = Class.forName("kotlin.coroutines.jvm.internal.Continuati
 private val completionField = baseContClass.getDeclaredField("completion").apply { isAccessible = true }
 private val contextField = contClass.getDeclaredField("_context").apply { isAccessible = true }
 
-internal actual val Continuation<*>.completion: Continuation<*>
-  get() = CloningUtils.getParentContinuation(this) ?: error("Not a compiler generated or debug continuation $this")
+internal actual val Continuation<*>.completion: Continuation<*>?
+  get() = CloningUtils.getParentContinuation(this)
 private val cache = hashMapOf<Class<*>, Array<java.lang.reflect.Field>>()
 
 private tailrec fun <T> copyDeclaredFields(

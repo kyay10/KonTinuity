@@ -10,10 +10,10 @@ fun interface Exc {
 }
 
 context(exc: Exc)
-suspend fun raise(msg: String): Nothing = exc.raise(msg)
+suspend inline fun raise(msg: String): Nothing = exc.raise(msg)
 
 context(exc: Exc)
-suspend fun raise(): Nothing = raise("")
+suspend inline fun raise(): Nothing = raise("")
 
 context(_: Exc) suspend fun ensure(condition: Boolean) {
   contract {
