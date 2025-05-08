@@ -2,7 +2,10 @@ package io.github.kyay10.kontinuity
 
 import kotlin.coroutines.Continuation
 
-internal actual val Continuation<*>.completion: Continuation<*> get() = asDynamic().resultContinuation_1
+internal actual val Continuation<*>.completion: Continuation<*>? get() = when (val completion = asDynamic().resultContinuation_1){
+  undefined -> null
+  else -> completion
+}
 
 internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> {
   val cont = this

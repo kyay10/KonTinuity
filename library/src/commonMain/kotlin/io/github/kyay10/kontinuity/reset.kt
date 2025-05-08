@@ -39,14 +39,14 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R): R =
   suspendCoroutineAndTrampoline { stack ->
     val prompt = Prompt(stack)
-    body.startCoroutineUninterceptedOrReturn(prompt, WrapperCont(prompt))
+    body.startCoroutineUninterceptedOrReturn(prompt, prompt)
   }
 
 @PublishedApi
 internal tailrec fun FramesCont<*, *, *>.handleTrampolining(
   result: Result<Any?>,
 ): Any? = if (COROUTINE_SUSPENDED == result.getOrNull() || SuspendedException == result.exceptionOrNull()) {
-  val trampoline = context.trampoline
+  val trampoline = realContext.trampoline
   val step = trampoline.nextStep?.takeIf { it.seq === this && !this.copied } ?: return COROUTINE_SUSPENDED
   trampoline.nextStep = null
   handleTrampolining(step.stepOrReturn())
@@ -59,7 +59,7 @@ public suspend inline fun <T, R> runReader(
   noinline body: suspend Reader<T>.() -> R
 ): R = suspendCoroutineAndTrampoline { stack ->
   val reader = ReaderT(stack, value, fork)
-  body.startCoroutineUninterceptedOrReturn(reader, WrapperCont(reader))
+  body.startCoroutineUninterceptedOrReturn(reader, reader)
 }
 
 @ResetDsl
@@ -134,7 +134,7 @@ public suspend fun <T, P> Prompt<P>.inHandlingContext(
   body: suspend (SubCont<T, P>) -> T
 ): T = suspendCoroutineAndTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
-  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeReusable()), WrapperCont(UnderCont(init, rest)))
+  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeReusable()), UnderCont(init, rest))
 }
 
 @ResetDsl
@@ -142,7 +142,7 @@ public suspend fun <T, P> Prompt<P>.inHandlingContextTwice(
   body: suspend (SubCont<T, P>) -> T
 ): T = suspendCoroutineAndTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
-  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeCopy()), WrapperCont(UnderCont(init, rest)))
+  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeCopy()), UnderCont(init, rest))
 }
 
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
@@ -167,7 +167,7 @@ internal data object SuspendedException : NoTrace()
 
 public suspend fun <R> runCC(body: suspend () -> R): R = withContext(coroutineContext.makeTrampoline()) {
   suspendCoroutine {
-    body.startCoroutine(WrapperCont(EmptyCont(it)))
+    body.startCoroutine(EmptyCont(it))
   }
 }
 

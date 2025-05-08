@@ -12,11 +12,11 @@ import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 
 @PublishedApi
 internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
-  seq.context.trampoline.next(SequenceBodyStep(this, seq))
+  seq.realContext.trampoline.next(SequenceBodyStep(this, seq))
 }
 
 private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: SplitSeq<T>) : Step {
-  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(WrapperCont(seq)) }
+  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(seq) }
 }
 
 @PublishedApi
@@ -24,7 +24,7 @@ internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
   receiver: R,
   seq: SplitSeq<T>,
 ) {
-  seq.context.trampoline.next(SequenceBodyReceiverStep(this, receiver, seq))
+  seq.realContext.trampoline.next(SequenceBodyReceiverStep(this, receiver, seq))
 }
 
 private class SequenceBodyReceiverStep<T, R>(
@@ -32,14 +32,14 @@ private class SequenceBodyReceiverStep<T, R>(
   private val receiver: R,
   override val seq: SplitSeq<T>
 ) : Step {
-  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(receiver, WrapperCont(seq)) }
+  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(receiver, seq) }
 }
 
 @PublishedApi
 internal fun <Start> SplitSeq<Start>.resumeWithIntercepted(result: Result<Start>) {
   val exception = result.exceptionOrNull()
   if (exception is SuspendedException) Unit
-  else context.trampoline.next(SequenceResumeStep(this, result))
+  else realContext.trampoline.next(SequenceResumeStep(this, result))
 }
 
 private class SequenceResumeStep<Start>(
@@ -70,7 +70,7 @@ internal interface Step {
 private fun Step.step() = when (val result = stepOrReturn()) {
   Result.success(COROUTINE_SUSPENDED) -> Unit
   else if result.exceptionOrNull() === SuspendedException -> Unit
-  else -> seq.resumeWith(result as Result<Nothing>)
+  else -> seq.resumeWithImpl(result as Result<Nothing>)
 }
 
 internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
