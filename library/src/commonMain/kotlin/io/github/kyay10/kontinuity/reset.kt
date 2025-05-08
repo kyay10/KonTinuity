@@ -47,7 +47,7 @@ internal tailrec fun FramesCont<*, *, *>.handleTrampolining(
   result: Result<Any?>,
 ): Any? = if (COROUTINE_SUSPENDED == result.getOrNull() || SuspendedException == result.exceptionOrNull()) {
   val trampoline = context.trampoline
-  val step = trampoline.nextStep?.takeIf { it.seq === this } ?: return COROUTINE_SUSPENDED
+  val step = trampoline.nextStep?.takeIf { it.seq === this && !this.copied } ?: return COROUTINE_SUSPENDED
   trampoline.nextStep = null
   handleTrampolining(step.stepOrReturn())
 } else result.getOrThrow()
@@ -132,8 +132,17 @@ public suspend inline fun <T, R> shiftRepushing(
 @ResetDsl
 public suspend fun <T, P> Prompt<P>.inHandlingContext(
   body: suspend (SubCont<T, P>) -> T
-): T = shiftWithFinal { (subCont, final) ->
-  final.resumeWith(runCatching { body(subCont) })
+): T = suspendCoroutineAndTrampoline { stack ->
+  val (init, rest) = stack.splitAt(this)
+  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeReusable()), WrapperCont(UnderCont(init, rest)))
+}
+
+@ResetDsl
+public suspend fun <T, P> Prompt<P>.inHandlingContextTwice(
+  body: suspend (SubCont<T, P>) -> T
+): T = suspendCoroutineAndTrampoline { stack ->
+  val (init, rest) = stack.splitAt(this)
+  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeCopy()), WrapperCont(UnderCont(init, rest)))
 }
 
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
