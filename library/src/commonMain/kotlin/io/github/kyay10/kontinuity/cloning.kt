@@ -56,6 +56,7 @@ internal tailrec fun <Start> SplitSeq<Start>.resumeWith(result: Result<Start>): 
 
   is Prompt<Start> -> rest.resumeWith(result)
   is ReaderT<*, Start> -> rest.resumeWith(result)
+  is UnderCont<*, Start> -> (captured prependTo rest).resumeWith(result)
 }
 
 @PublishedApi
@@ -154,7 +155,7 @@ internal class WrapperCont<T>(@JvmField var seq: SplitSeq<T>) : Continuation<T>,
   override fun resumeWith(result: Result<T>) {
     if (this.result.getOrNull() === Sentinel.WaitingForValue) {
       this.result = result
-    } else {
+    } else if(result.exceptionOrNull() !== SuspendedException) {
       seq.resumeWith(result)
     }
   }
@@ -226,6 +227,21 @@ public class ReaderT<S, Start> @PublishedApi internal constructor(
   override var copied: Boolean by ::forkOnFirstRead
 }
 
+@PublishedApi
+internal class UnderCont<Start, RealStart>(
+  @JvmField val captured: SingleUseSegment<RealStart, Start>, override val rest: SplitSeq<Start>
+) : Segmentable<RealStart, Start>(rest.context), FrameCont<RealStart> {
+  override var value: Any?
+    get() = null
+    set(value) {
+    }
+  override var copied: Boolean
+    get() = captured.copying
+    set(value) {
+      captured.copying = value
+    }
+}
+
 internal infix fun <Start, End> SingleUseSegment<Start, End>.prependTo(stack: SplitSeq<End>): SplitSeq<Start> {
   repushValues()
   delimiter.rest = stack
@@ -237,38 +253,45 @@ internal infix fun <Start, End> SingleUseSegment<Start, End>.prependTo(stack: Sp
 internal class SingleUseSegment<Start, End>(
   @JvmField val delimiter: Prompt<End>,
   @JvmField val cont: SplitSeq<Start>,
-  @JvmField var values: Array<Any?> = emptyArray(),
-  @JvmField val copying: Boolean = false
+  @JvmField var values: Array<out Any?>? = null,
+  @JvmField var copying: Boolean = false
 ) {
   fun makeReusable(): SingleUseSegment<Start, End> {
-    values = ArrayList<Any?>(10).apply {
+    if (values == null) values = ArrayList<Any?>(10).apply {
       cont.collectValues(delimiter, this)
     }.toTypedArray()
     return SingleUseSegment(delimiter, cont, values, true)
   }
+
+  fun makeCopy(): SingleUseSegment<Start, End> {
+    if (values == null) values = ArrayList<Any?>(10).apply {
+      cont.collectValues(delimiter, this)
+    }.toTypedArray()
+    return SingleUseSegment(delimiter, cont, null, true)
+  }
+
   fun repushValues() {
-    val values = values
-    if (values.isEmpty()) return
-    cont.repushValues(delimiter, values, copying, 0)
+    cont.repushValues(delimiter, values ?: return, copying, 0)
   }
 }
 
 private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
   delimiter: Prompt<End>,
-  values: MutableList<Any?>
+  values: MutableList<in Any?>
 ): Unit = when (this) {
   is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
   is Prompt<*> if this === delimiter -> {}
   is Segmentable<*, *> -> {
     values.add(value)
     values.add(copied)
+    copied = true
     rest.collectValues(delimiter, values)
   }
 }
 
 private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
   delimiter: Prompt<End>,
-  values: Array<Any?>,
+  values: Array<out Any?>,
   copying: Boolean,
   index: Int
 ): Unit = when (this) {

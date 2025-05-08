@@ -69,6 +69,7 @@ internal interface Step {
 @Suppress("UNCHECKED_CAST")
 private fun Step.step() = when (val result = stepOrReturn()) {
   Result.success(COROUTINE_SUSPENDED) -> Unit
+  else if result.exceptionOrNull() === SuspendedException -> Unit
   else -> seq.resumeWith(result as Result<Nothing>)
 }
 
