@@ -121,19 +121,21 @@ class SharingTest {
 }
 
 context(r: Reader<out MutableList<in Field<*>>?>)
-private fun <A> memo(block: suspend () -> A): suspend () -> A = Memoized(r, Field(), block)::invoke
-
-private class Memoized<A>(
-  private val reader: Reader<out MutableList<in Field<*>>?>,
-  private val key: Field<A>,
-  private val block: suspend () -> A
-) {
-  suspend operator fun invoke(): A = key.getOrElse {
-    block().also {
-      key.set(it)
-      reader.ask()?.add(key)
+private inline fun <A> memo(crossinline block: suspend () -> A): suspend () -> A {
+  val key = Field<A>()
+  return object : Invokable<A> {
+    override suspend fun invoke(): A = key.getOrElse {
+      block().also {
+        key.set(it)
+        r.ask()?.add(key)
+      }
     }
-  }
+  }.invoker()
+}
+
+fun <A> Invokable<A>.invoker(): suspend () -> A = this::invoke
+fun interface Invokable<A> {
+  suspend fun invoke(): A
 }
 
 private class Field<T> {
