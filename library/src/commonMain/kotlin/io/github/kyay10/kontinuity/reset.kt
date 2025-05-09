@@ -14,11 +14,29 @@ import kotlin.jvm.JvmName
 @DslMarker
 public annotation class ResetDsl
 
+@PublishedApi
+internal enum class OnInit {
+  NONE,
+  REUSABLE,
+  COPY,
+  REPUSH,
+}
+
 public class SubCont<in T, out R> @PublishedApi internal constructor(
-  private val init: SingleUseSegment<T, R>,
+  private var init: SingleUseSegment<T, R>,
+  private var onInitialize: OnInit = OnInit.NONE,
 ) {
   @PublishedApi
-  internal fun composedWith(stack: SplitSeq<R>): SplitSeq<T> = init prependTo stack
+  internal fun composedWith(stack: SplitSeq<R>): SplitSeq<T> {
+    when (onInitialize) {
+      OnInit.REUSABLE -> init = init.makeReusable()
+      OnInit.COPY -> init = init.makeCopy()
+      OnInit.REPUSH -> init.makeReusable()
+      OnInit.NONE -> Unit
+    }
+    onInitialize = OnInit.NONE
+    return init prependTo stack
+  }
 
   @ResetDsl
   public suspend inline fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack ->
@@ -72,7 +90,7 @@ public suspend inline fun <T, R> Prompt<R>.shift(
   noinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
-  body.startCoroutineIntercepted(SubCont(init.makeReusable()), rest)
+  body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE), rest)
 }
 
 context(p: Prompt<R>)
@@ -102,7 +120,7 @@ public suspend inline fun <T, R> Prompt<R>.shiftWithFinal(
   noinline body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
 ): T = suspendCoroutineToTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
-  body.startCoroutineIntercepted(SubCont(init.makeReusable()) to SubCont(init), rest)
+  body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE) to SubCont(init), rest)
 }
 
 context(p: Prompt<R>)
@@ -117,8 +135,7 @@ public suspend inline fun <T, R> Prompt<R>.shiftRepushing(
   noinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
-  init.makeReusable()
-  body.startCoroutineIntercepted(SubCont(init), rest)
+  body.startCoroutineIntercepted(SubCont(init, OnInit.REPUSH), rest)
 }
 
 context(p: Prompt<R>)
@@ -132,17 +149,17 @@ public suspend inline fun <T, R> shiftRepushing(
 @ResetDsl
 public suspend fun <T, P> Prompt<P>.inHandlingContext(
   body: suspend (SubCont<T, P>) -> T
-): T = suspendCoroutineAndTrampoline { stack ->
+): T = suspendCoroutineToTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
-  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeReusable()), UnderCont(init, rest))
+  body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE), UnderCont(init, rest))
 }
 
 @ResetDsl
 public suspend fun <T, P> Prompt<P>.inHandlingContextTwice(
   body: suspend (SubCont<T, P>) -> T
-): T = suspendCoroutineAndTrampoline { stack ->
+): T = suspendCoroutineToTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
-  body.startCoroutineUninterceptedOrReturn(SubCont(init.makeCopy()), UnderCont(init, rest))
+  body.startCoroutineIntercepted(SubCont(init, OnInit.COPY), UnderCont(init, rest))
 }
 
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
