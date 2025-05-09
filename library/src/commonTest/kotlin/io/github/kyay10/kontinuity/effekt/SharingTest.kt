@@ -17,6 +17,23 @@ data class LazyCons<out T>(val head: suspend () -> T, val tail: suspend () -> La
   override fun shareArgs() = LazyCons(share(head), share(tail))
 }
 
+context(_: Amb, _: Exc)
+private suspend fun <T> Stream<T>?.perm(): Stream<T>? {
+  this ?: return null
+  suspend fun permuteRest() = tail()?.perm()
+  return insertStream(value, ::permuteRest)
+}
+
+context(amb: Amb, exc: Exc)
+private suspend fun <T> insertStream(x: T, mxs: (suspend () -> Stream<T>?)?): Stream<T> = when {
+  mxs == null || flip() -> Stream(x, mxs)
+  else -> {
+    val (y, mys) = mxs() ?: raise()
+    suspend fun insertRest() = insertStream(x, mys)
+    Stream(y, ::insertRest)
+  }
+}
+
 class SharingTest {
   private tailrec suspend fun <T : Comparable<T>> LazyList<T>.isSorted(): Boolean {
     this ?: return true
@@ -75,26 +92,11 @@ class SharingTest {
     return if (value <= stream.value) stream.isSorted() else false
   }
 
-  context(_: Amb, _: Exc)
-  private suspend fun <T> Stream<T>?.perm(): Stream<T>? {
-    this ?: return null
-    return insertStream(value) { tail()?.perm() }
-  }
-
   context(_: Sharing, _: Amb, _: Exc)
   private suspend fun <T : Comparable<T>> Stream<T>?.sort(): Stream<T>? {
     val permutation = share { perm() }
     ensure(permutation().isSorted())
     return permutation()
-  }
-
-  context(_: Amb, _: Exc)
-  private suspend fun <T> insertStream(x: T, mxs: (suspend () -> Stream<T>?)?): Stream<T> = when {
-    mxs == null || flip() -> Stream(x, mxs)
-    else -> {
-      val (y, mys) = mxs() ?: raise()
-      Stream(y) { insertStream(x, mys) }
-    }
   }
 
   private suspend fun <T> Stream<T>?.toPersistentList(): PersistentList<T> {
