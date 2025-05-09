@@ -302,9 +302,10 @@ private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
     rest.repushValues(delimiter, values, copying, index + 2)
   }
   is Prompt<*> -> {
-    val value = values[index]
+    @Suppress("UNCHECKED_CAST")
+    val value = values[index] as SplitSeq<Start>
     this.value = value
-    rest.repushValues(delimiter, values, copying, index + 1)
+    value.repushValues(delimiter, values, copying, index + 1)
   }
   is ReaderT<*, *> -> {
     val value = values[index]
