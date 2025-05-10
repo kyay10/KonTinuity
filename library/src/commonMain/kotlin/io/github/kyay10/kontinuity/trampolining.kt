@@ -2,17 +2,17 @@ package io.github.kyay10.kontinuity
 
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlin.Suppress
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
+import kotlin.jvm.JvmField
 
 @PublishedApi
 internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
-  seq.realContext.trampoline.next(SequenceBodyStep(this, seq))
+  seq.realContext.trampoline.nextStep = SequenceBodyStep(this, seq)
 }
 
 private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: SplitSeq<T>) : Step {
@@ -24,7 +24,7 @@ internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
   receiver: R,
   seq: SplitSeq<T>,
 ) {
-  seq.realContext.trampoline.next(SequenceBodyReceiverStep(this, receiver, seq))
+  seq.realContext.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
 }
 
 private class SequenceBodyReceiverStep<T, R>(
@@ -37,9 +37,9 @@ private class SequenceBodyReceiverStep<T, R>(
 
 @PublishedApi
 internal fun <Start> SplitSeq<Start>.resumeWithIntercepted(result: Result<Start>) {
-  val exception = result.exceptionOrNull()
-  if (exception is SuspendedException) Unit
-  else realContext.trampoline.next(SequenceResumeStep(this, result))
+  if (result.exceptionOrNull() !== SuspendedException) {
+    realContext.trampoline.nextStep = SequenceResumeStep(this, result)
+  }
 }
 
 private class SequenceResumeStep<Start>(
@@ -67,20 +67,18 @@ internal interface Step {
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun Step.step() = when (val result = stepOrReturn()) {
-  Result.success(COROUTINE_SUSPENDED) -> Unit
-  else if result.exceptionOrNull() === SuspendedException -> Unit
-  else -> seq.resumeWithImpl(result as Result<Nothing>)
+private fun Step.step() {
+  val result = stepOrReturn()
+  if (result.getOrNull() !== COROUTINE_SUSPENDED && result.exceptionOrNull() !== SuspendedException) {
+    seq.resumeWithImpl(result as Result<Nothing>)
+  }
 }
 
 internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
   AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
 
+  @JvmField
   var nextStep: Step? = null
-  fun next(block: Step) {
-    check(nextStep == null) { "Already running a block: $nextStep" }
-    nextStep = block
-  }
 
   override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> =
     TrampolineContinuation(continuation).let {
