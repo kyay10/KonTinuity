@@ -61,7 +61,7 @@ public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R)
   }
 
 @PublishedApi
-internal tailrec fun FramesCont<*, *, *>.handleTrampolining(
+internal tailrec fun FramesCont<*, *>.handleTrampolining(
   result: Result<Any?>,
 ): Any? = if (COROUTINE_SUSPENDED == result.getOrNull() || SuspendedException == result.exceptionOrNull()) {
   val trampoline = realContext.trampoline

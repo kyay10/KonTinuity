@@ -11,7 +11,7 @@ public interface StatefulHandler<E, S> : Handler<E> {
 }
 
 public fun <E, S> StatefulHandler<E, S>.get(): S = reader.ask()
-public val <E, S> StatefulHandler<E, S>.value: S get() = reader.state
+public val <E, S> StatefulHandler<E, S>.value: S get() = get()
 
 public suspend inline fun <A, E> Handler<E>.use(noinline body: suspend (SubCont<A, E>) -> E): A =
   prompt.shift(body)
