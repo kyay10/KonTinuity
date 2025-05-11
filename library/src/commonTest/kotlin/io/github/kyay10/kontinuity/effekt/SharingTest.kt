@@ -110,7 +110,7 @@ class SharingTest {
 
   @Test
   fun streamSortingTest() = runTestCC(timeout = 10.minutes) {
-    val numbers = (1..2).toList()
+    val numbers = (1..22).toList()
     val list = numbers.toStream()
     bagOfN {
       sharing {

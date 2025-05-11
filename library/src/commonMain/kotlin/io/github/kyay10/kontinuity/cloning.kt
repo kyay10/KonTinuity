@@ -62,15 +62,14 @@ internal class FramesCont<Start, Last>(
   @JvmField var cont: Continuation<Start>,
   @Suppress("UNCHECKED_CAST")
   override val rest: SplitSeq<Last> = cont.context as SplitSeq<Last>,
+  @JvmField var copied: Boolean = false,
 ) : Segmentable<Start, Last>(rest.realContext) {
-
-  @JvmField
-  var copied: Boolean = false
 
   @Suppress("UNCHECKED_CAST")
   inline fun resumeCopiedAndCollectResult(result: Result<Start>, resumer: (SplitSeq<Last>, Result<Last>) -> Unit) {
     // This loop unrolls recursion in current.resumeWith(param) to make saner and shorter stack traces on resume
     val rest = rest
+    val newFramesCont = FramesCont(cont, rest, true)
     var current: Continuation<Any?> = cont as Continuation<Any?>
     var param: Result<Any?> = result
     while (true) {
@@ -88,21 +87,21 @@ internal class FramesCont<Start, Last>(
         return resumer(completion, outcome as Result<Last>)
       }
       // Optimized by only setting it upon suspension.
-      // This is safe only if no one accesses frames in between
+      // This is safe only if no one accesses cont in between
       // That seems to be the case due to trampolining.
       // Note to self: if any weird behavior happens, uncomment this line
-      //frames = completion as FrameList<Start, First, Last>
+      //newFramesCont.cont = completion
       val outcome: Result<Any?> =
         try {
-          val outcome = current.copy(this).invokeSuspend(param)
+          val outcome = current.copy(newFramesCont).invokeSuspend(param)
           if (outcome === COROUTINE_SUSPENDED) {
-            cont = completion
+            newFramesCont.cont = completion
             return
           }
           Result.success(outcome)
         } catch (exception: Throwable) {
           if (exception === SuspendedException) {
-            cont = completion
+            newFramesCont.cont = completion
             return
           }
           Result.failure(exception)
@@ -222,12 +221,12 @@ private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
   is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
   is Prompt<*> if this === delimiter -> {}
   is FramesCont<*, *> -> {
-    values.add(cont)
     values.add(copied)
     copied = true
     rest.collectValues(delimiter, values)
   }
   is Prompt<*> -> {
+    val rest = rest
     values.add(rest)
     rest.collectValues(delimiter, values)
   }
@@ -254,11 +253,9 @@ private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
   is Prompt if this === delimiter -> {}
   is FramesCont<Start, *> -> {
     @Suppress("UNCHECKED_CAST")
-    val value = values[index] as Continuation<Any?>
-    val copied = values[index + 1] as Boolean
-    this.cont = value
+    val copied = values[index] as Boolean
     this.copied = copied || copying
-    rest.repushValues(delimiter, values, copying, index + 2)
+    rest.repushValues(delimiter, values, copying, index + 1)
   }
   is Prompt -> {
     @Suppress("UNCHECKED_CAST")
