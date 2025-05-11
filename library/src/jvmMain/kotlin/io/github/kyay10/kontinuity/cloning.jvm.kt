@@ -3,6 +3,9 @@ package io.github.kyay10.kontinuity
 import java.lang.reflect.Modifier
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.jvm.internal.CloningUtils
+public interface MultishotContinuation {
+  public fun copy(completion: Continuation<*>): Continuation<*>
+}
 
 public actual typealias StackTraceElement = Any
 public actual interface CoroutineStackFrame {
@@ -46,15 +49,18 @@ private tailrec fun <T> copyDeclaredFields(
 }
 
 @Suppress("UNCHECKED_CAST")
-internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> {
-  val clazz = javaClass
-  val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
-  completionField.set(copy, completion)
-  if (contClass.isInstance(this)) {
-    contextField.set(copy, completion.context)
+internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> = when (this) {
+  is MultishotContinuation -> this.copy(completion) as Continuation<T>
+  else -> {
+    val clazz = javaClass
+    val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
+    completionField.set(copy, completion)
+    if (contClass.isInstance(this)) {
+      contextField.set(copy, completion.context)
+    }
+    copyDeclaredFields(this, copy, clazz)
+    copy
   }
-  copyDeclaredFields(this, copy, clazz)
-  return copy
 }
 
 internal actual fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any? =
