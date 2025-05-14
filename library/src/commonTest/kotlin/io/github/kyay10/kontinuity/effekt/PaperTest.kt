@@ -3,6 +3,7 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
 import io.kotest.matchers.shouldBe
@@ -71,7 +72,7 @@ class PaperTest {
   }
 
   context(f: Fiber, a: Async)
-  suspend fun asyncExample() {
+  suspend fun MultishotScope.asyncExample() {
     val str = buildString {
       val p = async {
         appendLine("Async 1")
@@ -81,7 +82,7 @@ class PaperTest {
         42
       }
       appendLine("Main")
-      val r = p.await()
+      val r = with(p) { await() }
       appendLine("Main with result $r")
     }
     str shouldBe """
@@ -117,29 +118,29 @@ class PaperTest {
 }
 
 context(amb: Amb, exc: Exc)
-private suspend fun drunkFlip(): String {
-  val caught = amb.flip()
-  val heads = if (caught) amb.flip() else exc.raise("We dropped the coin.")
+private suspend fun MultishotScope.drunkFlip(): String {
+  val caught = flip()
+  val heads = if (caught) flip() else raise("We dropped the coin.")
   return if (heads) "Heads" else "Tails"
 }
 
 class Collect<R>(p: HandlerPrompt<List<R>>) : Amb, Handler<List<R>> by p {
-  override suspend fun flip(): Boolean = use { resume ->
+  override suspend fun MultishotScope.flip(): Boolean = use { resume ->
     val ts = resume(true)
     val fs = resume(false)
     ts + fs
   }
 }
 
-suspend fun <R> collect(block: suspend Amb.() -> R): List<R> = handle {
-  listOf(block(Collect(this)))
+suspend fun <R> MultishotScope.collect(block: suspend context(Amb) MultishotScope.() -> R): List<R> = handle {
+  listOf(block(Collect(given<HandlerPrompt<List<R>>>()), this))
 }
 
 interface Fiber {
-  suspend fun suspend()
-  suspend fun fork(): Boolean
-  suspend fun exit(): Nothing
-  suspend fun forked(p: suspend () -> Unit) {
+  suspend fun MultishotScope.suspend()
+  suspend fun MultishotScope.fork(): Boolean
+  suspend fun MultishotScope.exit(): Nothing
+  suspend fun MultishotScope.forked(p: suspend MultishotScope.() -> Unit) {
     if (fork()) {
       p()
       exit()
@@ -148,26 +149,28 @@ interface Fiber {
 }
 
 context(fiber: Fiber)
-suspend fun suspend() = fiber.suspend()
+suspend fun MultishotScope.suspend() = with(fiber) { suspend() }
 
 interface Async {
-  suspend fun <T> async(body: suspend () -> T): Promise<T>
+  suspend fun <T> MultishotScope.async(body: suspend MultishotScope.() -> T): Promise<T>
   interface Promise<T> {
-    suspend fun await(): T
+    suspend fun MultishotScope.await(): T
   }
 }
 
 context(async: Async)
-suspend fun <T> async(body: suspend () -> T): Async.Promise<T> = async.async(body)
+suspend fun <T> MultishotScope.async(body: suspend MultishotScope.() -> T): Async.Promise<T> = with(async) { async(body) }
+
+suspend fun <T> MultishotScope.await(p: Async.Promise<T>): T = with(p) { await() }
 
 class Poll(
   val state: StateScope,
   val fiber: Fiber,
 ) : Async {
   private class PromiseImpl<T>(val fiber: Fiber, val field: StateScope.Field<Option<T>>) : Async.Promise<T> {
-    override tailrec suspend fun await(): T = when (val v = field.get()) {
+    override tailrec suspend fun MultishotScope.await(): T = when (val v = field.get()) {
       is None -> {
-        fiber.suspend()
+        with(fiber) { suspend() }
         await()
       }
 
@@ -175,51 +178,54 @@ class Poll(
     }
   }
 
-  override suspend fun <T> async(body: suspend () -> T): Async.Promise<T> {
+  override suspend fun <T> MultishotScope.async(body: suspend MultishotScope.() -> T): Async.Promise<T> {
     val p = state.field<Option<T>>(None)
-    fiber.forked {
-      p.set(Some(body()))
+    with(fiber) {
+      forked {
+        p.set(Some(body()))
+      }
     }
     return PromiseImpl(fiber, p)
   }
 }
 
 context(state: StateScope, fiber: Fiber)
-suspend inline fun poll(block: suspend Async.() -> Unit) =
-  block(Poll(state, fiber))
+suspend inline fun MultishotScope.poll(block: suspend context(Async) MultishotScope.() -> Unit) =
+  block(Poll(state, fiber), this)
 
-suspend fun <R> firstResult(block: suspend context(Amb, Exc) () -> R): Option<R> = backtrack(block)
+suspend fun <R> MultishotScope.firstResult(block: suspend context(Amb, Exc) MultishotScope.() -> R): Option<R> = backtrack(block)
 
 class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Unit, Queue> by prompt {
-  override suspend fun exit(): Nothing = discard {}
-  override suspend fun fork(): Boolean = use { resume ->
+  override suspend fun MultishotScope.exit(): Nothing = discard {}
+  override suspend fun MultishotScope.fork(): Boolean = use { resume ->
     get().add(0) { resume(false) }
     get().add(0) { resume(true) }
     run()
   }
 
-  override suspend fun suspend() = use { resume ->
+  override suspend fun MultishotScope.suspend() = use { resume ->
     get().add { resume(Unit) }
     run()
   }
 }
 
-suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(mutableListOf(), Queue::toMutableList) {
-  Scheduler(this).block()
+suspend fun MultishotScope.scheduler(block: suspend context(Fiber) MultishotScope.() -> Unit) = handleStateful(mutableListOf(), Queue::toMutableList) {
+  block(Scheduler(given<StatefulPrompt<Unit, Queue>>()), this)
 }
 
-private suspend fun StatefulHandler<Unit, Queue>.run() {
+context(s: StatefulHandler<Unit, Queue>)
+private suspend fun MultishotScope.run() {
   val q = get()
   if (q.isNotEmpty()) {
     q.removeFirst()()
   }
 }
 
-typealias Queue = MutableList<suspend () -> Unit>
+typealias Queue = MutableList<suspend MultishotScope.() -> Unit>
 
 fun interface Input {
-  suspend fun read(): Char
+  suspend fun MultishotScope.read(): Char
 }
 
 context(input: Input)
-suspend fun read(): Char = input.read()
+suspend fun MultishotScope.read(): Char = with(input) { read() }

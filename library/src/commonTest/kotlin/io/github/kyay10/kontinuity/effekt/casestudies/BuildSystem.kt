@@ -3,6 +3,7 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 import arrow.core.Either.Right
 import arrow.core.raise.Raise
 import arrow.core.raise.either
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -16,7 +17,7 @@ class BuildSystemTest {
       supplyInput(inputs) {
         build("B2") {
           accessed += it
-          example1(it, this@supplyInput)
+          example1(it)
         }
       }
     } shouldBe Right(60)
@@ -30,7 +31,7 @@ class BuildSystemTest {
       supplyInput(inputs) {
         build("B2") {
           accessed += it
-          example2(it, this@supplyInput)
+          example2(it)
         }
       }
     } shouldBe Right(900)
@@ -45,7 +46,7 @@ class BuildSystemTest {
         build("B2") {
           memo {
             accessed += it
-            example2(it, this@supplyInput)
+            example2(it)
           }
         }
       }
@@ -58,33 +59,41 @@ typealias Key = String
 typealias Val = Int
 
 fun interface Need {
-  suspend fun need(key: Key): Val
+  suspend fun MultishotScope.need(key: Key): Val
 }
+context(need: Need)
+suspend fun MultishotScope.need(key: Key): Val = with(need) { need(key) }
 
 fun interface NeedInput {
-  suspend fun needInput(key: Key): Val
+  suspend fun MultishotScope.needInput(key: Key): Val
 }
+context(needInput: NeedInput)
+suspend fun MultishotScope.needInput(key: Key): Val = with(needInput) { needInput(key) }
 
-suspend fun Need.example1(key: Key, input: NeedInput): Val = when (key) {
+context(input: NeedInput, need: Need)
+suspend fun MultishotScope.example1(key: Key): Val = when (key) {
   "B1" -> need("A1") + need("A2")
   "B2" -> need("B1") * 2
-  else -> input.needInput(key)
+  else -> needInput(key)
 }
 
-suspend fun build(target: Key, tasks: suspend Need.(Key) -> Val): Val = Need { build(it, tasks) }.tasks(target)
+suspend fun MultishotScope.build(target: Key, tasks: suspend context(Need) MultishotScope.(Key) -> Val): Val = tasks(Need { build(it, tasks) }, this, target)
 
-suspend fun <R> Need.memo(block: suspend Need.() -> R): R {
+context(need: Need)
+suspend fun <R> MultishotScope.memo(block: suspend context(Need) MultishotScope.() -> R): R {
   val cache = mutableMapOf<Key, Val>()
-  return Need { key -> cache.getOrPut(key) { need(key) } }.block()
+  return block(Need { key -> cache.getOrPut(key) { need(key) } }, this)
 }
 
-suspend fun Need.example2(key: Key, input: NeedInput): Val = when (key) {
+context(need: Need, input: NeedInput)
+suspend fun MultishotScope.example2(key: Key): Val = when (key) {
   "B1" -> need("A1") + need("A2")
   "B2" -> need("B1") * need("B1")
-  else -> input.needInput(key)
+  else -> needInput(key)
 }
 
 data class KeyNotFound(val key: Key)
 
-suspend fun <R> Raise<KeyNotFound>.supplyInput(store: Map<Key, Val>, block: suspend NeedInput.() -> R): R =
-  NeedInput { key -> store[key] ?: raise(KeyNotFound(key)) }.block()
+context(raise: Raise<KeyNotFound>)
+suspend fun <R> MultishotScope.supplyInput(store: Map<Key, Val>, block: suspend context(NeedInput) MultishotScope.() -> R): R =
+  block(NeedInput { key -> store[key] ?: raise.raise(KeyNotFound(key)) }, this)

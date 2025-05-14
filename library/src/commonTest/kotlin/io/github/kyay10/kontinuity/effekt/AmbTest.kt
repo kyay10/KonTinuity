@@ -2,6 +2,7 @@ package io.github.kyay10.kontinuity.effekt
 
 import arrow.core.None
 import arrow.core.Some
+import io.github.kyay10.kontinuity.MultishotScope
 import io.kotest.matchers.shouldBe
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
@@ -9,8 +10,8 @@ import kotlin.test.Test
 
 class AmbTest {
   context(amb: Amb, exc: Exc)
-  suspend fun drunkFlip(): String {
-    val heads = if (amb.flip()) amb.flip() else exc.raise("We dropped the coin.")
+  suspend fun MultishotScope.drunkFlip(): String {
+    val heads = if (flip()) flip() else raise("We dropped the coin.")
     return if (heads) "Heads" else "Tails"
   }
 
@@ -65,20 +66,20 @@ class AmbTest {
 }
 
 fun interface Amb {
-  suspend fun flip(): Boolean
+  suspend fun MultishotScope.flip(): Boolean
 }
 
 context(amb: Amb)
-suspend fun flip(): Boolean = amb.flip()
+suspend fun MultishotScope.flip(): Boolean = with(amb) { flip() }
 
 class AmbList<E>(p: HandlerPrompt<List<E>>) : Handler<List<E>> by p, Amb {
-  override suspend fun flip(): Boolean = use { resume ->
+  override suspend fun MultishotScope.flip(): Boolean = use { resume ->
     val ts = resume(true)
     val fs = resume(false)
     ts + fs
   }
 }
 
-suspend fun <E> ambList(block: suspend Amb.() -> E): List<E> = handle {
-  listOf(block(AmbList(this)))
+suspend fun <E> MultishotScope.ambList(block: suspend context(Amb) MultishotScope.() -> E): List<E> = handle {
+  listOf(block(AmbList(given<HandlerPrompt<List<E>>>()), this))
 }

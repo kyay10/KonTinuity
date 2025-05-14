@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import io.kotest.matchers.shouldBe
@@ -18,7 +19,7 @@ class SkynetTest {
   // not using effects at all
   @Test
   fun skynetNoEffects() = runTestCC(timeout = 10.minutes) {
-    suspend fun skynet(num: Int, size: Int, div: Int): Long {
+    suspend fun MultishotScope.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val children = Array(div) {
         val subNum = num + it * (size / div)
@@ -27,22 +28,22 @@ class SkynetTest {
         }
       }
       return children.sumOf {
-        it.resume()
+        resume(it)
         it.result
       }
     }
 
     val f = Fibre.create { skynet(0, N, 10) }
-    f.resume()
+    resume(f)
     f.result shouldBe 499_999_500_000L
   }
 
   // not suspending so not using algebraic effects at all.
   @Test
   fun skynetOverhead() = runTestCC {
-    suspend fun skynet(num: Int, size: Int, div: Int): Long {
+    suspend fun MultishotScope.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
-      val children = Array<suspend () -> Long>(div) {
+      val children = Array<suspend MultishotScope.() -> Long>(div) {
         val subNum = num + it * (size / div)
         { skynet(subNum, size / div, div) }
       }
@@ -74,7 +75,8 @@ class SkynetTest {
   fun skynetScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
-    suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: Scheduler2)
+    suspend fun MultishotScope.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
       repeat(div) {
@@ -99,7 +101,8 @@ class SkynetTest {
   fun skynetFlippedScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
-    suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: Scheduler2)
+    suspend fun MultishotScope.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
       repeat(div) {
@@ -124,7 +127,8 @@ class SkynetTest {
   fun skynetFastScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
-    suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: Scheduler2)
+    suspend fun MultishotScope.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
       repeat(div) {
@@ -151,7 +155,8 @@ class SkynetTest {
   // when using kotlinx-coroutines debugging.
   @Test
   fun skynetSuspend() = runTestCC(timeout = 10.minutes) {
-    suspend fun Suspendable.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: Suspendable)
+    suspend fun MultishotScope.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong().also { suspend() }
       val children = Array(div) {
         val subNum = num + it * (size / div)
@@ -159,16 +164,16 @@ class SkynetTest {
           skynet(subNum, size / div, div)
         }
       }
-      children.forEach { it.resume() }
+      children.forEach { resume(it) }
       return children.sumOf {
-        it.resume()
+        resume(it)
         it.result
       }.also { suspend() }
     }
 
     val f = Fibre.create { skynet(0, N, 10) }
-    f.resume()
-    f.resume()
+    resume(f)
+    resume(f)
     f.result shouldBe 499_999_500_000L
   }
 

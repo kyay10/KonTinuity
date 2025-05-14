@@ -10,11 +10,13 @@ class RevStateTest {
     // Usage example
     data class CounterState(val count: Int)
 
-    suspend fun RevState<CounterState, Unit>.incrementCounter() {
+    context(_: RevState<CounterState, Unit>)
+    suspend fun MultishotScope.incrementCounter() {
       modify { state -> state.copy(count = state.count + 1) }
     }
 
-    suspend fun RevState<CounterState, Unit>.doubleCounter() {
+    context(_: RevState<CounterState, Unit>)
+    suspend fun MultishotScope.doubleCounter() {
       modify { state -> state.copy(count = state.count * 2) }
     }
 
@@ -23,36 +25,47 @@ class RevStateTest {
         doubleCounter()
         doubleCounter()
         incrementCounter()
-      }.first()
+      }.first(this)
     }
     result shouldBe CounterState(4)
   }
 }
 
-typealias RevState<S, R> = Prompt<Pair<suspend () -> S, R>>
+typealias RevState<S, R> = Prompt<Pair<suspend MultishotScope.() -> S, R>>
 
-suspend fun <S, R> RevState<S, R>.modify(f: suspend (S) -> S) = shift {
+context(_: RevState<S, R>)
+suspend fun <S, R> MultishotScope.modify(f: suspend MultishotScope.(S) -> S) = shift {
   val (s, r) = it(Unit)
-  suspend { f(s()) } to r
+  val f2: suspend MultishotScope.() -> S = { f(s()) }
+  f2 to r
 }
 
-suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = shift {
-  val channel = Channel<suspend () -> S>()
-  it(suspend {
-    channel.receive()()
-  }).also { (s, _) ->
-    channel.send(s)
+context(_: RevState<S, R>)
+suspend fun <S, R> MultishotScope.get(): suspend MultishotScope.() -> S = shift {
+  val channel = Channel<suspend MultishotScope.() -> S>()
+  it {
+    bridge { channel.receive() }()
+  }.also { (s, _) ->
+    bridge { channel.send(s) }
   }
 }
 
-suspend fun <S, R> RevState<S, R>.set(value: S): Unit = shift {
+context(_: RevState<S, R>)
+suspend fun <S, R> MultishotScope.set(value: S): Unit = shift {
   val (_, r) = it(Unit)
-  suspend { value } to r
+  val s: suspend MultishotScope.() -> S = { value }
+  s to r
 }
 
-suspend fun <S, R> RevState<S, R>.setLazy(value: suspend () -> S): Unit = shift {
+context(_: RevState<S, R>)
+suspend fun <S, R> MultishotScope.setLazy(value: suspend MultishotScope.() -> S): Unit = shift {
   val (_, r) = it(Unit)
   value to r
 }
 
-suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> = newReset { suspend { value } to body() }
+suspend fun <S, R> MultishotScope.runRevState(
+  value: S,
+  body: suspend context(RevState<S, R>) MultishotScope.() -> R
+): Pair<suspend MultishotScope.() -> S, R> = newReset {
+  Pair<suspend MultishotScope.() -> S, R>({ value }, body())
+}

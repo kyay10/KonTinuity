@@ -2,6 +2,7 @@ package io.github.kyay10.kontinuity
 
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.jvm.JvmField
 
@@ -15,25 +16,13 @@ internal expect val Continuation<*>.completion: Continuation<*>?
 internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>
 internal expect fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any?
 
-public sealed class SplitSeq<in Start>(@JvmField internal val realContext: CoroutineContext) : CoroutineStackFrame, CoroutineContext, Continuation<Start> {
-  final override val context: CoroutineContext get() = this
-
+public sealed class SplitSeq<in Start>(@JvmField @PublishedApi internal val trampoline: MultishotScope) : CoroutineStackFrame, Continuation<Start> {
+  final override val context: CoroutineContext get() = EmptyCoroutineContext
   final override fun resumeWith(result: Result<Start>) {
     if (result.exceptionOrNull() !== SuspendedException) {
       resumeWithImpl(result)
     }
   }
-
-  final override fun <R> fold(initial: R, operation: (R, CoroutineContext.Element) -> R): R =
-    realContext.fold(initial, operation)
-
-  final override fun plus(context: CoroutineContext): CoroutineContext = realContext.plus(context)
-
-  final override fun minusKey(key: CoroutineContext.Key<*>): CoroutineContext =
-    realContext.minusKey(key)
-
-  final override fun <E : CoroutineContext.Element> get(key: CoroutineContext.Key<E>): E? =
-    realContext[key]
 }
 
 internal tailrec fun <Start> SplitSeq<Start>.resumeWithImpl(result: Result<Start>): Unit = when (this) {
@@ -49,10 +38,10 @@ internal tailrec fun <Start> SplitSeq<Start>.resumeWithImpl(result: Result<Start
 }
 
 @PublishedApi
-internal fun <Start, P> SplitSeq<Start>.splitAt(p: Prompt<P>) =
+internal fun <Start, P> SplitSeq<Start>.splitAt(p: Prompt<P>): Pair<SingleUseSegment<Start, P>, SplitSeq<P>> =
   SingleUseSegment(p, this) to p.rest
 
-internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>) : SplitSeq<Start>(underlying.context) {
+internal class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>, trampoline: MultishotScope) : SplitSeq<Start>(trampoline) {
   override val callerFrame: CoroutineStackFrame? = underlying as? CoroutineStackFrame
   override fun getStackTraceElement(): StackTraceElement? = null
 }
@@ -61,9 +50,9 @@ internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Star
 internal class FramesCont<Start, Last>(
   @JvmField var cont: Continuation<Start>,
   @Suppress("UNCHECKED_CAST")
-  override val rest: SplitSeq<Last> = cont.context as SplitSeq<Last>,
+  override val rest: SplitSeq<Last>,
   @JvmField var copied: Boolean = false,
-) : Segmentable<Start, Last>(rest.realContext) {
+) : Segmentable<Start, Last>(rest.trampoline) {
 
   @Suppress("UNCHECKED_CAST")
   inline fun resumeCopiedAndCollectResult(result: Result<Start>, resumer: (SplitSeq<Last>, Result<Last>) -> Unit) {
@@ -75,6 +64,7 @@ internal class FramesCont<Start, Last>(
     while (true) {
       val completion = (current.completion ?: error("Not a compiler generated continuation $current")) as Continuation<Any?>
       if (completion === rest) {
+        trampoline.rest = completion
         // top-level completion reached -- invoke and return
         val outcome = try {
           val outcome = current.copy(completion).invokeSuspend(param)
@@ -91,6 +81,7 @@ internal class FramesCont<Start, Last>(
       // That seems to be the case due to trampolining.
       // Note to self: if any weird behavior happens, uncomment this line
       //newFramesCont.cont = completion
+      trampoline.rest = newFramesCont
       val outcome: Result<Any?> =
         try {
           val outcome = current.copy(newFramesCont).invokeSuspend(param)
@@ -117,6 +108,7 @@ internal class FramesCont<Start, Last>(
   inline fun resumeAndCollectResult(result: Result<Start>, resumer: (SplitSeq<Last>, Result<Last>) -> Unit) {
     // This loop unrolls recursion in current.resumeWith(param) to make saner and shorter stack traces on resume
     val rest = rest
+    trampoline.rest = rest
     var current: Continuation<Any?> = cont as Continuation<Any?>
     var param: Result<Any?> = result
     while (true) {
@@ -148,7 +140,7 @@ internal class FramesCont<Start, Last>(
 
 public class Prompt<Start> @PublishedApi internal constructor(
   @PublishedApi override var rest: SplitSeq<Start>
-) : Segmentable<Start, Start>(rest.realContext)
+) : Segmentable<Start, Start>(rest.trampoline)
 
 public typealias Reader<S> = ReaderT<S, *>
 
@@ -156,7 +148,7 @@ public class ReaderT<S, Start> @PublishedApi internal constructor(
   override val rest: SplitSeq<Start>,
   @PublishedApi @JvmField internal var state: S,
   @PublishedApi @JvmField internal val fork: S.() -> S,
-) : Segmentable<Start, Start>(rest.realContext) {
+) : Segmentable<Start, Start>(rest.trampoline) {
   @PublishedApi
   @JvmField
   internal var forkOnFirstRead: Boolean = false
@@ -170,10 +162,13 @@ public class ReaderT<S, Start> @PublishedApi internal constructor(
   }
 }
 
+context(r: Reader<S>)
+public fun <S> ask(): S = r.ask()
+
 @PublishedApi
 internal class UnderCont<Start, RealStart>(
   @JvmField val captured: SingleUseSegment<RealStart, Start>, override val rest: SplitSeq<Start>
-) : Segmentable<RealStart, Start>(rest.realContext) {
+) : Segmentable<RealStart, Start>(rest.trampoline) {
   var copied: Boolean
     get() = captured.copying
     set(value) {
@@ -279,11 +274,11 @@ private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
   }
 }
 
-public sealed class Segmentable<Start, Rest>(context: CoroutineContext) : SplitSeq<Start>(context) {
+public sealed class Segmentable<Start, Rest>(trampoline: MultishotScope) : SplitSeq<Start>(trampoline) {
   internal abstract val rest: SplitSeq<Rest>
   override val callerFrame: CoroutineStackFrame? get() = rest
   override fun getStackTraceElement(): StackTraceElement? = null
 }
 
 @PublishedApi
-internal fun <R> collectStack(continuation: Continuation<R>): FramesCont<R, *> = FramesCont<R, Nothing>(continuation)
+internal fun <R> MultishotScope.collectStack(continuation: Continuation<R>): FramesCont<R, *> = FramesCont(continuation, rest!!)

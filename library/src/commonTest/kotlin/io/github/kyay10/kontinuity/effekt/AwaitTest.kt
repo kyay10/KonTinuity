@@ -1,14 +1,15 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runCC
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.test.runTest as coroutinesRunTest
 
 class AwaitTest {
   @Test
@@ -25,7 +26,7 @@ class AwaitTest {
           42
         }
         // Yield call here to try and reduce flakiness. This desperately needs looking at!
-        kotlinx.coroutines.yield()
+        bridge { kotlinx.coroutines.yield() }
         if (fork()) {
           printed.appendLine("hello 1")
           yield()
@@ -57,42 +58,57 @@ class AwaitTest {
 }
 
 interface Await {
-  suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A
-  suspend fun fork(): Boolean
+  suspend fun <A> MultishotScope.await(body: suspend MultishotScope.(suspend MultishotScope.(A) -> Unit) -> Unit): A
+  suspend fun MultishotScope.fork(): Boolean
 }
 
-tailrec suspend fun Await.forkN(n: Int): Int = when {
+context(a: Await)
+suspend fun MultishotScope.fork(): Boolean = with(a) { fork() }
+
+context(a: Await)
+suspend fun <A> MultishotScope.await(body: suspend MultishotScope.(suspend MultishotScope.(A) -> Unit) -> Unit): A =
+  with(a) { await(body) }
+
+context(_: Await)
+tailrec suspend fun MultishotScope.forkN(n: Int): Int = when {
   n <= 1 -> 0
   fork() -> n - 1
   else -> forkN(n - 1)
 }
 
-suspend fun Await.exit(): Nothing = await { }
-suspend fun Await.yield() = await { it(Unit) }
-suspend fun <A> Await.await(d: Deferred<A>): A {
+context(_: Await)
+suspend fun MultishotScope.exit(): Nothing = await { }
+
+context(_: Await)
+suspend fun MultishotScope.yield() = await { it(Unit) }
+
+context(_: Await)
+suspend fun <A> MultishotScope.await(d: Deferred<A>): A {
   do {
     yield()
-    kotlinx.coroutines.yield() // so that the deferred has a chance to run if we're single threaded
+    bridge { kotlinx.coroutines.yield() } // so that the deferred has a chance to run if we're single threaded
   } while (!d.isCompleted)
-  return d.await()
+  return bridge { d.await() }
 }
 
-class MutableAwait(prompt: HandlerPrompt<Unit>, private val processes: MutableList<suspend () -> Unit>) : Await, Handler<Unit> by prompt {
-  override suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A = use { k ->
+class MutableAwait(prompt: HandlerPrompt<Unit>, private val processes: MutableList<suspend MultishotScope.() -> Unit>) :
+  Await, Handler<Unit> by prompt {
+  override suspend fun <A> MultishotScope.await(body: suspend MultishotScope.(suspend MultishotScope.(A) -> Unit) -> Unit): A =
+    use { k ->
     body {
       processes.add { k(it) }
       processes.removeFirst()()
     }
   }
 
-  override suspend fun fork(): Boolean = use { k ->
+  override suspend fun MultishotScope.fork(): Boolean = use { k ->
     processes.add { k(false) }
     k(true)
   }
 }
 
-suspend fun mutableAwait(body: suspend MutableAwait.() -> Unit) {
-  val processes = mutableListOf<suspend () -> Unit>()
-  handle { body(MutableAwait(this, processes)) }
-  while (processes.isNotEmpty()) processes.removeFirst()()
+suspend fun MultishotScope.mutableAwait(body: suspend context(MutableAwait) MultishotScope.() -> Unit) {
+  val processes = mutableListOf<suspend MultishotScope.() -> Unit>()
+  handle { body(MutableAwait(given<HandlerPrompt<Unit>>(), processes), this) }
+  while (processes.isNotEmpty()) processes.removeFirst()(this)
 }

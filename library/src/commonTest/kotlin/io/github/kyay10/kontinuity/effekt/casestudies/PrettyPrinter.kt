@@ -8,6 +8,7 @@ import arrow.core.getOrElse
 import arrow.core.raise.SingletonRaise
 import arrow.core.recover
 import arrow.core.some
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
@@ -22,7 +23,7 @@ import kotlin.text.repeat
 
 class PrettyPrinterTest {
   context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
-  suspend fun example4b() {
+  suspend fun MultishotScope.example4b() {
     text("def"); space(); text("foo"); parens {
       group {
         nest(2) {
@@ -37,7 +38,7 @@ class PrettyPrinterTest {
   }
 
   context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
-  suspend fun example3b() {
+  suspend fun MultishotScope.example3b() {
     example4b()
     space()
     braces {
@@ -52,7 +53,7 @@ class PrettyPrinterTest {
   }
 
   context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
-  suspend fun example6() {
+  suspend fun MultishotScope.example6() {
     group {
       text("this")
       nest(9) {
@@ -65,7 +66,7 @@ class PrettyPrinterTest {
   }
 
   context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
-  suspend fun example7() {
+  suspend fun MultishotScope.example7() {
     group {
       text("this")
       line()
@@ -80,7 +81,7 @@ class PrettyPrinterTest {
   }
 
   context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
-  suspend fun helloWorld() {
+  suspend fun MultishotScope.helloWorld() {
     text("hello")
     line()
     text("world")
@@ -161,49 +162,49 @@ enum class Direction {
 }
 
 fun interface Indent {
-  suspend fun indent(): Int
+  suspend fun MultishotScope.indent(): Int
 }
 
 context(indent: Indent)
-suspend fun indent() = indent.indent()
+suspend fun MultishotScope.indent() = with(indent) { indent() }
 
 fun interface DefaultIndent {
-  suspend fun defaultIndent(): Int
+  suspend fun MultishotScope.defaultIndent(): Int
 }
 
 context(defaultIndent: DefaultIndent)
-suspend fun defaultIndent() = defaultIndent.defaultIndent()
+suspend fun MultishotScope.defaultIndent() = with(defaultIndent) { defaultIndent() }
 
 fun interface Flow {
-  suspend fun flow(): Direction
+  suspend fun MultishotScope.flow(): Direction
 }
 
 context(flow: Flow)
-suspend fun flow() = flow.flow()
+suspend fun MultishotScope.flow() = with(flow) { flow() }
 
 fun interface Emit {
-  suspend fun emitText(text: String)
-  suspend fun emitNewline() = emitText("\n")
+  suspend fun MultishotScope.emitText(text: String)
+  suspend fun MultishotScope.emitNewline() = emitText("\n")
 }
 
 context(emit: Emit)
-suspend fun text(content: String) = emit.emitText(content)
+suspend fun MultishotScope.text(content: String) = with(emit) { emitText(content) }
 
 context(emit: Emit)
-suspend fun newline() = emit.emitNewline()
+suspend fun MultishotScope.newline() = with(emit) { emitNewline() }
 
 context(_: Emit)
-suspend fun space() = text(" ")
+suspend fun MultishotScope.space() = text(" ")
 
 context(_: Emit)
-suspend fun spaces(n: Int) {
+suspend fun MultishotScope.spaces(n: Int) {
   if (n > 0) {
     text(" ".repeat(n))
   }
 }
 
 context(_: Indent, _: Flow, _: Emit)
-suspend fun lineOr(replace: String) = when (flow()) {
+suspend fun MultishotScope.lineOr(replace: String) = when (flow()) {
   Direction.Horizontal -> text(replace)
   Direction.Vertical -> {
     newline()
@@ -212,64 +213,64 @@ suspend fun lineOr(replace: String) = when (flow()) {
 }
 
 context(_: Indent, _: Flow, _: Emit)
-suspend fun line() = lineOr(" ")
+suspend fun MultishotScope.line() = lineOr(" ")
 
 context(_: Indent, _: Flow, _: Emit)
-suspend fun linebreak() = lineOr("")
+suspend fun MultishotScope.linebreak() = lineOr("")
 
 // Uses `n` as the indentation in the given document
 context(_: Indent)
-suspend inline fun <R> withIndent(n: Int, doc: suspend context(Indent) () -> R): R = with(Indent { n }) {
+suspend inline fun <R> MultishotScope.withIndent(n: Int, doc: suspend context(Indent) MultishotScope.() -> R): R = with(Indent { n }) {
   doc()
 }
 
 context(_: Indent)
-suspend inline fun <R> nest(
-  j: Int, doc: suspend context(Indent) () -> R
+suspend inline fun <R> MultishotScope.nest(
+  j: Int, doc: suspend context(Indent) MultishotScope.() -> R
 ): R = withIndent(indent() + j, doc)
 
 context(_: Indent, _: DefaultIndent)
-suspend inline fun <R> nested(
-  doc: suspend context(Indent) () -> R
+suspend inline fun <R> MultishotScope.nested(
+  doc: suspend context(Indent) MultishotScope.() -> R
 ): R = nest(defaultIndent(), doc)
 
 context(_: Flow)
-suspend inline fun <R> fix(
-  direction: Direction, doc: suspend context(Flow) () -> R
+suspend inline fun <R> MultishotScope.fix(
+  direction: Direction, doc: suspend context(Flow) MultishotScope.() -> R
 ): R = with(Flow { direction }) {
-  doc(given<Flow>())
+  doc()
 }
 
 context(_: Flow)
-suspend inline fun <R> horizontal(
-  doc: suspend context(Flow) () -> R
+suspend inline fun <R> MultishotScope.horizontal(
+  doc: suspend context(Flow) MultishotScope.() -> R
 ): R = fix(Direction.Horizontal, doc)
 
 context(_: Flow)
-suspend inline fun <R> vertical(
-  doc: suspend context(Flow) () -> R
+suspend inline fun <R> MultishotScope.vertical(
+  doc: suspend context(Flow) MultishotScope.() -> R
 ): R = fix(Direction.Vertical, doc)
 
 fun interface LayoutChoice {
-  suspend fun choice(): Direction
+  suspend fun MultishotScope.choice(): Direction
 }
 
 context(layoutChoice: LayoutChoice)
-suspend fun choice() = layoutChoice.choice()
+suspend fun MultishotScope.choice() = with(layoutChoice) { choice() }
 
 context(_: Flow, _: LayoutChoice)
-suspend inline fun group(
-  doc: suspend context(Flow) () -> Unit
+suspend inline fun MultishotScope.group(
+  doc: suspend context(Flow) MultishotScope.() -> Unit
 ) = fix(choice(), doc)
 
 context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
-suspend fun softline() = group { line() }
+suspend fun MultishotScope.softline() = group { line() }
 
 context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
-suspend fun softbreak() = group { linebreak() }
+suspend fun MultishotScope.softbreak() = group { linebreak() }
 
 context(_: Indent, _: Flow, _: Emit)
-suspend fun example1(l: List<Int>) {
+suspend fun MultishotScope.example1(l: List<Int>) {
   text("[")
   var n = 0
   while (n < l.size) {
@@ -282,7 +283,7 @@ suspend fun example1(l: List<Int>) {
 }
 
 context(_:Indent, _: Flow, _: Emit, _: LayoutChoice)
-suspend fun example2() {
+suspend fun MultishotScope.example2() {
   group {
     text("Hi")
     line()
@@ -292,7 +293,7 @@ suspend fun example2() {
 }
 
 context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
-suspend fun example3() = group {
+suspend fun MultishotScope.example3() = group {
   text("this")
   nest(9) {
     line()
@@ -306,60 +307,64 @@ suspend fun example3() = group {
   text("lines")
 }
 
-suspend fun <R> searchLayout(p: suspend context(SingletonRaise<Unit>, LayoutChoice) () -> R): Option<R> = handle {
-  p(SingletonRaise(Raise { None })) {
+suspend fun <R> MultishotScope.searchLayout(p: suspend context(SingletonRaise<Unit>, LayoutChoice) MultishotScope.() -> R): Option<R> = handle {
+  p(SingletonRaise(Raise { None }), {
     use { k ->
       k(Direction.Horizontal).recover { k(Direction.Vertical).bind() }
     }
-  }.some()
+  }, this).some()
 }
 
-suspend fun writer(p: suspend context(Emit) () -> Unit): String {
+suspend fun MultishotScope.writer(p: suspend context(Emit) MultishotScope.() -> Unit): String {
   data class Data(var content: String)
   return handleStateful(Data(""), Data::copy) {
-    p { text ->
+    p({ text ->
       get().content += text
-    }
+    }, this)
     get().content
   }
 }
 
 context(emit: Emit, layoutChoice: LayoutChoice, _: SingletonRaise<*>)
-suspend fun printer(
-  width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit
+suspend fun MultishotScope.printer(
+  width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) MultishotScope.() -> Unit
 ) {
   data class PrinterData(var pos: Int)
   handleStateful(PrinterData(0), PrinterData::copy) {
-    block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(layoutChoice::choice), object : Emit {
-      override suspend fun emitText(text: String) {
+    block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow { choice() }, object : Emit {
+      override suspend fun MultishotScope.emitText(text: String) {
         get().pos += text.length
         if (get().pos > width) {
           raise()
         } else {
-          emit.emitText(text)
+          with(emit) {
+            emitText(text)
+          }
         }
       }
 
-      override suspend fun emitNewline() {
-        emit.emitNewline()
+      override suspend fun MultishotScope.emitNewline() {
+        with(emit) {
+          emitNewline()
+        }
         get().pos = 0
       }
-    })
+    }, this)
   }
 }
 
-suspend fun pretty(
-  width: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit, LayoutChoice) () -> Unit
+suspend fun MultishotScope.pretty(
+  width: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit, LayoutChoice) MultishotScope.() -> Unit
 ): String = searchLayout {
   writer {
     printer(width, 2) {
-      block(given<Indent>(), given<DefaultIndent>(), given<Flow>(), given<Emit>(), given<LayoutChoice>())
+      block(given<Indent>(), given<DefaultIndent>(), given<Flow>(), given<Emit>(), given<LayoutChoice>(), this)
     }
   }
 }.getOrElse { "Cannot print document, since it would overflow." }
 
 context(_: Emit)
-suspend inline fun parens(block: () -> Unit) {
+suspend inline fun MultishotScope.parens(block: () -> Unit) {
   text("(")
   block()
   text(")")
@@ -367,7 +372,7 @@ suspend inline fun parens(block: () -> Unit) {
 
 
 context(_: Emit)
-suspend inline fun braces(block: () -> Unit) {
+suspend inline fun MultishotScope.braces(block: () -> Unit) {
   text("{")
   block()
   text("}")
@@ -375,25 +380,25 @@ suspend inline fun braces(block: () -> Unit) {
 
 
 context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
-suspend fun Tree.emit(): Unit = when (this) {
-  is Lit -> text(value.toString())
-  is Var -> text(name)
+suspend fun MultishotScope.emit(tree: Tree): Unit = when (tree) {
+  is Lit -> text(tree.value.toString())
+  is Var -> text(tree.name)
   is Let -> {
-    text("let"); space(); text(name); space(); text("=")
+    text("let"); space(); text(tree.name); space(); text("=")
     group {
-      nested { line(); binding.emit() }
+      nested { line(); emit(tree.binding) }
       line()
       text("in")
     }
-    group { nested { line(); body.emit() } }
+    group { nested { line(); emit(tree.body) } }
   }
 
   is App -> {
-    text(name); parens {
+    text(tree.name); parens {
       group {
         nested {
           linebreak()
-          arg.emit()
+          emit(tree.arg)
         }
         linebreak()
       }
@@ -401,9 +406,9 @@ suspend fun Tree.emit(): Unit = when (this) {
   }
 }
 
-suspend fun parseAndPrint(text: String, width: Int): String = when (val t = parse(text) { parseExpr() }) {
-  is Right -> pretty(width) { t.value.emit() }
+suspend fun MultishotScope.parseAndPrint(text: String, width: Int): String = when (val t = parse(text) { parseExpr() }) {
+  is Right -> pretty(width) { emit(t.value) }
   is Left -> t.value
 }
 
-suspend fun example4() = parseAndPrint("let x = (let y = 2 in 1) in 42", 10)
+suspend fun MultishotScope.example4() = parseAndPrint("let x = (let y = 2 in 1) in 42", 10)

@@ -3,19 +3,20 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import io.github.kyay10.kontinuity.MultishotScope
 import kotlin.contracts.contract
 
 fun interface Exc {
-  suspend fun raise(msg: String): Nothing
+  suspend fun MultishotScope.raise(msg: String): Nothing
 }
 
 context(exc: Exc)
-suspend inline fun raise(msg: String): Nothing = exc.raise(msg)
+suspend inline fun MultishotScope.raise(msg: String): Nothing = with(exc) { raise(msg) }
 
 context(exc: Exc)
-suspend inline fun raise(): Nothing = raise("")
+suspend inline fun MultishotScope.raise(): Nothing = raise("")
 
-context(_: Exc) suspend fun ensure(condition: Boolean) {
+context(_: Exc) suspend fun MultishotScope.ensure(condition: Boolean) {
   contract {
     returns() implies condition
   }
@@ -23,9 +24,9 @@ context(_: Exc) suspend fun ensure(condition: Boolean) {
 }
 
 class Maybe<R>(p: HandlerPrompt<Option<R>>) : Exc, Handler<Option<R>> by p {
-  override suspend fun raise(msg: String): Nothing = discard { None }
+  override suspend fun MultishotScope.raise(msg: String): Nothing = discard { None }
 }
 
-suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle {
-  Some(block(Maybe(this)))
+suspend fun <R> MultishotScope.maybe(block: suspend context(Exc) MultishotScope.() -> R): Option<R> = handle {
+  Some(block(Maybe(given<HandlerPrompt<Option<R>>>()), this))
 }

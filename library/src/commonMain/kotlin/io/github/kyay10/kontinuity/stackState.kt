@@ -2,10 +2,11 @@ package io.github.kyay10.kontinuity
 
 public typealias StackState<T> = State<List<T>>
 
-public operator fun <T> StackState<T>.plusAssign(value: T) = modify { it + value }
-public fun <T> StackState<T>.getLast() = ask().value.last()
+context(_: StackState<T>)
+public fun <T> getLast(): T = ask().value.last()
 
-public inline fun <T> StackState<T>.modifyLast(f: (T) -> T) = plusAssign(f(getLast()))
+context(s: StackState<T>)
+public inline fun <T> modifyLast(f: (T) -> T): Unit = modify { it + f(getLast()) }
 
-public suspend fun <T, R> runStackState(value: T, body: suspend StackState<T>.() -> R): R =
+public suspend fun <T, R> MultishotScope.runStackState(value: T, body: suspend context(StackState<T>) MultishotScope.() -> R): R =
   runState(listOf(value), body)

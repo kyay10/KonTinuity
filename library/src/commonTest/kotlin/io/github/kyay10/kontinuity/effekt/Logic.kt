@@ -4,42 +4,43 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.toOption
-import io.github.kyay10.kontinuity.runReader
+import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.ask
 
-data class Stream<out A>(val value: A, val next: (suspend () -> Stream<A>?)?): Shareable<Stream<A>> {
-  context(_: Amb, _: Exc)
-  suspend fun reflect(): A {
-    forEach { isLast, a -> if (isLast || flip()) return a }
-    raise()
-  }
-  suspend fun tail(): Stream<A>? = next?.invoke()
-
+data class Stream<out A>(val value: A, val next: (suspend MultishotScope.() -> Stream<A>?)?) : Shareable<Stream<A>> {
   context(_: Sharing)
   override fun shareArgs(): Stream<A> = Stream(value.shareArgs(), next?.let { share(it) })
 }
 
 context(_: Amb, _: Exc)
-suspend fun <A> Stream<A>?.reflect(): A = (this ?: raise()).reflect()
+suspend fun <A> MultishotScope.reflect(s: Stream<A>?): A {
+  s ?: raise()
+  forEach(s) { isLast, a -> if (isLast || flip()) return a }
+  raise()
+}
 
-suspend inline fun <A> Stream<A>?.forEach(block: (isLast: Boolean, A) -> Unit) {
-  var branch = this
+suspend fun <A> MultishotScope.tail(s: Stream<A>): Stream<A>? = s.next?.let { it() }
+
+suspend inline fun <A> MultishotScope.forEach(s: Stream<A>?, block: (isLast: Boolean, A) -> Unit) {
+  var branch = s
   while (branch != null) {
     block(branch.next == null, branch.value)
-    branch = branch.tail()
+    branch = tail(branch)
   }
 }
 
 interface Logic {
-  suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>?
+  suspend fun <A> MultishotScope.split(block: suspend context(Amb, Exc) MultishotScope.() -> A): Stream<A>?
 }
 
 context(logic: Logic)
-suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>? = logic.split(block)
+suspend fun <A> MultishotScope.split(block: suspend context(Amb, Exc) MultishotScope.() -> A): Stream<A>? =
+  with(logic) { split(block) }
 
 context(logic: Logic, _: Amb, _: Exc)
-suspend fun <A> interleave(
-  first: suspend context(Amb, Exc) () -> A,
-  second: suspend context(Amb, Exc) () -> A
+suspend fun <A> MultishotScope.interleave(
+  first: suspend context(Amb, Exc) MultishotScope.() -> A,
+  second: suspend context(Amb, Exc) MultishotScope.() -> A
 ): A {
   val branch = split(first) ?: return second()
   return if (flip()) branch.value
@@ -50,20 +51,20 @@ suspend fun <A> interleave(
 // could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some block
 // likely no because interleave delimits its arguments
 context(_: Amb, _: Exc)
-private tailrec suspend fun <A> interleaveImpl(
-  first: suspend () -> Stream<A>?,
-  second: suspend () -> Stream<A>?
+private tailrec suspend fun <A> MultishotScope.interleaveImpl(
+  first: suspend MultishotScope.() -> Stream<A>?,
+  second: suspend MultishotScope.() -> Stream<A>?
 ): A {
-  val (value, next) = first() ?: return second().reflect()
+  val (value, next) = first() ?: return reflect(second())
   return if (flip()) value
-  else if (next == null) second().reflect()
+  else if (next == null) reflect(second())
   else interleaveImpl(second, next)
 }
 
 context(_: Logic, _: Amb, _: Exc)
-suspend fun <A, B> fairBind(
-  first: suspend context(Amb, Exc) () -> A,
-  second: suspend context(Amb, Exc) (A) -> B
+suspend fun <A, B> MultishotScope.fairBind(
+  first: suspend context(Amb, Exc) MultishotScope.() -> A,
+  second: suspend context(Amb, Exc) MultishotScope.(A) -> B
 ): B {
   val (value, next) = split(first) ?: raise()
   if (next == null) return second(value)
@@ -71,9 +72,9 @@ suspend fun <A, B> fairBind(
 }
 
 context(_: Logic, _: Amb, _: Exc)
-private suspend fun <A, B> fairBindImpl(
-  first: suspend () -> Stream<A>?,
-  second: suspend context(Amb, Exc) (A) -> B
+private suspend fun <A, B> MultishotScope.fairBindImpl(
+  first: suspend MultishotScope.() -> Stream<A>?,
+  second: suspend context(Amb, Exc) MultishotScope.(A) -> B
 ): B {
   val (value, next) = first() ?: raise()
   return if (next == null) second(value)
@@ -82,38 +83,42 @@ private suspend fun <A, B> fairBindImpl(
 
 // I think nullOnFailure/noneOnFailure are better replacements
 context(_: Logic, _: Amb, _: Exc)
-suspend inline fun <A, B> ifte(
-  noinline condition: suspend context(Amb, Exc) () -> A,
+suspend inline fun <A, B> MultishotScope.ifte(
+  noinline condition: suspend context(Amb, Exc) MultishotScope.() -> A,
   then: (A) -> B,
   otherwise: () -> B
 ): B {
   val stream = split(condition) ?: return otherwise()
-  return then(stream.reflect())
+  return then(reflect(stream))
 }
 
 context(_: Logic, _: Amb, _: Exc)
-suspend fun <A> nullOnFailure(block: suspend context(Amb, Exc) () -> A): A? = split(block)?.reflect()
+suspend fun <A> MultishotScope.nullOnFailure(block: suspend context(Amb, Exc) MultishotScope.() -> A): A? =
+  reflect(split(block))
 
 context(_: Logic, _: Amb, _: Exc)
-suspend fun <A> noneOnFailure(block: suspend context(Amb, Exc) () -> A): Option<A> =
-  split(block).toOption().map { it.reflect() }
+suspend fun <A> MultishotScope.noneOnFailure(block: suspend context(Amb, Exc) MultishotScope.() -> A): Option<A> =
+  split(block).toOption().map { reflect(it) }
 
 context(_: Exc)
-suspend inline fun <A> once(crossinline block: suspend context(Amb, Exc) () -> A): A = handle {
+suspend inline fun <A> MultishotScope.once(crossinline block: suspend context(Amb, Exc) MultishotScope.() -> A): A =
+  handle {
   effectfulLogic {
     discardWithFast(Result.success(block()))
   }
   raise()
 }
 
-suspend inline fun <A> onceOrNull(crossinline block: suspend context(Amb, Exc) () -> A): A? = handle {
+suspend inline fun <A> MultishotScope.onceOrNull(crossinline block: suspend context(Amb, Exc) MultishotScope.() -> A): A? =
+  handle {
   effectfulLogic {
     discardWithFast(Result.success(block()))
   }
   null
 }
 
-suspend inline fun <A> onceOrNone(crossinline block: suspend context(Amb, Exc) () -> A): Option<A> = handle {
+suspend inline fun <A> MultishotScope.onceOrNone(crossinline block: suspend context(Amb, Exc) MultishotScope.() -> A): Option<A> =
+  handle {
   effectfulLogic {
     discardWithFast(Result.success(Some(block())))
   }
@@ -121,11 +126,12 @@ suspend inline fun <A> onceOrNone(crossinline block: suspend context(Amb, Exc) (
 }
 
 context(_: Exc)
-suspend fun gnot(block: suspend context(Amb, Exc) () -> Unit) {
+suspend fun MultishotScope.gnot(block: suspend context(Amb, Exc) MultishotScope.() -> Unit) {
   if (succeeds(block)) raise()
 }
 
-suspend inline fun succeeds(crossinline block: suspend context(Amb, Exc) () -> Unit): Boolean = handle {
+suspend inline fun MultishotScope.succeeds(crossinline block: suspend context(Amb, Exc) MultishotScope.() -> Unit): Boolean =
+  handle {
   effectfulLogic {
     block()
     discardWithFast(Result.success(true))
@@ -133,7 +139,10 @@ suspend inline fun succeeds(crossinline block: suspend context(Amb, Exc) () -> U
   false
 }
 
-suspend fun <A> bagOfN(count: Int = -1, block: suspend context(Amb, Exc) () -> A): List<A> =
+suspend fun <A> MultishotScope.bagOfN(
+  count: Int = -1,
+  block: suspend context(Amb, Exc) MultishotScope.() -> A
+): List<A> =
   handleStateful(if(count == -1) ArrayDeque<A>() else ArrayDeque(count), ::ArrayDeque) {
     effectfulLogic {
       val res = block()
@@ -154,10 +163,11 @@ object LogicDeep : Logic {
   // we could emulate shallow handlers with state
   //  and thus split can be simpler, and can just return the list of jobs as List<suspend AmbExc.() -> A>
 
-  override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>? = handle split@{
-    runReader(ArrayDeque<suspend () -> A>(), ::ArrayDeque) {
+  override suspend fun <A> MultishotScope.split(block: suspend context(Amb, Exc) MultishotScope.() -> A): Stream<A>? =
+    handle {
+      runReader(ArrayDeque<suspend MultishotScope.() -> A>(), ::ArrayDeque) {
       ask().addFirst {
-        handle ambExc@{
+        handle {
           block({
             useWithFinal { (resumeCopy, resumeFinal) ->
               ask().addFirst { resumeFinal(false) }
@@ -166,10 +176,10 @@ object LogicDeep : Logic {
           }, {
             discard {
               val branches = ask()
-              if (branches.isEmpty()) this@split.discardWithFast(Result.success(null))
-              else branches.removeFirst().invoke()
+              if (branches.isEmpty()) discardWithFast(Result.success(null))
+              else branches.removeFirst()()
             }
-          })
+          }, this)
         }
       }
       while (true) {
@@ -186,17 +196,21 @@ object LogicDeep : Logic {
 }
 
 object LogicTree : Logic {
-  override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A) = handle<Stream<A>?> {
+  override suspend fun <A> MultishotScope.split(block: suspend context(Amb, Exc) MultishotScope.() -> A) =
+    handle<Stream<A>?> {
     Stream(block({
       useWithFinal { (resumeCopy, resumeFinal) ->
         composeTrees(resumeCopy(true)) { resumeFinal(false) }
       }
-    }) {
+    }, {
       discardWithFast(Result.success(null))
-    }, null)
+    }, this), null)
   }
 
-  private suspend fun <A> composeTrees(stream: Stream<A>?, next: suspend () -> Stream<A>?): Stream<A>? {
+  private suspend fun <A> MultishotScope.composeTrees(
+    stream: Stream<A>?,
+    next: suspend MultishotScope.() -> Stream<A>?
+  ): Stream<A>? {
     val (value, nextPrime) = stream ?: return next()
     nextPrime ?: return Stream(value, next)
     return Stream(value) { composeTrees(nextPrime(), next) }
@@ -204,7 +218,7 @@ object LogicTree : Logic {
 }
 
 object LogicSimple : Logic {
-  override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>? = handle {
+  override suspend fun <A> MultishotScope.split(block: suspend context(Amb, Exc) MultishotScope.() -> A): Stream<A>? = handle {
     effectfulLogic {
       val res = block()
       useOnce {
@@ -215,13 +229,13 @@ object LogicSimple : Logic {
   }
 }
 
-suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
+suspend fun MultishotScope.effectfulLogic(block: suspend context(Amb, Exc) MultishotScope.() -> Unit): Unit = handle {
   block({
     useTailResumptiveTwice { resume ->
       resume(true)
       false
     }
-  }) {
+  }, {
     discardWithFast(Result.success(Unit))
-  }
+  }, this)
 }

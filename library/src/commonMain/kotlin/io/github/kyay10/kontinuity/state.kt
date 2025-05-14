@@ -4,12 +4,16 @@ public data class StateValue<T>(public var value: T)
 
 public typealias State<T> = Reader<StateValue<T>>
 
-public fun <T> State<T>.set(value: T) {
+context(s: State<T>)
+public fun <T> set(value: T) {
   ask().value = value
 }
 
-public fun <T> State<T>.get() = ask().value
+context(s: State<T>)
+public fun <T> get(): T = ask().value
 
-public inline fun <T> State<T>.modify(f: (T) -> T) = set(f(get()))
+context(s: State<T>)
+public inline fun <T> modify(f: (T) -> T): Unit = set(f(get()))
 
-public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R = runReader(StateValue(value), { copy() }, body)
+public suspend fun <T, R> MultishotScope.runState(value: T, body: suspend context(State<T>) MultishotScope.() -> R): R =
+  runReader(StateValue(value), { copy() }, body)

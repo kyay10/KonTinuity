@@ -11,7 +11,7 @@ class ListTest {
     val list = emptyList<Int>()
     var counter = 0
     val result = runList {
-      val item = list.bind()
+      val item = bind(list)
       counter++
       item
     }
@@ -24,7 +24,7 @@ class ListTest {
     val list = listOf(1, 2, 3)
     var counter = 0
     val result = runList {
-      val item = list.bind()
+      val item = bind(list)
       counter++
       item
     }
@@ -36,7 +36,7 @@ class ListTest {
   fun filtering() = runTestCC {
     val list = listOf(1, 2, 3)
     val result = runList {
-      val item = list.bind()
+      val item = bind(list)
       ensure(item != 2)
       item
     }
@@ -54,13 +54,13 @@ class ListTest {
     var thirdCounter = 0
     val result = runList {
       noObservedCounter++
-      val first = list1.bind()
+      val first = bind(list1)
       ensure(first != Int.MAX_VALUE)
       firstCounter++
-      val second = list2.bind()
+      val second = bind(list2)
       ensure(second != Int.MAX_VALUE)
       secondCounter++
-      list3.bind()
+      bind(list3)
       thirdCounter++
       first to second
     }
@@ -83,9 +83,9 @@ class ListTest {
     var innerCount = 0
     var itemCount = 0
     val result = runList {
-      val inner = list.bind()
+      val inner = bind(list)
       innerCount++
-      val item = inner.bind()
+      val item = bind(inner)
       itemCount++
       item
     }
@@ -99,13 +99,13 @@ class ListTest {
     val list = listOf(1, 2, 2, 3)
     val twoElements = listOf(0, 0)
     val result = runList {
-      val x = list.bind()
+      val x = bind(list)
       if (x == 2) {
-        twoElements.bind()
+        bind(twoElements)
         "firstBranch"
       } else {
         repeatIteratorless(2) {
-          twoElements.bind()
+          bind(twoElements)
         }
         "secondBranch"
       }
@@ -121,7 +121,7 @@ class ListTest {
   fun forLoops() = runTestCC {
     val result = runList {
       (1..10).forEachIteratorless { i ->
-        listOf(i, i).bind()
+        bind(listOf(i, i))
       }
       0
     }
@@ -157,7 +157,7 @@ class ListTest {
   fun permutations() = runTestCC {
     val numbers = (1..5).toList()
     val result = runList {
-      numbers.foldRightIteratorless(persistentListOf<Int>()) { i, acc -> acc.insert(i) }
+      numbers.foldRightIteratorless(persistentListOf<Int>()) { i, acc -> insert(acc, i) }
     }
     result.asSequence().shouldContainExactly(numbers.permutations())
   }

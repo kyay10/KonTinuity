@@ -29,15 +29,15 @@ import kotlin.with
 
 class HExcTest {
   context(r: Raise<Unit>, state: State<Int>)
-  private suspend fun decr() {
-    val x = state.get()
-    if (x > 0) state.set(x - 1) else raise(Unit)
+  private fun decr() {
+    val x = get()
+    if (x > 0) set(x - 1) else raise(Unit)
   }
 
   context(r: Raise<Unit>, recover: Recover, state: State<Int>)
-  private suspend fun tripleDecr() {
+  private suspend fun MultishotScope.tripleDecr() {
     decr()
-    recover.recover({
+    recover({
       decr()
       decr()
     }) {}
@@ -100,10 +100,12 @@ class HExcTest {
       } shouldBe Right(listOf(false))
       subJump {
         bagOfN {
-          recover.recover({
+          with(recover) {
+            recover({
             if (flip()) raise(Unit)
             true
-          }) { false }
+            }) { false }
+          }
         }
       } shouldBe listOf(false)
     }
@@ -123,7 +125,7 @@ class HExcTest {
     } shouldBe Right(Unit)
     runEither<Nothing, _> {
       subJump {
-        recover.recover({ raise(Unit) }) {}
+        with(recover) { recover({ raise(Unit) }) {} }
       }
     } shouldBe Right(Unit)
     runHExc {
@@ -138,16 +140,18 @@ class HExcTest {
     } shouldBe Left(Unit)
     runEither {
       subJump {
-        recover.recover<Nothing, Nothing>({ raise(Unit) }) { it }
+        with(recover) { recover<Nothing, Nothing>({ raise(Unit) }) { it } }
       }
     } shouldBe Left(Unit)
   }
 
-  suspend fun Amb.action1(err: HExc<Unit>) = err.recover({
+  context(_: Amb, err: HExc<Unit>)
+  suspend fun MultishotScope.action1() = recover({
     if (flip()) true else raise(Unit)
   }) { false }
 
-  suspend fun Amb.action2(err: HExc<Unit>) = err.recover({
+  context(_: Amb, err: HExc<Unit>)
+  suspend fun MultishotScope.action2() = recover({
     if (flip()) raise(Unit) else true
   }) { false }
 
@@ -155,22 +159,22 @@ class HExcTest {
   fun nonDetAcidTestTransactional() = runTestCC {
     collect {
       runHExcTransactional {
-        action1(this)
+        action1()
       }
     } shouldBe listOf(Right(true), Right(false))
     runHExcTransactional {
       collect {
-        action1(this@runHExcTransactional)
+        action1()
       }
     } shouldBe Right(listOf(false))
     collect {
       runHExcTransactional {
-        action2(this)
+        action2()
       }
     } shouldBe listOf(Right(false), Right(true))
     runHExcTransactional {
       collect {
-        action2(this@runHExcTransactional)
+        action2()
       }
     } shouldBe Right(listOf(false))
   }
@@ -179,22 +183,22 @@ class HExcTest {
   fun nonDetAcidTestSimple() = runTestCC {
     collect {
       runHExc {
-        action1(this)
+        action1()
       }
     } shouldBe listOf(Right(true), Right(false))
     runHExc {
       collect {
-        action1(this@runHExc)
+        action1()
       }
     } shouldBe Right(listOf(true, false))
     collect {
       runHExc {
-        action2(this)
+        action2()
       }
     } shouldBe listOf(Right(false), Right(true))
     runHExc {
       collect {
-        action2(this@runHExc)
+        action2()
       }
     } shouldBe Right(listOf(false, true))
   }
@@ -203,22 +207,22 @@ class HExcTest {
   fun nonDetAcidTestSubJump() = runTestCC {
     collect {
       runHExcSubJump {
-        action1(this)
+        action1()
       }
     } shouldBe listOf(Right(true), Right(false))
     runHExcSubJump {
       collect {
-        action1(this@runHExcSubJump)
+        action1()
       }
     } shouldBe Right(listOf(false))
     collect {
       runHExcSubJump {
-        action2(this)
+        action2()
       }
     } shouldBe listOf(Right(false), Right(true))
     runHExcSubJump {
       collect {
-        action2(this@runHExcSubJump)
+        action2()
       }
     } shouldBe Right(listOf(false))
   }
@@ -227,87 +231,118 @@ class HExcTest {
   fun nonDetAcidTestHRecover() = runTestCC {
     collect {
       hRecover {
-        action1(this)
+        action1()
       }
     } shouldBe listOf(Right(true), Right(false))
     hRecover {
       collect {
-        action1(this@hRecover)
+        action1()
       }
     } shouldBe Right(listOf(false))
     collect {
       hRecover {
-        action2(this)
+        action2()
       }
     } shouldBe listOf(Right(false), Right(true))
     hRecover {
       collect {
-        action2(this@hRecover)
+        action2()
       }
     } shouldBe Right(listOf(false))
   }
 }
 
 interface Recover {
-  suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A
+  suspend fun <E, A> MultishotScope.recover(
+    block: suspend context(Raise<E>) MultishotScope.() -> A,
+    recover: suspend MultishotScope.(E) -> A
+  ): A
 }
+
+context(r: Recover)
+suspend fun <E, A> MultishotScope.recover(
+  block: suspend context(Raise<E>) MultishotScope.() -> A,
+  recover: suspend MultishotScope.(E) -> A
+): A =
+  with(r) { recover(block, recover) }
 
 interface HExc<E> : Recover, Raise<E>
 
-suspend fun <E, A> runHExcTransactional(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
+suspend fun <E, A> MultishotScope.runHExcTransactional(block: suspend context(HExc<E>) MultishotScope.() -> A): Either<E, A> =
+  handle {
   block(object : HExc<E> {
     override fun raise(r: E) = discardWith(Result.success(Left(r)))
-    override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A {
+    override suspend fun <E, A> MultishotScope.recover(
+      block: suspend context(Raise<E>) MultishotScope.() -> A,
+      recover: suspend MultishotScope.(E) -> A
+    ): A {
       val res: Either<E, HExc<E>> = use { resume ->
         runHExcTransactional {
-          resume(this.right())
+          resume(given<HExc<E>>().right())
         }.getOrElse {
           resume(it.left())
         }
       }
-      return res.fold({ recover(it) }, { block(it) })
+      return res.fold({ recover(it) }, { with(it) { block() } })
     }
-  }).right()
+  }, this).right()
 }
 
-suspend fun <E, A> runHExc(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
+suspend fun <E, A> MultishotScope.runHExc(block: suspend context(HExc<E>) MultishotScope.() -> A): Either<E, A> =
+  handle {
   block(object : HExc<E> {
     override fun raise(r: E) = discardWith(Result.success(Left(r)))
-    override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A =
+    override suspend fun <E, A> MultishotScope.recover(
+      block: suspend context(Raise<E>) MultishotScope.() -> A,
+      recover: suspend MultishotScope.(E) -> A
+    ): A =
       runHExc(block).getOrElse { recover(it) }
-  }).right()
+  }, this).right()
 }
 
-suspend fun <E, A> runHExcSubJump(block: suspend HExc<E>.() -> A): Either<E, A> = runEither {
+suspend fun <E, A> MultishotScope.runHExcSubJump(block: suspend context(HExc<E>) MultishotScope.() -> A): Either<E, A> =
+  runEither {
   subJump {
-    block(object : HExc<E>, Recover by recover, Raise<E> by this@runEither {})
+    block(object : HExc<E>, Recover by recover, Raise<E> by given<Raise<E>>() {}, this)
   }
 }
 
-suspend fun <E, A> runEither(block: suspend Raise<E>.() -> A): Either<E, A> = handle {
-  block(Raise(::Left)).right()
+suspend fun <E, A> MultishotScope.runEither(block: suspend context(Raise<E>) MultishotScope.() -> A): Either<E, A> =
+  handle {
+    block(Raise(::Left), this).right()
 }
 
-val SubJump.recover: Recover
+context(_: SubJump)
+val recover: Recover
   get() = object : Recover {
-    override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A =
+    override suspend fun <E, A> MultishotScope.recover(
+      block: suspend context(Raise<E>) MultishotScope.() -> A,
+      recover: suspend MultishotScope.(E) -> A
+    ): A =
       sub({ jump -> runEither(block).getOrElse { jump(it) } }, { recover(it) })
   }
 
-suspend fun <E, A> hRecover(block: suspend HExc<E>.() -> A): Either<E, A> = handle {
+suspend fun <E, A> MultishotScope.hRecover(block: suspend context(HExc<E>) MultishotScope.() -> A): Either<E, A> =
+  handle {
   block(object : HExc<E> {
     override fun raise(r: E) = discardWith(Result.success(Left(r)))
-    override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A = use { resume ->
+    override suspend fun <E, A> MultishotScope.recover(
+      block: suspend context(Raise<E>) MultishotScope.() -> A,
+      recover: suspend MultishotScope.(E) -> A
+    ): A = use { resume ->
       resume.locally {
         hRecover(block).getOrElse { error ->
           discard { resume.locally { recover(error) } }
         }
       }
     }
-  }).right()
+  }, this).right()
 }
 
-suspend fun <T, R> runStatePair(value: T, body: suspend State<T>.() -> R): Pair<T, R> = runState(value) {
+suspend fun <T, R> MultishotScope.runStatePair(
+  value: T,
+  body: suspend context(State<T>) MultishotScope.() -> R
+): Pair<T, R> = runState(value) {
   val res = body()
   get() to res
 }

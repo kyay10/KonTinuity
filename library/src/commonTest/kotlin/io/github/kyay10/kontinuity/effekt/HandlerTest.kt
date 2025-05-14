@@ -4,6 +4,7 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
@@ -54,7 +55,7 @@ class HandlerJvmTest {
     buildList {
       runCC {
         region {
-          for (i in iterate2 { numbers(10) }) {
+          forEach(iterate2 { numbers(10) }) {i ->
             add(i)
           }
         }
@@ -65,7 +66,7 @@ class HandlerJvmTest {
 
 // AB ::= a AB | b
 context(_: Amb, _: Exc, _: Input)
-private suspend fun parseAsB(): Int = if (flip()) {
+private suspend fun MultishotScope.parseAsB(): Int = if (flip()) {
   accept('a')
   parseAsB() + 1
 } else {
@@ -74,25 +75,25 @@ private suspend fun parseAsB(): Int = if (flip()) {
 }
 
 context(_: Input, _: Exc)
-private suspend fun accept(exp: Char) {
+private suspend fun MultishotScope.accept(exp: Char) {
   if (read() != exp) raise("Expected $exp")
 }
 
 context(_: Amb, _: Exc)
-private suspend fun drunkFlip(): String {
+private suspend fun MultishotScope.drunkFlip(): String {
   val caught = flip()
   val heads = if (caught) flip() else raise("We dropped the coin.")
   return if (heads) "Heads" else "Tails"
 }
 
 context(_: Amb, _: Exc, _: Input)
-private suspend fun digit(): Int = when (val c = read()) {
+private suspend fun MultishotScope.digit(): Int = when (val c = read()) {
   in '0'..'9' -> c - '0'
   else -> raise("Not a digit: $c")
 }
 
 context(_: Amb, _: Exc, _: Input)
-private suspend fun number(): Int {
+private suspend fun MultishotScope.number(): Int {
   var res = digit()
   while (true) {
     if (flip()) {
@@ -104,36 +105,41 @@ private suspend fun number(): Int {
 }
 
 context(_: Exc)
-suspend fun <R> stringInput(input: String, block: suspend Input.() -> R): R = region {
+suspend fun <R> MultishotScope.stringInput(input: String, block: suspend context(Input) MultishotScope.() -> R): R =
+  region {
   val pos = field(0)
-  block {
+    block({
     if (pos.get() >= input.length) raise("EOS")
     else input[pos.get().also { pos.set(it + 1) }]
-  }
+    }, this)
 }
 
-suspend fun <R> nondet(block: suspend context(Amb, Exc) () -> R): List<R> = handle {
-  listOf(block(Collect(this)) { discard { emptyList() } })
+suspend fun <R> MultishotScope.nondet(block: suspend context(Amb, Exc) MultishotScope.() -> R): List<R> = handle {
+  listOf(block(Collect(given<HandlerPrompt<List<R>>>()), { discard { emptyList() } }, this))
 }
 
-suspend fun <R> backtrack2(block: suspend context(Amb, Exc) () -> R): Option<R> = handle {
+suspend fun <R> MultishotScope.backtrack2(block: suspend context(Amb, Exc) MultishotScope.() -> R): Option<R> = handle {
   val amb = Amb {
     use { resume ->
       resume(true).recover { resume(false).bind() }
     }
   }
-  Some(block(amb, Maybe(this)))
+  Some(block(amb, Maybe(given<HandlerPrompt<Option<R>>>()), this))
 }
 
-private suspend fun Generator<Int>.numbers(upto: Int) {
+context(_: Generator<Int>)
+private suspend fun MultishotScope.numbers(upto: Int) {
   (0..upto).forEachIteratorless { i ->
     yield(i)
   }
 }
 
-private class Iterate2<A>(val nextValue: StateScope.Field<(suspend (Unit) -> A)?>, p: HandlerPrompt<EffectfulIterator2<A>>) :
+private class Iterate2<A>(
+  val nextValue: StateScope.Field<(suspend MultishotScope.(Unit) -> A)?>,
+  p: HandlerPrompt<EffectfulIterator2<A>>
+) :
   Generator<A>, Handler<EffectfulIterator2<A>> by p {
-  override suspend fun yield(value: A) = use { resume ->
+  override suspend fun MultishotScope.yield(value: A) = use { resume ->
     nextValue.set {
       resume(Unit)
       value
@@ -141,26 +147,36 @@ private class Iterate2<A>(val nextValue: StateScope.Field<(suspend (Unit) -> A)?
     EffectfulIteratorImpl(nextValue)
   }
 
-  private class EffectfulIteratorImpl<A>(private val nextValue: StateScope.Field<(suspend (Unit) -> A)?>) :
+  private class EffectfulIteratorImpl<A>(private val nextValue: StateScope.Field<(suspend MultishotScope.(Unit) -> A)?>) :
     EffectfulIterator2<A> {
-    override suspend fun hasNext(): Boolean = nextValue.get() != null
-    override suspend fun next(): A = nextValue.get()!!.also { nextValue.set(null) }.invoke(Unit)
+    override fun hasNext(): Boolean = nextValue.get() != null
+    override suspend fun MultishotScope.next(): A = nextValue.get()!!.also { nextValue.set(null) }(Unit)
   }
 }
 
-suspend fun <A> StateScope.iterate2(block: suspend Generator<A>.() -> Unit) = handle {
-  block(Iterate2(field(null), this))
+context(s: StateScope)
+suspend fun <A> MultishotScope.iterate2(block: suspend context(Generator<A>) MultishotScope.() -> Unit) = handle {
+  block(Iterate2(field(null), given<HandlerPrompt<EffectfulIterator2<A>>>()), this)
   EmptyEffectfulIterator
 }
 
 private object EmptyEffectfulIterator : EffectfulIterator2<Nothing> {
-  override suspend fun hasNext(): Boolean = false
-  override suspend fun next(): Nothing = throw NoSuchElementException()
+  override fun hasNext(): Boolean = false
+  override suspend fun MultishotScope.next(): Nothing = throw NoSuchElementException()
 }
 
 interface EffectfulIterator2<out A> {
-  suspend operator fun hasNext(): Boolean
-  suspend operator fun next(): A
+  fun hasNext(): Boolean
+  suspend fun MultishotScope.next(): A
 }
 
-operator fun <A> EffectfulIterator2<A>.iterator() = this
+context(e: EffectfulIterator2<*>)
+fun hasNext(): Boolean = e.hasNext()
+
+suspend fun <A> MultishotScope.next(e: EffectfulIterator2<A>): A = with(e) { next() }
+
+suspend fun <A> MultishotScope.forEach(it: EffectfulIterator2<A>, block: suspend MultishotScope.(A) -> Unit) {
+  while (it.hasNext()) {
+    block(next(it))
+  }
+}

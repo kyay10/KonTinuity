@@ -9,11 +9,13 @@ class StateTest {
     // Usage example
     data class CounterState(val count: Int)
 
-    suspend fun State<CounterState>.incrementCounter() {
+    context(_: State<CounterState>)
+    fun incrementCounter() {
       modify { state -> state.copy(count = state.count + 1) }
     }
 
-    suspend fun State<CounterState>.doubleCounter() {
+    context(_: State<CounterState>)
+    fun doubleCounter() {
       modify { state -> state.copy(count = state.count * 2) }
     }
 
@@ -33,11 +35,13 @@ class StateTest {
     // Usage example
     data class CounterState(val count: Int)
 
-    suspend fun StackState<CounterState>.incrementCounter() {
+    context(_: StackState<CounterState>)
+    fun incrementCounter() {
       modifyLast { state -> state.copy(count = state.count + 1) }
     }
 
-    suspend fun StackState<CounterState>.doubleCounter() {
+    context(_: StackState<CounterState>)
+    fun doubleCounter() {
       modifyLast { state -> state.copy(count = state.count * 2) }
     }
 

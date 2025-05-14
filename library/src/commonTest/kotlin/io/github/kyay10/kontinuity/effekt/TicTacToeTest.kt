@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import kotlinx.collections.immutable.PersistentList
@@ -134,9 +135,9 @@ fun takeMove(player: Mark, loc: Location, game: Game): Game {
   )
 }
 
-typealias PlayerProc = suspend (Mark, Game) -> Pair<Int, Game>
+typealias PlayerProc = suspend MultishotScope.(Mark, Game) -> Pair<Int, Game>
 
-tailrec suspend fun game(
+tailrec suspend fun MultishotScope.game(
   player1Mark: Mark,
   player1: PlayerProc,
   player2Mark: Mark,
@@ -171,27 +172,27 @@ val humanPlayer: PlayerProc = humanPlayer@{ mark, game ->
 }
 
 context(_: Amb, _: Exc)
-suspend fun <T> List<T>.choose(): T {
-  forEachIteratorless {
+suspend fun <T> MultishotScope.choose(list: List<T>): T {
+  list.forEachIteratorless {
     if (flip()) return it
   }
   raise()
 }
 
 context(_: Amb, _: Exc)
-suspend fun IntProgression.choose(): Int {
-  forEachIteratorless {
+suspend fun MultishotScope.choose(ints: IntProgression): Int {
+  ints.forEachIteratorless {
     if (flip()) return it
   }
   raise()
 }
 
 context(_: Amb, _: Exc)
-tailrec suspend fun <T> List<T>.chooseBinary(start: Int = 0, endExclusive: Int = size): T {
+tailrec suspend fun <T> MultishotScope.chooseBinary(list: List<T>, start: Int = 0, endExclusive: Int = list.size): T {
   if (start == endExclusive) raise()
-  if (start + 1 == endExclusive) return this[start]
+  if (start + 1 == endExclusive) return list[start]
   val mid = (start + endExclusive) / 2
-  return if (flip()) chooseBinary(start, mid) else chooseBinary(mid, endExclusive)
+  return if (flip()) chooseBinary(list, start, mid) else chooseBinary(list, mid, endExclusive)
 }
 
 
@@ -202,7 +203,7 @@ val ai: PlayerProc
       game.winner != null || game.moves.isEmpty() -> estimateState(player, game) to game
       else -> {
         val possibleMoves = bagOfN(5) {
-          val move = game.moves.choose()
+          val move = choose(game.moves)
           val nextGame = takeMove(player, move, game)
           val (score, _) = ai(player.other, nextGame)
           -score to nextGame
@@ -222,23 +223,23 @@ fun estimateState(player: Mark, game: Game): Int = when {
 
 // Check if the current player can win in one move
 context(_: Amb, _: Exc)
-suspend fun firstMoveWins(player: Mark, game: Game): Location {
-  val move = game.moves.choose()
+suspend fun MultishotScope.firstMoveWins(player: Mark, game: Game): Location {
+  val move = choose(game.moves)
   val nextGame = takeMove(player, move, game)
   ensure(nextGame.winner?.second == player)
   return move
 }
 
 // Depth-limited minimax search
-suspend fun minmax(
-  self: suspend (Int, Int, Mark, Game) -> Pair<Int, Game>,
+suspend fun MultishotScope.minmax(
+  self: suspend MultishotScope.(Int, Int, Mark, Game) -> Pair<Int, Game>,
   depthLimit: Int,
   breadthLimit: Int,
   player: Mark,
   game: Game
 ): Pair<Int, Game> {
   val possibleMoves = bagOfN(breadthLimit) {
-    val move = game.moves.choose()
+    val move = choose(game.moves)
     val nextGame = takeMove(player, move, game)
     if (depthLimit <= 0) estimateState(player, nextGame) to nextGame
     else {
@@ -252,7 +253,7 @@ suspend fun minmax(
 // Optimized AI with depth and breadth limits
 val aiPrime: PlayerProc
   get() = { player, game ->
-    suspend fun aiPrimeLimited(depthLimit: Int, breadthLimit: Int, player: Mark, game: Game): Pair<Int, Game> =
+    suspend fun MultishotScope.aiPrimeLimited(depthLimit: Int, breadthLimit: Int, player: Mark, game: Game): Pair<Int, Game> =
       when {
         game.winner != null || game.moves.isEmpty() -> estimateState(player, game) to game
         else -> {
@@ -260,7 +261,7 @@ val aiPrime: PlayerProc
             val nextGame = takeMove(player, loc, game)
             val (score, _) = aiPrimeLimited(depthLimit, breadthLimit, player.other, nextGame)
             -score to nextGame
-          } ?: minmax(::aiPrimeLimited, depthLimit, breadthLimit, player, game)
+          } ?: minmax(MultishotScope::aiPrimeLimited, depthLimit, breadthLimit, player, game)
         }
       }
     aiPrimeLimited(m, globalBreadthLimit, player, game)

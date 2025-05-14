@@ -3,6 +3,7 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.math.absoluteValue
@@ -38,12 +39,13 @@ class SelectTest {
 
 class NQueens {
   var tries = 0
-  suspend fun Select.nqueens(n: Int): List<Pos> {
+  context(_: Select)
+  suspend fun MultishotScope.nqueens(n: Int): List<Pos> {
     val ys = 1..n
     var queens = emptyList<Pos>()
     var x = 1
     while (x <= n) {
-      queens = listOf(Pos(x, ys.available(x, queens).select())) + queens
+      queens = listOf(Pos(x, select(ys.available(x, queens)))) + queens
       tries++
       x++
     }
@@ -61,20 +63,23 @@ class NQueens {
 data class Pos(val x: Int, val y: Int)
 
 interface Select {
-  suspend fun <A> Iterable<A>.select(): A
+  suspend fun <A> MultishotScope.select(`as`: Iterable<A>): A
 }
 
+context(s: Select)
+suspend fun <A> MultishotScope.select(`as`: Iterable<A>): A = with(s) { select(`as`) }
+
 class SelectAll<R>(p: HandlerPrompt<List<R>>) : Select, Handler<List<R>> by p {
-  override suspend fun <A> Iterable<A>.select(): A = use { k ->
-    fold(emptyList()) { acc, elem -> acc + k(elem) }
+  override suspend fun <A> MultishotScope.select(`as`: Iterable<A>): A = use { k ->
+    `as`.fold(emptyList()) { acc, elem -> acc + k(elem) }
   }
 }
 
-suspend fun <R> selectAll(body: suspend Select.() -> R): List<R> = handle { listOf(body(SelectAll(this))) }
+suspend fun <R> MultishotScope.selectAll(body: suspend context(Select) MultishotScope.() -> R): List<R> = handle { listOf(body(SelectAll(given<HandlerPrompt<List<R>>>()), this)) }
 
 class SelectFirst<R>(p: HandlerPrompt<Option<R>>) : Select, Handler<Option<R>> by p {
-  override suspend fun <A> Iterable<A>.select(): A = use { k ->
-    forEach {
+  override suspend fun <A> MultishotScope.select(`as`: Iterable<A>): A = use { k ->
+    `as`.forEach {
       val res = k(it)
       if (res is Some) return@use res
     }
@@ -82,4 +87,5 @@ class SelectFirst<R>(p: HandlerPrompt<Option<R>>) : Select, Handler<Option<R>> b
   }
 }
 
-suspend fun <R> selectFirst(body: suspend Select.() -> R): Option<R> = handle { Some(body(SelectFirst(this))) }
+suspend fun <R> MultishotScope.selectFirst(body: suspend context(Select) MultishotScope.() -> R): Option<R> =
+  handle { Some(body(SelectFirst(given<HandlerPrompt<Option<R>>>()), this)) }

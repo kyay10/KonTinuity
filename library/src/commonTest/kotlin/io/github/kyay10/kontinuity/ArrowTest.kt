@@ -9,7 +9,8 @@ class ArrowTest {
   @Test
   fun yieldAListAndStackSafety() = runTestCC {
     newReset {
-      suspend fun <A> Prompt<List<A>>.yield(a: A): Unit = shiftOnce { k -> listOf(a) + k(Unit) }
+      context(_: Prompt<List<A>>)
+      suspend fun <A> MultishotScope.yield(a: A): Unit = shiftOnce { k -> listOf(a) + k(Unit) }
       for (i in 0..10_000) yield(i)
       emptyList()
     } shouldBe (0..10_000).toList()
@@ -121,10 +122,11 @@ class ArrowTest {
     newReset {
       val a: Int = shift { it(5) }
       a + newReset<Int> fst@{
+        val fst = given<Prompt<Int>>()
         val i: Int = shift { it(10) }
         newReset snd@{
           val j: Int = shift { it(20) }
-          val k: Int = this@fst.shift { it(30) }
+          val k: Int = fst.shift { it(30) }
           i + j + k
         }
       } shouldBe 65
@@ -134,16 +136,19 @@ class ArrowTest {
   @Test
   fun nestedResetCallingBetweenALotOfScopes() = runTestCC {
     newReset fst@{
+      val fst = given<Prompt<Unit>>()
       val a: Int = shift { it(5) }
       a + newReset<Int> snd@{
+        val snd = given<Prompt<Int>>()
         val i: Int = shift { it(10) }
         newReset third@{
+          val third = given<Prompt<Int>>()
           val j: Int = shift { it(20) }
-          val k: Int = this@fst.shift { it(30) } + this@snd.shift<Int, _> { it(40) }
+          val k: Int = fst.shift { it(30) } + snd.shift<Int, _> { it(40) }
           newReset fourth@{
             val p: Int = shift { it(20) }
-            val k2: Int = this@fst.shift { it(30) } + this@snd.shift<Int, _> { it(40) }
-            val t: Int = this@third.shift { it(5) }
+            val k2: Int = fst.shift { it(30) } + snd.shift<Int, _> { it(40) }
+            val t: Int = third.shift { it(5) }
             i + j + k + p + k2 + t
           }
         }
@@ -156,10 +161,11 @@ class ArrowTest {
     newReset {
       val a: Int = shift { it(5) }
       a + newReset<Int> fst@{
+        val fst = given<Prompt<Int>>()
         val i: Int = shift { it(10) }
         newReset snd@{
           val j: Int = shift { it(20) }
-          val k: Int = this@fst.shift { 5 }
+          val k: Int = fst.shift { 5 }
           i + j + k
         }
       } shouldBe 10
@@ -169,16 +175,19 @@ class ArrowTest {
   @Test
   fun nestedResetCallingBetweenALotOfScopesAndShortCircuit() = runTestCC {
     newReset fst@{
+      val fst = given<Prompt<Unit>>()
       val a: Int = shift { it(5) }
       a + newReset<Int> snd@{
+        val snd = given<Prompt<Int>>()
         val i: Int = shift { it(10) }
         newReset third@{
+          val third = given<Prompt<Int>>()
           val j: Int = shift { it(20) }
-          val k: Int = this@fst.shift { it(30) } + this@snd.shift<Int, _> { it(40) }
+          val k: Int = fst.shift { it(30) } + snd.shift<Int, _> { it(40) }
           newReset fourth@{
             val p: Int = shift { it(20) }
-            val k2: Int = this@fst.shift { it(30) } + this@snd.shift<Int, _> { it(40) }
-            val t: Int = this@third.shift { 5 }
+            val k2: Int = fst.shift { it(30) } + snd.shift<Int, _> { it(40) }
+            val t: Int = third.shift { 5 }
             i + j + k + p + k2 + t
           }
         }

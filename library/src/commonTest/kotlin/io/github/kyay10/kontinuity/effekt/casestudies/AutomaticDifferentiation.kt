@@ -1,6 +1,8 @@
+/*
 package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.autoCloseScope
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.use
 import io.github.kyay10.kontinuity.runTestCC
@@ -86,7 +88,7 @@ suspend fun <Num> AD<Num>.progExp(x: Num): Num = 0.5.num * exp(1.num + 2.num * x
 
 data class NumF(val value: Double, val d: Double)
 
-suspend fun forwards(x: Double, prog: suspend AD<NumF>.(NumF) -> NumF) = object : AD<NumF> {
+suspend fun MultishotScope.forwards(x: Double, prog: suspend context(AD<NumF>) MultishotScope.(NumF) -> NumF) = object : AD<NumF> {
   override val Double.num: NumF get() = NumF(this, 0.0)
   override suspend fun NumF.plus(other: NumF) = NumF(value + other.value, d + other.d)
   override suspend fun NumF.times(other: NumF) = NumF(value * other.value, value * other.d + d * other.value)
@@ -95,8 +97,9 @@ suspend fun forwards(x: Double, prog: suspend AD<NumF>.(NumF) -> NumF) = object 
 
 data class NumH<N>(val value: N, val d: N)
 
-suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend AD<NumH<N>>.(NumH<N>) -> NumH<N>) = object : AD<NumH<N>> {
-  override val Double.num: NumH<N> get() = with(this@forwardsHigher) { NumH(this@num.num, 0.num) }
+context(outer: AD<N>)
+suspend fun <N> MultishotScope.forwardsHigher(x: N, prog: suspend (AD<NumH<N>>) MultishotScope.(NumH<N>) -> NumH<N>) = object : AD<NumH<N>> {
+  override val Double.num: NumH<N> get() = NumH(this@num.num, 0.num)
   override suspend fun NumH<N>.plus(other: NumH<N>) = NumH(value + other.value, d + other.d)
   override suspend fun NumH<N>.times(other: NumH<N>) = NumH(value * other.value, d * other.value + other.d * value)
   override suspend fun exp(x: NumH<N>) =
@@ -184,4 +187,4 @@ suspend fun backwardsAutoClose(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB)
     res.d += 1
   }
   return input.d
-}
+}*/

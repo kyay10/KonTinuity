@@ -1,6 +1,8 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.effekt.get
+import io.github.kyay10.kontinuity.effekt.given
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
 import io.github.kyay10.kontinuity.runTestCC
@@ -48,37 +50,40 @@ infix fun Person.loves(loved: Person) = Is(this, InLoveWith(loved))
 val s1 = Say(John, Mary loves John)
 
 fun interface Speaker {
-  suspend fun speaker(): Person
+  suspend fun MultishotScope.speaker(): Person
 }
 
-suspend fun Speaker.me() = speaker()
+context(s: Speaker)
+suspend fun MultishotScope.me() = with(s) { speaker() }
 
-inline infix fun Person.said(s: Speaker.() -> Sentence): Sentence = Say(this, Speaker { this }.s())
+inline infix fun Person.said(s: Speaker.() -> Sentence): Sentence = Say(this, Speaker { given<Person>() }.s())
 infix fun Person.said(s: Sentence): Sentence = Say(this, s)
 
-suspend fun s1a() = John said { Mary loves me() }
+suspend fun MultishotScope.s1a() = John said { Mary loves me() }
 
 // John said Mary loves me
-suspend fun Speaker.s1b() = John said (Mary loves me())
+context(s: Speaker)
+suspend fun MultishotScope.s1b() = John said (Mary loves me())
 
-suspend fun s1c() = Peter said { s1b() }
+suspend fun MultishotScope.s1c() = Peter said { s1b() }
 
 fun interface Quantification {
-  suspend fun quantify(who: Predicate): Person
+  suspend fun MultishotScope.quantify(who: Predicate): Person
 }
 
-suspend fun Quantification.every(who: Predicate) = quantify(who)
+context(q: Quantification)
+suspend fun MultishotScope.every(who: Predicate) = with(q) { quantify(who) }
 
-suspend fun s2() = scoped { John said { every(Woman) loves me() } }
+suspend fun MultishotScope.s2() = scoped { John said { every(Woman) loves me() } }
 
-suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence {
+suspend fun MultishotScope.scoped(s: suspend context(Quantification) MultishotScope.() -> Sentence): Sentence {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
-    s { who ->
+    s({ who ->
       use { resume ->
         val x = Person("x${get().i++}")
         ForAll(x, Implies(Is(x, who), resume(x)))
       }
-    }
+    }, this)
   }
 }

@@ -31,13 +31,13 @@ public inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
   set(f(get()))
 }
 
-public suspend fun <R> region(body: suspend StateScope.() -> R): R =
+public suspend fun <R> MultishotScope.region(body: suspend context(StateScope) MultishotScope.() -> R): R =
   runReader(MutableTypedMap(), MutableTypedMap::copy) {
-    body(MutableStateScope(this))
+    body(MutableStateScope(given<Reader<MutableTypedMap>>()), this)
   }
 
-public suspend fun <R> persistentRegion(body: suspend StateScope.() -> R): R = runState(PersistentTypedMap()) {
-  body(PersistentStateScope(this))
+public suspend fun <R> MultishotScope.persistentRegion(body: suspend context(StateScope) MultishotScope.() -> R): R = runState(PersistentTypedMap()) {
+  body(PersistentStateScope(given<State<PersistentTypedMap>>()), this)
 }
 
 private class MutableTypedMap private constructor(private val map: MutableMap<Key<*>, Any?>) {
@@ -100,16 +100,16 @@ private class MutableStateScope(private val reader: Reader<MutableTypedMap>) : S
 
 private class PersistentStateScope(private val state: State<PersistentTypedMap>) : StateScope {
   override fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().also { field ->
-    state.modify { it.put(field, init) }
+    with(state) { modify { it.put(field, init) } }
   }
 
   override fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
 
   private inner class FieldImpl<T> : StateScope.Field<T>, StateScope.OptionalField<T>, PersistentTypedMap.Key<T> {
-    override fun get(): T = state.get()[this]
-    override fun getOrNone(): Option<T> = state.get().getOrNone(this)
+    override fun get(): T = with(state) { ask().value[this@FieldImpl] }
+    override fun getOrNone(): Option<T> = with(state) { ask().value.getOrNone(this@FieldImpl) }
 
-    override fun set(value: T) = state.modify { it.put(this, value) }
+    override fun set(value: T) = with(state) { modify { it.put(this@FieldImpl, value) } }
   }
 }
 
@@ -117,6 +117,6 @@ public interface Stateful<S : Stateful<S>> {
   public fun fork(): S
 }
 
-public suspend inline fun <E, S : Stateful<S>> handleStateful(
-  value: S, crossinline body: suspend StatefulPrompt<E, S>.() -> E
+public suspend inline fun <E, S : Stateful<S>> MultishotScope.handleStateful(
+  value: S, crossinline body: suspend context(StatefulPrompt<E, S>) MultishotScope.() -> E
 ): E = handleStateful(value, Stateful<S>::fork, body)

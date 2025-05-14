@@ -4,12 +4,15 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
+import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.effekt.Parser3.Companion.parse
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class ParsersTest {
-  suspend fun CharParsers.numberInParens(): Int = if (alternative()) {
+  context(_: CharParsers)
+  suspend fun MultishotScope.numberInParens(): Int = if (alternative()) {
     expect('(')
     val n = numberInParens()
     expect(')')
@@ -18,7 +21,8 @@ class ParsersTest {
     number()
   }
 
-  suspend fun CharParsers.something(): Int {
+  context(_: CharParsers)
+  suspend fun MultishotScope.something(): Int {
     expect('a')
     val res = if (alternative()) {
       expect('1')
@@ -31,55 +35,60 @@ class ParsersTest {
     return res
   }
 
-  suspend fun CharParsers.somethingPush(): Int = pushParser { something() }.feed(any()).feed('2').feedAll(this)
+  context(_: CharParsers)
+  suspend fun MultishotScope.somethingPush(): Int = feedAll(feed(feed(pushParser { something() }, any()), '2'))
 
-  suspend fun CharParsers.someNumberDot(printed: StringBuilder): Int = nonterminal("someNumberDot") {
+  context(_: CharParsers)
+  suspend fun MultishotScope.someNumberDot(printed: StringBuilder): Int = nonterminal("someNumberDot") {
     printed.appendLine("someNumberDot")
     number().also { expect('.') }
   }
 
-  suspend fun CharParsers.backtrackingExample(printed: StringBuilder): Int =
+  context(_: CharParsers)
+  suspend fun MultishotScope.backtrackingExample(printed: StringBuilder): Int =
     if (alternative()) someNumberDot(printed) + someNumberDot(printed)
     else someNumberDot(printed)
 
-  suspend fun CharParsers.backtrackingDelegation(printed: StringBuilder): Int =
-    pushParser { backtrackingExample(printed) }.feedAll(this)
+  context(c: CharParsers)
+  suspend fun MultishotScope.backtrackingDelegation(printed: StringBuilder): Int =
+    feedAll(pushParser { backtrackingExample(printed) })
 
-  suspend fun CharParsers.backtrackingDelegation2(printed: StringBuilder): Int =
+  context(c: CharParsers)
+  suspend fun MultishotScope.backtrackingDelegation2(printed: StringBuilder): Int =
     if (alternative()) someNumberDot(printed) + someNumberDot(printed)
-    else pushParser { someNumberDot(printed) }.feed('1').feedAll(this)
+    else feedAll(feed(pushParser { someNumberDot(printed) }, '1'))
 
   @Test
   fun somethingTest() = runTestCC {
-    CharParsers.parse("a1b") { something() } shouldBe Some(1)
-    CharParsers.parse("a2b") { something() } shouldBe Some(2)
-    CharParsers.parse("a3b") { something() } shouldBe None
+    parse("a1b") { something() } shouldBe Some(1)
+    parse("a2b") { something() } shouldBe Some(2)
+    parse("a3b") { something() } shouldBe None
   }
 
   @Test
   fun numberTest() = runTestCC {
     for (n in listOf(0, 13, 558)) {
-      CharParsers.parse("$n") { number() } shouldBe Some(n)
+      parse("$n") { number() } shouldBe Some(n)
     }
   }
 
   @Test
   fun numberInParensTest() = runTestCC {
-    CharParsers.parse("558") { numberInParens() } shouldBe Some(558)
-    CharParsers.parse("(558)") { numberInParens() } shouldBe Some(558)
-    CharParsers.parse("(((558)))") { numberInParens() } shouldBe Some(558)
-    CharParsers.parse("(((558())") { numberInParens() } shouldBe None
+    parse("558") { numberInParens() } shouldBe Some(558)
+    parse("(558)") { numberInParens() } shouldBe Some(558)
+    parse("(((558)))") { numberInParens() } shouldBe Some(558)
+    parse("(((558())") { numberInParens() } shouldBe None
   }
 
   @Test
   fun somethingPushTest() = runTestCC {
-    CharParsers.parse("ab") { somethingPush() } shouldBe Some(2)
+    parse("ab") { somethingPush() } shouldBe Some(2)
   }
 
   @Test
   fun backtrackingExampleTest() = runTestCC {
     val printed = StringBuilder()
-    CharParsers.parse("1234.") { backtrackingExample(printed) } shouldBe Some(1234)
+    parse("1234.") { backtrackingExample(printed) } shouldBe Some(1234)
     printed.toString() shouldBe """
       |someNumberDot
       |someNumberDot
@@ -90,7 +99,7 @@ class ParsersTest {
   @Test
   fun backtrackingDelegationTest() = runTestCC {
     val printed = StringBuilder()
-    CharParsers.parse("1234.") { backtrackingDelegation(printed) } shouldBe Some(1234)
+    parse("1234.") { backtrackingDelegation(printed) } shouldBe Some(1234)
     printed.toString() shouldBe """
       |someNumberDot
       |someNumberDot
@@ -102,7 +111,7 @@ class ParsersTest {
   @Test
   fun backtrackingDelegation2Test() = runTestCC {
     val printed = StringBuilder()
-    CharParsers.parse("1234.") { backtrackingDelegation2(printed) } shouldBe Some(11234)
+    parse("1234.") { backtrackingDelegation2(printed) } shouldBe Some(11234)
     printed.toString() shouldBe """
       |someNumberDot
       |someNumberDot
@@ -114,13 +123,15 @@ class ParsersTest {
 
 typealias CharParsers = Parser3<Char>
 
-suspend fun CharParsers.digit(): Int {
+context(_: CharParsers)
+suspend fun MultishotScope.digit(): Int {
   val c = any()
   if (c.isDigit()) return c.digitToInt()
   fail("Expected a digit")
 }
 
-suspend fun CharParsers.number(): Int {
+context(_: CharParsers)
+suspend fun MultishotScope.number(): Int {
   var res = digit()
   while (alternative()) {
     res = res * 10 + digit()
@@ -130,31 +141,44 @@ suspend fun CharParsers.number(): Int {
 
 interface Parser3<S> {
   // the reader effect
-  suspend fun any(): S
+  suspend fun MultishotScope.any(): S
 
   // the exception effect
-  suspend fun fail(explanation: String): Nothing
+  suspend fun MultishotScope.fail(explanation: String): Nothing
 
   // the ambiguity effect
   // TODO for more control, define a combinator over P<A>s then we can handle the parser effects locally
-  suspend fun alternative(): Boolean
+  suspend fun MultishotScope.alternative(): Boolean
 
-  suspend fun <A> nonterminal(name: String, body: suspend () -> A): A
+  suspend fun <A> MultishotScope.nonterminal(name: String, body: suspend MultishotScope.() -> A): A
 
   companion object {
-    suspend fun <A> parse(input: String, parser: suspend CharParsers.() -> A): Option<A> =
+    suspend fun <A> MultishotScope.parse(input: String, parser: suspend context(CharParsers) MultishotScope.() -> A): Option<A> =
       handleStateful(StringParser.Data(0)) {
-        Some(parser(StringParser(input, this)))
+        Some(parser(StringParser(input, given<StatefulPrompt<Option<A>, StringParser.Data>>()), this))
       }
   }
 }
 
-suspend fun <S> Parser3<S>.expect(token: S) {
+context(p: Parser3<S>)
+suspend fun <S> MultishotScope.any(): S = with(p) { any() }
+context(p: Parser3<S>)
+suspend fun <S> MultishotScope.alternative(): Boolean = with(p) { alternative() }
+context(p: Parser3<S>)
+suspend fun <S> MultishotScope.fail(explanation: String): Nothing = with(p) { fail(explanation) }
+context(p: Parser3<S>)
+suspend fun <S, R> MultishotScope.nonterminal(name: String, body: suspend MultishotScope.() -> R): R =
+  with(p) { nonterminal(name, body) }
+
+
+context(_: Parser3<*>)
+suspend fun <S> MultishotScope.expect(token: S) {
   val res = any()
   if (res != token) fail("Expected $token, but got $res")
 }
 
-suspend fun Parser3<*>.alternatives(n: Int): Int {
+context(_: Parser3<*>)
+suspend fun MultishotScope.alternatives(n: Int): Int {
   var i = 1
   while (i < n) {
     if (alternative()) return i
@@ -171,12 +195,12 @@ class StringParser<R>(val input: String, prompt: StatefulPrompt<Option<R>, Data>
 
   private val cache = mutableMapOf<Pair<Int, String>, Pair<Int, Any?>>()
 
-  override suspend fun any(): Char {
+  override suspend fun MultishotScope.any(): Char {
     if (get().index >= input.length) fail("Unexpected EOS")
     return input[get().index++]
   }
 
-  override suspend fun alternative(): Boolean = use { k ->
+  override suspend fun MultishotScope.alternative(): Boolean = use { k ->
     // Note: our state is above us here, so we need to save and update
     val before = get().index
     // does this lead to left biased choice?
@@ -186,11 +210,11 @@ class StringParser<R>(val input: String, prompt: StatefulPrompt<Option<R>, Data>
     }
   }
 
-  override suspend fun fail(explanation: String): Nothing {
+  override suspend fun MultishotScope.fail(explanation: String): Nothing {
     discard { None }
   }
 
-  override suspend fun <A> nonterminal(name: String, body: suspend () -> A): A {
+  override suspend fun <A> MultishotScope.nonterminal(name: String, body: suspend MultishotScope.() -> A): A {
     // We could as well use body.getClass().getCanonicalName() as key.
     val key = Pair(get().index, name)
     val (p, res) = cache.getOrPut(key) {
@@ -204,47 +228,51 @@ class StringParser<R>(val input: String, prompt: StatefulPrompt<Option<R>, Data>
 
 class ToPush<R>(val outer: CharParsers, prompt: HandlerPrompt<PushParser<R>>) : Handler<PushParser<R>> by prompt,
   CharParsers by outer {
-  override suspend fun any(): Char = use { k ->
+  override suspend fun MultishotScope.any(): Char = use { k ->
     object : PushParser<R> {
       override val result = null
       override val isDone = false
-      override suspend fun feed(el: Char) = k(el)
+      override suspend fun MultishotScope.feed(el: Char) = k(el)
     }
   }
 
   // for now, push parsers normally don't memoize
-  override suspend fun <A> nonterminal(name: String, body: suspend () -> A): A = body()
+  override suspend fun <A> MultishotScope.nonterminal(name: String, body: suspend MultishotScope.() -> A): A = body()
 }
 
-suspend fun <A> CharParsers.pushParser(block: suspend CharParsers.() -> A): PushParser<A> = handle {
-  PushParser.succeed(ToPush(this@pushParser, this).block())
+context(c: CharParsers)
+suspend fun <A> MultishotScope.pushParser(block: suspend context(CharParsers) MultishotScope.() -> A): PushParser<A> = handle {
+  PushParser.succeed(block(ToPush(c, given<HandlerPrompt<PushParser<A>>>()), this))
 }
 
 // coalgebraic / push-based parsers, specialized to characters
 interface PushParser<out R> {
   val result: R?
   val isDone: Boolean
-  suspend fun feed(el: Char): PushParser<R>
+  suspend fun MultishotScope.feed(el: Char): PushParser<R>
 
   companion object {
     fun <R> succeed(result: R): PushParser<R> = object : PushParser<R> {
       override val result = result
       override val isDone = true
-      override suspend fun feed(el: Char) = Fail
+      override suspend fun MultishotScope.feed(el: Char) = Fail
     }
   }
 
   object Fail : PushParser<Nothing> {
     override val result = null
     override val isDone = false
-    override suspend fun feed(el: Char) = this
+    override suspend fun MultishotScope.feed(el: Char) = Fail
   }
 }
 
-suspend fun <R> PushParser<R>.feedAll(p: CharParsers): R {
-  var self = this
+suspend fun <R> MultishotScope.feed(push: PushParser<R>, el: Char): PushParser<R> = with(push) { feed(el) }
+
+context(_: CharParsers)
+suspend fun <R> MultishotScope.feedAll(push: PushParser<R>): R {
+  var self = push
   while (!self.isDone) {
-    self = self.feed(p.any())
+    self = feed(self, any())
   }
   return self.result!!
 }

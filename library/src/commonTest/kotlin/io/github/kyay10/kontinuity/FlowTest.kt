@@ -14,7 +14,7 @@ class FlowTest {
     val flow = emptyFlow<Int>()
     var counter = 0
     val result = runFlowCC {
-      val item = flow.bind()
+      val item = bind(flow)
       counter++
       item
     }
@@ -29,7 +29,7 @@ class FlowTest {
     val flow1 = flowOfWithDelay(1, 2, 3)
     var counter = 0
     val result = runFlowCC {
-      val item = flow1.bind()
+      val item = bind(flow1)
       counter++
       item
     }
@@ -46,7 +46,7 @@ class FlowTest {
   fun filtering() = runTest {
     val flow = flowOfWithDelay(1, 2, 3)
     val result = runFlowCC {
-      val item = flow.bind()
+      val item = bind(flow)
       ensure(item != 2)
       item
     }
@@ -67,13 +67,13 @@ class FlowTest {
     var secondCounter = 0
     var thirdCounter = 0
     val result = runFlowCC {
-      val first = flow1.bind()
+      val first = bind(flow1)
       ensure(first != Int.MAX_VALUE)
       firstCounter++
-      val second = flow2.bind()
+      val second = bind(flow2)
       ensure(second != Int.MAX_VALUE)
       secondCounter++
-      flow3.bind()
+      bind(flow3)
       thirdCounter++
       first to second
     }
@@ -99,9 +99,9 @@ class FlowTest {
     var innerCount = 0
     var itemCount = 0
     val result = runFlowCC {
-      val inner = flow.bind()
+      val inner = bind(flow)
       innerCount++
-      val item = inner.bind()
+      val item = bind(inner)
       itemCount++
       item
     }
@@ -120,13 +120,13 @@ class FlowTest {
     val flow = flowOfWithDelay(1, 2, 2, 3)
     val twoElements = flowOfWithDelay(0, 0)
     val result = runFlowCC {
-      val x = flow.bind()
+      val x = bind(flow)
       if (x == 2) {
-        twoElements.bind()
+        bind(twoElements)
         "firstBranch"
       } else {
         repeatIteratorless(2) {
-          twoElements.bind()
+          bind(twoElements)
         }
         "secondBranch"
       }
@@ -153,7 +153,7 @@ class FlowTest {
   fun forLoops() = runTest {
     val result = runFlowCC {
       (1..10).forEachIteratorless { i ->
-        flowOfWithDelay(i, i).bind()
+        bind(flowOfWithDelay(i, i))
       }
       0
     }
@@ -169,7 +169,7 @@ class FlowTest {
   fun permutations() = runTest {
     val numbers = (1..5).toList()
     val result = runFlowCC {
-      numbers.foldRightIteratorless(emptyList<Int>()) { i, acc -> acc.insert(i) }
+      numbers.foldRightIteratorless(emptyList<Int>()) { i, acc -> insert(acc, i) }
     }
     result.test {
       for (i in numbers.permutations()) {

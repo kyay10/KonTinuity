@@ -4,10 +4,10 @@ import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class MonadTest {
-  data class State<S, out A>(val run: suspend (S) -> Pair<A, S>) {
-    fun <B> flatMap(f: suspend (A) -> State<S, B>): State<S, B> = State { s0 ->
+  data class State<S, out A>(val run: suspend MultishotScope.(S) -> Pair<A, S>) {
+    fun <B> flatMap(f: suspend MultishotScope.(A) -> State<S, B>): State<S, B> = State { s0 ->
       val (a, s1) = run(s0)
-      f(a).run(s1)
+      f(a).run(this, s1)
     }
 
     companion object {
@@ -15,10 +15,11 @@ class MonadTest {
     }
   }
 
-  suspend fun <S, A, B> Prompt<State<S, A>>.bind(state: State<S, B>): B = shift { k -> state.flatMap { k(it) } }
+  context(_: Prompt<State<S, A>>)
+  suspend fun <S, A, B> MultishotScope.bind(state: State<S, B>): B = shift { k -> state.flatMap { k(it) } }
 
-  suspend fun <S, R> stateReset(body: suspend Prompt<State<S, R>>.() -> R): State<S, R> =
-    newReset { State.of(body(this)) }
+  suspend fun <S, R> MultishotScope.stateReset(body: suspend context(Prompt<State<S, R>>) MultishotScope.() -> R): State<S, R> =
+    newReset { State.of(body(given<Prompt<State<S, R>>>(), this)) }
 
   @Test
   fun stateMonad() = runTest {
@@ -38,16 +39,19 @@ class MonadTest {
         bind(incrementCounter())
         bind(doubleCounter())
         bind(doubleCounter())
-      }.run(CounterState(0))
+      }.run(this, CounterState(0))
     }
 
-    result shouldBe incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }.run(CounterState(0))
+    result shouldBe runCC {
+      incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }.run(this, CounterState(0))
+    }
   }
 
-  class Reader<R, A>(val reader: suspend (R) -> A) {
-    fun <B> flatMap(f: suspend (A) -> Reader<R, B>): Reader<R, B> = Reader { r0 ->
+  class Reader<R, A>(val reader: suspend MultishotScope.(R) -> A) {
+    fun <B> flatMap(f: suspend MultishotScope.(A) -> Reader<R, B>): Reader<R, B> = Reader { r0 ->
       val a = reader(r0)
-      f(a).reader(r0)
+      val reader2 = f(this,a).reader
+      reader2(r0)
     }
 
     companion object {
@@ -55,10 +59,11 @@ class MonadTest {
     }
   }
 
-  suspend fun <R, A, B> Prompt<Reader<R, A>>.bind(reader: Reader<R, B>): B = shift { k -> reader.flatMap { k(it) } }
+  context(_: Prompt<Reader<R, A>>)
+  suspend fun <R, A, B> MultishotScope.bind(reader: Reader<R, B>): B = shift { k -> reader.flatMap { k(it) } }
 
-  suspend fun <R, A> readerReset(body: suspend Prompt<Reader<R, A>>.() -> A): Reader<R, A> =
-    newReset { Reader.of(body(this)) }
+  suspend fun <R, A> MultishotScope.readerReset(body: suspend context(Prompt<Reader<R, A>>) MultishotScope.() -> A): Reader<R, A> =
+    newReset { Reader.of(body(given<Prompt<Reader<R, A>>>(), this)) }
 
   @Test
   fun readerMonad() = runTest {
@@ -66,7 +71,7 @@ class MonadTest {
     val sum = runCC {
       readerReset {
         bind(one) + bind(one)
-      }.reader("1")
+      }.reader(this, "1")
     }
     sum shouldBe 2
   }
