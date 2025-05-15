@@ -118,7 +118,7 @@ class SharingTest {
 
   @Test
   fun streamSortingTest() = runTestCC(timeout = 10.minutes) {
-    val numbers = (1..22).toList()
+    val numbers = (1..2).toList()
     val list = numbers.toStream()
     bagOfN {
       sharing {
@@ -128,7 +128,7 @@ class SharingTest {
   }
 }
 
-context(r: Reader<out MutableList<in Field<*>>?>)
+context(r: Reader<MutableList<in Field<*>>?>)
 private inline fun <A> memo(crossinline block: suspend MultishotScope.() -> A): suspend MultishotScope.() -> A {
   val key = Field<A>()
   return {

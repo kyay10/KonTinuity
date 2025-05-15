@@ -12,7 +12,7 @@ public interface StatefulHandler<E, S> : Handler<E> {
 }
 
 context(r: StatefulHandler<*, S>)
-public fun <S> get(): S = r.reader.ask()
+public fun <S> get(): S = with(r.reader) { ask() }
 context(r: StatefulHandler<*, S>)
 public val <S> value: S get() = get()
 

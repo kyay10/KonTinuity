@@ -40,12 +40,11 @@ internal expect open class NoTrace() : CancellationException
 internal data object SuspendedException : NoTrace()
 
 public suspend fun <R> runCC(body: suspend MultishotScope.() -> R): R {
-  val scope = coroutineContext.makeMultishotScope()
-  return withContext(scope) {
+  val trampoline = coroutineContext.makeTrampoline()
+  return withContext(trampoline) {
     suspendCoroutine {
-      val cont = EmptyCont(it, scope)
-      scope.rest = cont
-      body.startCoroutine(scope, cont)
+      val cont = EmptyCont(it, trampoline)
+      body.startCoroutine(cont, cont)
     }
   }
 }
