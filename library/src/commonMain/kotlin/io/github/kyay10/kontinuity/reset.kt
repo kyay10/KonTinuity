@@ -147,16 +147,16 @@ public suspend inline fun <T, R> shiftRepushing(
 
 // Acts like shift0/control { it(body()) }
 @ResetDsl
-public suspend fun <T, P> Prompt<P>.inHandlingContext(
-  body: suspend (SubCont<T, P>) -> T
+public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
+  noinline body: suspend (SubCont<T, P>) -> T
 ): T = suspendCoroutineToTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
   body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE), UnderCont(init, rest))
 }
 
 @ResetDsl
-public suspend fun <T, P> Prompt<P>.inHandlingContextTwice(
-  body: suspend (SubCont<T, P>) -> T
+public suspend inline fun <T, P> Prompt<P>.inHandlingContextTwice(
+  noinline body: suspend (SubCont<T, P>) -> T
 ): T = suspendCoroutineToTrampoline { stack ->
   val (init, rest) = stack.splitAt(this)
   body.startCoroutineIntercepted(SubCont(init, OnInit.COPY), UnderCont(init, rest))
@@ -190,7 +190,7 @@ public suspend fun <R> runCC(body: suspend () -> R): R = withContext(coroutineCo
 
 @PublishedApi
 internal suspend inline fun <T> suspendCoroutineToTrampoline(
-  crossinline block: (SplitSeq<T>) -> Unit
+  crossinline block: (FramesCont<T, *>) -> Unit
 ): T = suspendCoroutineUninterceptedOrReturn {
   block(collectStack(it))
   COROUTINE_SUSPENDED
@@ -198,7 +198,7 @@ internal suspend inline fun <T> suspendCoroutineToTrampoline(
 
 @PublishedApi
 internal suspend inline fun <T> suspendCoroutineAndTrampoline(
-  crossinline block: (SplitSeq<T>) -> Any?
+  crossinline block: (FramesCont<T, *>) -> Any?
 ): T = suspendCoroutineUninterceptedOrReturn {
   val stack = collectStack(it)
   stack.handleTrampolining(runCatching { block(stack) })

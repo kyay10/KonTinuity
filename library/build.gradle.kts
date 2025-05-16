@@ -13,6 +13,7 @@ import kotlin.coroutines.Continuation
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
   id("module.publication")
+  id("org.jetbrains.kotlinx.benchmark") version "0.4.14"
 }
 
 repositories {
@@ -34,7 +35,11 @@ kotlin {
   }
   explicitApi()
   // Matching the targets from Arrow
-  jvm()
+  jvm {
+    compilations.create("benchmark") {
+      associateWith(this@jvm.compilations.getByName("test"))
+    }
+  }
   jvmToolchain(21)
   js(IR) {
     browser()
@@ -80,6 +85,7 @@ kotlin {
   sourceSets {
     commonMain {
       dependencies {
+        implementation(libs.kotlinx.benchmark.runtime)
         implementation(libs.arrow.core)
         implementation(libs.arrow.fx.coroutines)
         implementation(libs.kotlinx.immutable.collections)
@@ -129,6 +135,11 @@ publishing {
     } else {
       "kontinuity-$name"
     }
+  }
+}
+benchmark {
+  targets {
+    register("jvmBenchmark")
   }
 }
 // Plugin
