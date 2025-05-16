@@ -34,6 +34,28 @@ private suspend fun <T> insertStream(x: T, mxs: (suspend () -> Stream<T>?)?): St
   }
 }
 
+private tailrec suspend fun <T : Comparable<T>> Stream<T>?.isSorted(): Boolean {
+  this ?: return true
+  val stream = tail() ?: return true
+  return if (value <= stream.value) stream.isSorted() else false
+}
+
+context(_: Sharing, _: Amb, _: Exc)
+suspend fun <T : Comparable<T>> Stream<T>?.sort(): Stream<T>? {
+  val permutation = share { perm() }
+  ensure(permutation().isSorted())
+  return permutation()
+}
+
+suspend fun <T> Stream<T>?.toPersistentList(): PersistentList<T> {
+  this ?: return persistentListOf()
+  return tail().toPersistentList().add(0, value)
+}
+
+fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
+  Stream(i, acc?.let { { acc } })
+}
+
 class SharingTest {
   private tailrec suspend fun <T : Comparable<T>> LazyList<T>.isSorted(): Boolean {
     this ?: return true
@@ -84,28 +106,6 @@ class SharingTest {
         list.sort().toPersistentList()
       }
     } shouldBe listOf(numbers)
-  }
-
-  private tailrec suspend fun <T : Comparable<T>> Stream<T>?.isSorted(): Boolean {
-    this ?: return true
-    val stream = tail() ?: return true
-    return if (value <= stream.value) stream.isSorted() else false
-  }
-
-  context(_: Sharing, _: Amb, _: Exc)
-  private suspend fun <T : Comparable<T>> Stream<T>?.sort(): Stream<T>? {
-    val permutation = share { perm() }
-    ensure(permutation().isSorted())
-    return permutation()
-  }
-
-  private suspend fun <T> Stream<T>?.toPersistentList(): PersistentList<T> {
-    this ?: return persistentListOf()
-    return tail().toPersistentList().add(0, value)
-  }
-
-  private fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
-    Stream(i, acc?.let { { acc } })
   }
 
   @Test

@@ -8,6 +8,7 @@ import org.jetbrains.org.objectweb.asm.Opcodes.ACC_PUBLIC
 import org.jetbrains.org.objectweb.asm.Opcodes.ACC_SYNTHETIC
 import org.jetbrains.org.objectweb.asm.tree.ClassNode
 import kotlin.coroutines.Continuation
+import kotlin.coroutines.CoroutineContext
 
 
 plugins {
@@ -158,12 +159,17 @@ object MultishotTransform {
   private val lambdaClasses = setOf(
     "kotlin/coroutines/jvm/internal/SuspendLambda", "kotlin/coroutines/jvm/internal/RestrictedSuspendLambda"
   )
-  private val continuationClasses = setOf(
-    "kotlin/coroutines/jvm/internal/ContinuationImpl", "kotlin/coroutines/jvm/internal/BaseContinuationImpl"
-  ) + lambdaClasses
+
+  private val continuationImpl =
+    "kotlin/coroutines/jvm/internal/ContinuationImpl"
+
+  private val continuationClasses =
+    setOf(continuationImpl, "kotlin/coroutines/jvm/internal/BaseContinuationImpl") + lambdaClasses
+
+  private val completionType = Type.getObjectType("io/github/kyay10/kontinuity/SplitSeq")
 
   private val copyDescriptor =
-    Type.getMethodDescriptor(Type.getType(Continuation::class.java), Type.getType(Continuation::class.java))
+    Type.getMethodDescriptor(Type.getType(Continuation::class.java), completionType)
 
   fun transform(bytes: ByteArray): ByteArray? {
     val classNode = ClassNode()
@@ -201,7 +207,7 @@ object MultishotTransform {
           Type.getMethodDescriptor(
             Type.VOID_TYPE,
             Type.getObjectType(classNode.name),
-            Type.getType(Continuation::class.java)
+            completionType
           )
         // add copy method
         visitMethod(ACC_PUBLIC or ACC_SYNTHETIC, "<init>", copyConstructorDescriptor, null, null).apply {
@@ -226,17 +232,35 @@ object MultishotTransform {
             )
           }
           visitVarInsn(Opcodes.ALOAD, 0)
-          val (superCallIndex, superCall) = constructor.instructions.withIndex()
-            .first { it.value.opcode == Opcodes.INVOKESPECIAL }
-          if (classNode.superName in lambdaClasses) {
-            // find arity from super constructor call
-            val arityInsn = constructor.instructions[superCallIndex - 2]
-            arityInsn.clone(null).accept(this)
+          if (classNode.superName == continuationImpl) {
+            // load completion
+            visitVarInsn(Opcodes.ALOAD, 2)
+            // use it as a context too
+            visitInsn(Opcodes.DUP)
+            visitMethodInsn(
+              Opcodes.INVOKESPECIAL,
+              continuationImpl,
+              "<init>",
+              Type.getMethodDescriptor(
+                Type.VOID_TYPE,
+                Type.getType(Continuation::class.java),
+                Type.getType(CoroutineContext::class.java)
+              ),
+              false
+            )
+          } else {
+            val (superCallIndex, superCall) = constructor.instructions.withIndex()
+              .first { it.value.opcode == Opcodes.INVOKESPECIAL }
+            if (classNode.superName in lambdaClasses) {
+              // find arity from super constructor call
+              val arityInsn = constructor.instructions[superCallIndex - 2]
+              arityInsn.clone(null).accept(this)
+            }
+            // load completion
+            visitVarInsn(Opcodes.ALOAD, 2)
+            // call super constructor
+            superCall.clone(null).accept(this)
           }
-          // load completion
-          visitVarInsn(Opcodes.ALOAD, 2)
-          // call super constructor
-          superCall.clone(null).accept(this)
           visitInsn(Opcodes.RETURN)
           // this and 2 arguments. Either for a field value (might be 2-long if double or long) or arity + completion
           visitMaxs(3, 3)
