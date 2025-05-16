@@ -49,7 +49,7 @@ internal tailrec fun <Start> SplitSeq<Start>.resumeWithImpl(result: Result<Start
 }
 
 @PublishedApi
-internal fun <Start, P> SplitSeq<Start>.splitAt(p: Prompt<P>) =
+internal fun <Start, P> FramesCont<Start, *>.splitAt(p: Prompt<P>) =
   SingleUseSegment(p, this) to p.rest
 
 internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>) : SplitSeq<Start>(underlying.context) {
@@ -191,26 +191,38 @@ internal infix fun <Start, End> SingleUseSegment<Start, End>.prependTo(stack: Sp
 @PublishedApi
 internal class SingleUseSegment<Start, End>(
   @JvmField val delimiter: Prompt<End>,
-  @JvmField val cont: SplitSeq<Start>,
+  @JvmField val cont: FramesCont<Start, *>,
   @JvmField var values: Array<out Any?>? = null,
   @JvmField var copying: Boolean = false
 ) {
   fun makeReusable(): SingleUseSegment<Start, End> {
-    if (values == null) values = ArrayList<Any?>(10).apply {
-      cont.collectValues(delimiter, this)
-    }.toTypedArray()
+    prepareValues()
     return SingleUseSegment(delimiter, cont, values, true)
   }
 
   fun makeCopy(): SingleUseSegment<Start, End> {
-    if (values == null) values = ArrayList<Any?>(10).apply {
-      cont.collectValues(delimiter, this)
-    }.toTypedArray()
+    prepareValues()
     return SingleUseSegment(delimiter, cont, null, true)
   }
 
+  private fun prepareValues() {
+    if (values == null) {
+      cont.copied = true
+      values = cont.rest.collectValues(delimiter)
+    }
+  }
+
+  private fun prepareValues2() {
+    if (values == null) values = ArrayList<Any?>(10).apply {
+      cont.copied = true
+      cont.rest.collectValues(delimiter, this)
+    }.toTypedArray()
+  }
+
   fun repushValues() {
-    cont.repushValues(delimiter, values ?: return, copying, 0)
+    val values = values ?: return
+    cont.copied = copying
+    cont.rest.repushValues(delimiter, values, copying, 0)
   }
 }
 
@@ -240,6 +252,41 @@ private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
     values.add(copied)
     copied = true
     rest.collectValues(delimiter, values)
+  }
+}
+
+private fun <Start, End> SplitSeq<Start>.collectValues(
+  delimiter: Prompt<End>,
+  index: Int = 0
+): Array<Any?> = when (this) {
+  is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
+  is Prompt<*> if this === delimiter -> {
+    arrayOfNulls(index)
+  }
+  is FramesCont<*, *> -> {
+    val arr = rest.collectValues(delimiter, index + 1)
+    arr[index] = copied
+    copied = true
+    arr
+  }
+  is Prompt<*> -> {
+    val rest = rest
+    val arr = rest.collectValues(delimiter, index + 1)
+    arr[index] = rest
+    arr
+  }
+  is ReaderT<*, *> -> {
+    val arr = rest.collectValues(delimiter, index + 2)
+    arr[index] = state
+    arr[index + 1] = forkOnFirstRead
+    forkOnFirstRead = true
+    arr
+  }
+  is UnderCont<*, *> -> {
+    val arr = rest.collectValues(delimiter, index + 1)
+    arr[index] = copied
+    copied = true
+    arr
   }
 }
 

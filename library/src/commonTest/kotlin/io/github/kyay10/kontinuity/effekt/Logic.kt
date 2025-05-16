@@ -216,12 +216,12 @@ object LogicSimple : Logic {
 }
 
 suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
-  block({
-    useTailResumptiveTwice { resume ->
+  block(object : Amb {
+    override suspend fun flip() = useTailResumptiveTwice { resume ->
       resume(true)
       false
     }
-  }) {
-    discardWithFast(Result.success(Unit))
-  }
+  }, object : Exc {
+    override suspend fun raise(msg: String): Nothing = discardWithFast(Result.success(Unit))
+  })
 }
