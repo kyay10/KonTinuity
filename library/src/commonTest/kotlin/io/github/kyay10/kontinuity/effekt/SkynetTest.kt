@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.repeatIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import io.kotest.matchers.shouldBe
@@ -77,7 +78,7 @@ class SkynetTest {
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
-      repeat(div) {
+      repeatIteratorless(div) {
         val subNum = num + it * (size / div)
         fork {
           val res = skynet(subNum, size / div, div)
@@ -102,7 +103,7 @@ class SkynetTest {
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
-      repeat(div) {
+      repeatIteratorless(div) {
         val subNum = num + it * (size / div)
         forkFlipped {
           val res = skynet(subNum, size / div, div)
@@ -127,7 +128,7 @@ class SkynetTest {
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
-      repeat(div) {
+      repeatIteratorless(div) {
         val subNum = num + it * (size / div)
         fastFork {
           val res = skynet(subNum, size / div, div)
@@ -180,7 +181,7 @@ class SkynetTest {
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
-      repeat(div) {
+      repeatIteratorless(div) {
         val subNum = num + it * (size / div)
         launch {
           val res = skynet(subNum, size / div, div)

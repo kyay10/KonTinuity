@@ -49,7 +49,7 @@ internal tailrec fun <Start> SplitSeq<Start>.resumeWithImpl(result: Result<Start
 }
 
 @PublishedApi
-internal fun <Start, P> FramesCont<Start, *>.splitAt(p: Prompt<P>) =
+internal fun <Start, P> FramesCont<Start, *>.splitAt(p: Prompt<P>): Pair<SingleUseSegment<Start, P>, SplitSeq<P>> =
   SingleUseSegment(p, this) to p.rest
 
 internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>) : SplitSeq<Start>(underlying.context) {

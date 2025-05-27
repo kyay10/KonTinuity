@@ -5,7 +5,9 @@ import arrow.core.Option
 import arrow.core.Some
 import io.github.kyay10.kontinuity.*
 import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.persistentMapOf
+import kotlin.reflect.KProperty
 
 public interface StateScope {
   public fun <T> field(init: T): Field<T>
@@ -31,16 +33,36 @@ public inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
   set(f(get()))
 }
 
-public suspend fun <R> region(body: suspend StateScope.() -> R): R =
+@Suppress("NOTHING_TO_INLINE")
+public inline operator fun <T> StateScope.Field<T>.getValue(
+  thisRef: Any?,
+  property: KProperty<*>
+): T = get()
+
+@Suppress("NOTHING_TO_INLINE")
+public inline operator fun <T> StateScope.Field<T>.setValue(
+  thisRef: Any?,
+  property: KProperty<*>,
+  value: T
+) { set(value) }
+
+public suspend inline fun <R> region(crossinline body: suspend StateScope.() -> R): R =
   runReader(MutableTypedMap(), MutableTypedMap::copy) {
     body(MutableStateScope(this))
   }
 
-public suspend fun <R> persistentRegion(body: suspend StateScope.() -> R): R = runState(PersistentTypedMap()) {
+public suspend inline fun <R> persistentRegion(crossinline body: suspend StateScope.() -> R): R = runState(PersistentTypedMap()) {
   body(PersistentStateScope(this))
 }
 
-private class MutableTypedMap private constructor(private val map: MutableMap<Key<*>, Any?>) {
+public suspend inline fun <R> persistentFastRegion(crossinline body: suspend StateScope.() -> R): R = runReader(MutableTypedMap(
+  persistentHashMapOf<MutableTypedMap.Key<*>, Any?>().builder()
+), { MutableTypedMap((map as PersistentMap.Builder).build().builder()) }) {
+  body(MutableStateScope(this))
+}
+
+@PublishedApi
+internal class MutableTypedMap(val map: MutableMap<Key<*>, Any?>) {
   constructor() : this(mutableMapOf())
 
   interface Key<T>
@@ -58,7 +80,8 @@ private class MutableTypedMap private constructor(private val map: MutableMap<Ke
   fun copy(): MutableTypedMap = MutableTypedMap(map.toMutableMap())
 }
 
-private class PersistentTypedMap private constructor(private val map: PersistentMap<Key<*>, Any?>) {
+@PublishedApi
+internal class PersistentTypedMap private constructor(private val map: PersistentMap<Key<*>, Any?>) {
   constructor() : this(persistentMapOf())
 
   interface Key<T>
@@ -82,7 +105,8 @@ public fun <K, V> Map<K, V>.getOrNone(key: K): Option<V> {
   }
 }
 
-private class MutableStateScope(private val reader: Reader<MutableTypedMap>) : StateScope {
+@PublishedApi
+internal class MutableStateScope(private val reader: Reader<MutableTypedMap>) : StateScope {
   override fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().also {
     reader.ask()[it] = init
   }
@@ -98,7 +122,8 @@ private class MutableStateScope(private val reader: Reader<MutableTypedMap>) : S
   }
 }
 
-private class PersistentStateScope(private val state: State<PersistentTypedMap>) : StateScope {
+@PublishedApi
+internal class PersistentStateScope(private val state: State<PersistentTypedMap>) : StateScope {
   override fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().also { field ->
     state.modify { it.put(field, init) }
   }
