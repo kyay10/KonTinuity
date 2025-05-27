@@ -100,6 +100,7 @@ kotlin {
         implementation(libs.kotest.assertions.core)
         implementation(libs.kotest.property)
         implementation(libs.turbine)
+        implementation(kotlincrypto.hash.md)
       }
     }
 

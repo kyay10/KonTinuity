@@ -81,9 +81,9 @@ public suspend inline fun <T, R> runReader(
 }
 
 @ResetDsl
-public suspend inline fun <R> nonReentrant(
-  noinline body: suspend () -> R
-): R = runCC(body)
+public suspend inline fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoline { stack ->
+  stack.resumeWithIntercepted(Result.success(Unit))
+}
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shift(
