@@ -10,39 +10,45 @@ class RevStateTest {
     // Usage example
     data class CounterState(val count: Int)
 
-    context(_: RevState<CounterState, Unit>)
-    suspend fun MultishotScope.incrementCounter() {
+    context(_: RevState<Region2, Region, CounterState, Unit>)
+    suspend fun <Region2: Region, Region> MultishotScope<Region2>.incrementCounter() {
       modify { state -> state.copy(count = state.count + 1) }
     }
 
-    context(_: RevState<CounterState, Unit>)
-    suspend fun MultishotScope.doubleCounter() {
+    context(_: RevState<Region2, Region, CounterState, Unit>)
+    suspend fun <Region2: Region, Region> MultishotScope<Region2>.doubleCounter() {
       modify { state -> state.copy(count = state.count * 2) }
     }
 
     val result = runCC {
-      runRevState(CounterState(0)) {
-        doubleCounter()
-        doubleCounter()
-        incrementCounter()
-      }.first(this)
+      val (state, _) = runRevState(CounterState(0), object: RevStateFunction<Any?, CounterState, Unit> {
+        context(_: RevState<Region2, Any?, CounterState, Unit>)
+        override suspend fun <Region2> MultishotScope<Region2>.invoke() {
+          doubleCounter()
+          doubleCounter()
+          incrementCounter()
+        }
+      })
+      state()
     }
     result shouldBe CounterState(4)
   }
 }
 
-typealias RevState<S, R> = Prompt<Pair<suspend MultishotScope.() -> S, R>>
+typealias RevState<Region2, Region, S, R> = Prompt<Region2, Region, Pair<suspend MultishotScope<Region>.() -> S, R>>
 
-context(_: RevState<S, R>)
-suspend fun <S, R> MultishotScope.modify(f: suspend MultishotScope.(S) -> S) = shift {
+context(_: RevState<Region2, Region, S, R>)
+suspend fun <Region2 : Region, Region, S, R> MultishotScope<Region2>.modify(f: suspend MultishotScope<Region>.(S) -> S) =
+  shift {
   val (s, r) = it(Unit)
-  val f2: suspend MultishotScope.() -> S = { f(s()) }
+    val f2: suspend MultishotScope<Region>.() -> S = { f(s()) }
   f2 to r
 }
 
-context(_: RevState<S, R>)
-suspend fun <S, R> MultishotScope.get(): suspend MultishotScope.() -> S = shift {
-  val channel = Channel<suspend MultishotScope.() -> S>()
+context(_: RevState<Region2, Region, S, R>)
+suspend fun <Region2 : Region, Region, S, R> MultishotScope<Region2>.get(): suspend MultishotScope<Region>.() -> S =
+  shift {
+    val channel = Channel<suspend MultishotScope<Region>.() -> S>()
   it {
     bridge { channel.receive() }()
   }.also { (s, _) ->
@@ -50,22 +56,34 @@ suspend fun <S, R> MultishotScope.get(): suspend MultishotScope.() -> S = shift 
   }
 }
 
-context(_: RevState<S, R>)
-suspend fun <S, R> MultishotScope.set(value: S): Unit = shift {
+context(_: RevState<Region2, Region, S, R>)
+suspend fun <Region2 : Region, Region, S, R> MultishotScope<Region2>.set(value: S): Unit = shift {
   val (_, r) = it(Unit)
-  val s: suspend MultishotScope.() -> S = { value }
+  val s: suspend MultishotScope<Region>.() -> S = { value }
   s to r
 }
 
-context(_: RevState<S, R>)
-suspend fun <S, R> MultishotScope.setLazy(value: suspend MultishotScope.() -> S): Unit = shift {
+context(_: RevState<Region2, Region, S, R>)
+suspend fun <Region2 : Region, Region, S, R> MultishotScope<Region2>.setLazy(value: suspend MultishotScope<Region>.() -> S): Unit =
+  shift {
   val (_, r) = it(Unit)
   value to r
 }
 
-suspend fun <S, R> MultishotScope.runRevState(
-  value: S,
-  body: suspend context(RevState<S, R>) MultishotScope.() -> R
-): Pair<suspend MultishotScope.() -> S, R> = newReset {
-  Pair<suspend MultishotScope.() -> S, R>({ value }, body())
+interface RevStateFunction<Region, S, R> {
+  context(_: RevState<Region2, Region, S, R>)
+  suspend operator fun <Region2 : Region> MultishotScope<Region2>.invoke(): R
 }
+
+suspend fun <Region, S, R> MultishotScope<Region>.runRevState(
+  value: S,
+  body: RevStateFunction<Region, S, R>
+): Pair<suspend MultishotScope<Region>.() -> S, R> = newReset(
+  object : PromptFunction<Region, Pair<suspend MultishotScope<Region>.() -> S, R>> {
+    context(_: Prompt<Region2, Region, Pair<suspend MultishotScope<Region>.() -> S, R>>)
+    override suspend fun <Region2 : Region> MultishotScope<Region2>.invoke(): Pair<suspend MultishotScope<Region>.() -> S, R> =
+      with(body) {
+        Pair({ value }, invoke())
+      }
+  }
+)

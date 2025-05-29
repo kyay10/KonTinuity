@@ -1,18 +1,12 @@
 package io.github.kyay10.kontinuity
 
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlin.coroutines.AbstractCoroutineContextElement
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.ContinuationInterceptor
-import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.RestrictsSuspension
+import kotlin.coroutines.*
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmField
-import kotlin.jvm.JvmName
 
 @Suppress("UNCHECKED_CAST")
 @PublishedApi
@@ -22,21 +16,24 @@ internal inline fun <R, P, T> (suspend R.(P) -> T).startCoroutineUninterceptedOr
   completion: Continuation<T>
 ): Any? = (this as Function3<R, P, Continuation<T>, Any?>).invoke(receiver, param, completion)
 
-private class SequenceBodyStep<T>(private val body: suspend MultishotScope.() -> T, override val seq: SplitSeq<T>) : Step() {
-  override fun MultishotScope.stepOrReturn() = runCatching {
-    rest = seq
-    body.startCoroutineUninterceptedOrReturn(this, seq)
+private class SequenceBodyStep<Region, T>(
+  private val body: suspend MultishotScope<Region>.() -> T,
+  override val seq: SplitSeq<T>
+) : Step() {
+  override fun MultishotScope<*>.stepOrReturn() = runCatching {
+    trampoline.rest = seq
+    body.startCoroutineUninterceptedOrReturn(this as MultishotScope<Region>, seq)
   }
 }
 
-private class SequenceBodyReceiverStep<T, R>(
-  private val body: suspend MultishotScope.(R) -> T,
+private class SequenceBodyReceiverStep<Region, T, R>(
+  private val body: suspend MultishotScope<Region>.(R) -> T,
   private val receiver: R,
   override val seq: SplitSeq<T>
 ) : Step() {
-  override fun MultishotScope.stepOrReturn() = runCatching {
-    rest = seq
-    body.startCoroutineUninterceptedOrReturn(this, receiver, seq)
+  override fun MultishotScope<*>.stepOrReturn() = runCatching {
+    trampoline.rest = seq
+    body.startCoroutineUninterceptedOrReturn(this as MultishotScope<Region>, receiver, seq)
   }
 }
 
@@ -44,27 +41,39 @@ private class SequenceResumeStep<Start>(
   override val seq: SplitSeq<Start>,
   private val result: Result<Start>
 ) : Step() {
-  override fun MultishotScope.stepOrReturn() = result
+  override fun MultishotScope<*>.stepOrReturn() = result
 }
 
 @OptIn(InternalCoroutinesApi::class)
-internal fun CoroutineContext.makeMultishotScope(): MultishotScope {
+internal fun CoroutineContext.makeTrampoline(): Trampoline<Any?> {
   val interceptor = this[ContinuationInterceptor].let {
-    if (it is MultishotScope) it.interceptor else it
+    if (it is Trampoline<*>) it.interceptor else it
   }
-  return if (interceptor is Delay) MultishotScopeWithDelay(interceptor, interceptor, this) else MultishotScope(interceptor, this)
+  return if (interceptor is Delay) TrampolineWithDelay(interceptor, interceptor, this) else Trampoline(interceptor, this)
 }
+
 @InternalCoroutinesApi
-private class MultishotScopeWithDelay(interceptor: ContinuationInterceptor?, delay: Delay, originalContext: CoroutineContext) :
-  MultishotScope(interceptor, originalContext), Delay by delay
+private class TrampolineWithDelay<R>(
+  interceptor: ContinuationInterceptor?,
+  delay: Delay,
+  originalContext: CoroutineContext
+) :
+  Trampoline<R>(interceptor, originalContext), Delay by delay
 
 internal abstract class Step {
-  abstract fun MultishotScope.stepOrReturn(): Result<Any?>
+  abstract fun MultishotScope<*>.stepOrReturn(): Result<Any?>
   abstract val seq: SplitSeq<*>
 }
 
 @RestrictsSuspension
-public open class MultishotScope(@JvmField internal val interceptor: ContinuationInterceptor?, originalContext: CoroutineContext) :
+public interface MultishotScope<out Region> {
+  public val trampoline: Trampoline<Region>
+}
+
+public open class Trampoline<out Region> internal constructor(
+  @JvmField internal val interceptor: ContinuationInterceptor?,
+  originalContext: CoroutineContext
+) :
   AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
 
   @JvmField
@@ -102,12 +111,12 @@ public open class MultishotScope(@JvmField internal val interceptor: Continuatio
   }
 
   @PublishedApi
-  internal fun <T> (suspend MultishotScope.() -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
+  internal fun <Region2, T> (suspend MultishotScope<Region2>.() -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
     nextStep = SequenceBodyStep(this, seq)
   }
 
   @PublishedApi
-  internal fun <R, T> (suspend MultishotScope.(R) -> T).startCoroutineIntercepted(
+  internal fun <Region2, R, T> (suspend MultishotScope<Region2>.(R) -> T).startCoroutineIntercepted(
     receiver: R,
     seq: SplitSeq<T>,
   ) {
@@ -130,128 +139,28 @@ public open class MultishotScope(@JvmField internal val interceptor: Continuatio
   }
 
   @ResetDsl
-  public suspend inline fun <T, R> SubCont<T, R>.resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack ->
+  public suspend inline fun <T, R> SubCont<Region, T, R>.resumeWith(value: Result<T>): R =
+    suspendCoroutineToTrampoline { stack ->
     composedWith(stack).resumeWithIntercepted(value)
   }
 
-  @ResetDsl
-  public suspend inline fun <T, R> SubCont<T, R>.locally(noinline value: suspend MultishotScope.() -> T): R = suspendCoroutineToTrampoline { stack ->
-    value.startCoroutineIntercepted(composedWith(stack))
-  }
+  /*  @ResetDsl
+    public suspend inline fun <T, R> SubCont<T, R>.locally(noinline value: suspend MultishotScope.() -> T): R = suspendCoroutineToTrampoline { stack ->
+      value.startCoroutineIntercepted(composedWith(stack))
+    }*/
 
-  public suspend operator fun <T, R> SubCont<T, R>.invoke(value: T): R = resumeWith(Result.success(value))
-  public suspend fun <T, R> SubCont<T, R>.resumeWithException(exception: Throwable): R = resumeWith(Result.failure(exception))
-
-
-  @ResetDsl
-  public suspend inline fun <R> newReset(noinline body: suspend context(Prompt<R>) MultishotScope.() -> R): R =
-    suspendCoroutineAndTrampoline { stack ->
-      val prompt = Prompt(stack)
-      rest = prompt
-      body.startCoroutineUninterceptedOrReturn(prompt, this, prompt)
-    }
+  public suspend operator fun <T, R> SubCont<Region, T, R>.invoke(value: T): R = resumeWith(Result.success(value))
+  public suspend fun <T, R> SubCont<Region, T, R>.resumeWithException(exception: Throwable): R =
+    resumeWith(Result.failure(exception))
 
   public suspend inline fun <T, R> runReader(
     value: T,
     noinline fork: T.() -> T = { this },
-    noinline body: suspend context(Reader<T>) MultishotScope.() -> R
+    noinline body: suspend context(Reader<T>) MultishotScope<Region>.() -> R
   ): R = suspendCoroutineAndTrampoline { stack ->
-    val reader = ReaderT(stack, value, fork)
+    val reader = ReaderCont(stack, value, fork)
     rest = reader
-    body.startCoroutineUninterceptedOrReturn(reader, this, reader)
-  }
-
-  @ResetDsl
-  public suspend inline fun <T, R> Prompt<R>.shift(
-    noinline body: suspend MultishotScope.(SubCont<T, R>) -> R
-  ): T = suspendCoroutineToTrampoline { stack ->
-    val (init, rest) = stack.splitAt(this)
-    body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE), rest)
-  }
-
-  context(p: Prompt<R>)
-  @ResetDsl
-  @JvmName("takeSubContContext")
-  public suspend inline fun <T, R> shift(
-    noinline body: suspend MultishotScope.(SubCont<T, R>) -> R
-  ): T = p.shift(body)
-
-  @ResetDsl
-  public suspend inline fun <T, R> Prompt<R>.shiftOnce(
-    noinline body: suspend MultishotScope.(SubCont<T, R>) -> R
-  ): T = suspendCoroutineToTrampoline { stack ->
-    val (init, rest) = stack.splitAt(this)
-    body.startCoroutineIntercepted(SubCont(init), rest)
-  }
-
-  context(p: Prompt<R>)
-  @ResetDsl
-  @JvmName("takeSubContOnceContext")
-  public suspend inline fun <T, R> shiftOnce(
-    noinline body: suspend MultishotScope.(SubCont<T, R>) -> R
-  ): T = p.shiftOnce(body)
-
-  @ResetDsl
-  public suspend inline fun <T, R> Prompt<R>.shiftWithFinal(
-    noinline body: suspend MultishotScope.(Pair<SubCont<T, R>, SubCont<T, R>>) -> R
-  ): T = suspendCoroutineToTrampoline { stack ->
-    val (init, rest) = stack.splitAt(this)
-    body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE) to SubCont(init), rest)
-  }
-
-  context(p: Prompt<R>)
-  @ResetDsl
-  @JvmName("takeSubContWithFinalContext")
-  public suspend inline fun <T, R> shiftWithFinal(
-    noinline body: suspend MultishotScope.(Pair<SubCont<T, R>, SubCont<T, R>>) -> R
-  ): T = p.shiftWithFinal(body)
-
-  @ResetDsl
-  public suspend inline fun <T, R> Prompt<R>.shiftRepushing(
-    noinline body: suspend MultishotScope.(SubCont<T, R>) -> R
-  ): T = suspendCoroutineToTrampoline { stack ->
-    val (init, rest) = stack.splitAt(this)
-    body.startCoroutineIntercepted(SubCont(init, OnInit.REPUSH), rest)
-  }
-
-  context(p: Prompt<R>)
-  @ResetDsl
-  @JvmName("shiftRepushingContext")
-  public suspend inline fun <T, R> shiftRepushing(
-    noinline body: suspend MultishotScope.(SubCont<T, R>) -> R
-  ): T = p.shiftRepushing(body)
-
-  // Acts like shift0/control { it(body()) }
-  @ResetDsl
-  public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
-    noinline body: suspend MultishotScope.(SubCont<T, P>) -> T
-  ): T = suspendCoroutineToTrampoline { stack ->
-    val (init, rest) = stack.splitAt(this)
-    body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE), UnderCont(init, rest))
-  }
-
-  @ResetDsl
-  public suspend inline fun <T, P> Prompt<P>.inHandlingContextTwice(
-    noinline body: suspend MultishotScope.(SubCont<T, P>) -> T
-  ): T = suspendCoroutineToTrampoline { stack ->
-    val (init, rest) = stack.splitAt(this)
-    body.startCoroutineIntercepted(SubCont(init, OnInit.COPY), UnderCont(init, rest))
-  }
-
-  public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
-    rest.resumeWithIntercepted(value)
-    throw SuspendedException
-  }
-
-  public suspend inline fun <R> Prompt<R>.abortWithFast(value: Result<R>): Nothing =
-    suspendCoroutineUninterceptedOrReturn {
-      rest.resumeWithIntercepted(value)
-      COROUTINE_SUSPENDED
-    }
-
-  public fun <R> Prompt<R>.abortS(value: suspend MultishotScope.() -> R): Nothing {
-    value.startCoroutineIntercepted(rest)
-    throw SuspendedException
+    body.startCoroutineUninterceptedOrReturn(Reader(reader), this, reader)
   }
 
   @PublishedApi
@@ -271,6 +180,14 @@ public open class MultishotScope(@JvmField internal val interceptor: Continuatio
   }
 
   @PublishedApi
+  internal suspend inline fun suspendCoroutineForever(
+    crossinline block: () -> Unit
+  ): Nothing = suspendCoroutineUninterceptedOrReturn {
+    block()
+    COROUTINE_SUSPENDED
+  }
+
+  @PublishedApi
   internal tailrec fun FramesCont<*, *>.handleTrampolining(
     result: Result<Any?>,
   ): Any? = if (COROUTINE_SUSPENDED === result.getOrNull() || SuspendedException === result.exceptionOrNull()) {
@@ -281,4 +198,92 @@ public open class MultishotScope(@JvmField internal val interceptor: Continuatio
     this@MultishotScope.rest = rest
     result.getOrThrow()
   }
+}
+
+@ResetDsl
+public suspend inline fun <Region, R> MultishotScope<Region>.newReset(body: PromptFunction<Region, R>): R =
+  suspendCoroutineAndTrampoline { stack ->
+    val prompt = PromptCont(stack)
+    rest = prompt
+    val body: suspend context(Prompt<Region, Region, R>) MultishotScope<Region>.() -> R = {
+      with(body) {
+        invoke()
+      }
+    }
+    body.startCoroutineUninterceptedOrReturn(Prompt(prompt), this, prompt)
+  }
+
+context(p: Prompt<InnerRegion, OuterRegion, R>)
+@ResetDsl
+public suspend inline fun <InnerRegion: OuterRegion, OuterRegion, T, R> MultishotScope<InnerRegion>.shift(
+  noinline body: suspend MultishotScope<OuterRegion>.(SubCont<OuterRegion, T, R>) -> R
+): T = suspendCoroutineToTrampoline { stack ->
+  val (init, rest) = stack.splitAt(p.underlying)
+  body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE), rest)
+}
+
+context(p: Prompt<InnerRegion, OuterRegion, R>)
+@ResetDsl
+public suspend inline fun <InnerRegion: OuterRegion, OuterRegion, T, R> MultishotScope<InnerRegion>.shiftOnce(
+  noinline body: suspend MultishotScope<OuterRegion>.(SubCont<OuterRegion, T, R>) -> R
+): T = suspendCoroutineToTrampoline { stack ->
+  val (init, rest) = stack.splitAt(p.underlying)
+  body.startCoroutineIntercepted(SubCont(init), rest)
+}
+
+context(p: Prompt<InnerRegion, OuterRegion , R>)
+@ResetDsl
+public suspend inline fun <InnerRegion: OuterRegion, OuterRegion, T, R> MultishotScope<InnerRegion>.shiftWithFinal(
+  noinline body: suspend MultishotScope<OuterRegion>.(Pair<SubCont<OuterRegion, T, R>, SubCont<OuterRegion, T, R>>) -> R
+): T = suspendCoroutineToTrampoline { stack ->
+  val (init, rest) = stack.splitAt(p.underlying)
+  body.startCoroutineIntercepted(SubCont<OuterRegion, _, _>(init, OnInit.REUSABLE) to SubCont(init), rest)
+}
+
+context(p: Prompt<InnerRegion, OuterRegion, R>)
+@ResetDsl
+public suspend inline fun <InnerRegion: OuterRegion, OuterRegion, T, R> MultishotScope<InnerRegion>.shiftRepushing(
+  noinline body: suspend MultishotScope<OuterRegion>.(SubCont<OuterRegion, T, R>) -> R
+): T = suspendCoroutineToTrampoline { stack ->
+  val (init, rest) = stack.splitAt(p.underlying)
+  body.startCoroutineIntercepted(SubCont(init, OnInit.REPUSH), rest)
+}
+
+// Acts like shift0/control { it(body()) }
+context(p: Prompt<InnerRegion, OuterRegion, P>)
+@ResetDsl
+public suspend inline fun <InnerRegion: OuterRegion, OuterRegion, T, P> MultishotScope<InnerRegion>.inHandlingContext(
+  noinline body: suspend MultishotScope<OuterRegion>.(SubCont<OuterRegion, T, P>) -> T
+): T = suspendCoroutineToTrampoline { stack ->
+  val (init, rest) = stack.splitAt(p.underlying)
+  body.startCoroutineIntercepted(SubCont(init, OnInit.REUSABLE), UnderCont(init, rest))
+}
+
+context(p: Prompt<InnerRegion, OuterRegion, P>)
+@ResetDsl
+public suspend inline fun <InnerRegion: OuterRegion, OuterRegion, T, P> MultishotScope<InnerRegion>.inHandlingContextTwice(
+  noinline body: suspend MultishotScope<OuterRegion>.(SubCont<OuterRegion, T, P>) -> T
+): T = suspendCoroutineToTrampoline { stack ->
+  val (init, rest) = stack.splitAt(p.underlying)
+  body.startCoroutineIntercepted(SubCont(init, OnInit.COPY), UnderCont(init, rest))
+}
+
+// This isn't effect safe, but that's intentional because we want to bridge with `Raise`
+context(p: Prompt<Region, *, R>)
+public fun <Region, R> MultishotScope<Region>.abortWith(value: Result<R>): Nothing {
+  p.underlying.rest.resumeWithIntercepted(value)
+  throw SuspendedException
+}
+
+context(p: Prompt<Region, *, R>)
+public suspend inline fun <Region, R> MultishotScope<Region>.abortWithFast(value: Result<R>): Nothing =
+  suspendCoroutineForever {
+    p.underlying.rest.resumeWithIntercepted(value)
+  }
+
+// This isn't effect safe, but that's intentional because we want to bridge with `Raise`
+context(p: Prompt<InnerRegion, OuterRegion, R>)
+public fun <InnerRegion: OuterRegion, OuterRegion, R> MultishotScope<InnerRegion>.abortS(value: suspend MultishotScope<OuterRegion>.() -> R): Nothing {
+  value.startCoroutineIntercepted(p.underlying.rest)
+  throw SuspendedException
 }

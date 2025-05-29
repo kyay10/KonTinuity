@@ -2,7 +2,6 @@ package io.github.kyay10.kontinuity
 
 import arrow.core.raise.Raise
 import arrow.core.raise.SingletonRaise
-import io.github.kyay10.kontinuity.effekt.given
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -15,26 +14,37 @@ import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 
 /** MonadFail-style errors */
-private class PromptFail<R>(
-  private val prompt: Prompt<R>,
-  private val multishotScope: MultishotScope,
+private class PromptFail<Region, R>(
+  private val prompt: Prompt<Region, *, R>,
+  private val multishotScope: MultishotScope<Region>,
   private val failValue: R
 ) : Raise<Unit> {
-  override fun raise(r: Unit): Nothing = with(multishotScope) {
-    prompt.abortWith(Result.success(failValue))
+  override fun raise(r: Unit): Nothing = with(prompt) {
+    multishotScope.abortWith(Result.success(failValue))
   }
 }
 
-public typealias Choose = Prompt<Unit>
-
-public suspend fun <R> MultishotScope.runChoice(
-  body: suspend context(SingletonRaise<Unit>, Choose) MultishotScope.() -> R,
-  handler: suspend MultishotScope.(R) -> Unit
-): Unit = newReset {
-  handler(body(SingletonRaise(PromptFail(given<Prompt<Unit>>(), this, Unit)), given<Prompt<Unit>>(), this))
+public interface ChoiceFunction<Region, R> {
+  context(_: SingletonRaise<Unit>, _: Prompt<Region2, Region, Unit>)
+  public suspend operator fun <Region2 : Region> MultishotScope<Region2>.invoke(): R
 }
 
-public suspend fun <R> MultishotScope.runList(body: suspend context(SingletonRaise<Unit>, Choose) MultishotScope.() -> R): List<R> =
+public suspend fun <Region, R> MultishotScope<Region>.runChoice(
+  body: ChoiceFunction<Region, R>,
+  handler: suspend MultishotScope<Region>.(R) -> Unit
+): Unit = newReset(
+  object : PromptFunction<Region, Unit> {
+    context(p: Prompt<Region2, Region, Unit>)
+    override suspend fun <Region2 : Region> MultishotScope<Region2>.invoke() {
+      handler(with(body) {
+        with(SingletonRaise<Unit>(PromptFail(p, this@invoke, Unit))) {
+          this@invoke.invoke()
+        }
+      })
+    }
+  })
+
+public suspend fun <Region, R> MultishotScope<Region>.runList(body: ChoiceFunction<Region, R>): List<R> =
   runReader(mutableListOf(), MutableList<R>::toMutableList) {
     runChoice(body) {
       ask().add(it)
@@ -42,36 +52,48 @@ public suspend fun <R> MultishotScope.runList(body: suspend context(SingletonRai
     ask()
   }
 
-context(_: Choose)
-public suspend fun <T> MultishotScope.bind(list: List<T>): T = shift { continuation ->
+context(_: Prompt<Region, OuterRegion, Unit>)
+public suspend fun <Region: OuterRegion, OuterRegion, T> MultishotScope<Region>.bind(list: List<T>): T = shift { continuation ->
   (0..list.lastIndex).forEachIteratorless { item ->
     continuation(list[item])
   }
 }
 
-context(_: Choose)
-public suspend fun <T> MultishotScope.choose(left: T, right: T): T = shift { continuation ->
+context(_: Prompt<Region, OuterRegion, Unit>)
+public suspend fun <Region: OuterRegion, OuterRegion, T> MultishotScope<Region>.choose(left: T, right: T): T = shift { continuation ->
   continuation(left)
   continuation(right)
 }
 
-context(_: Choose)
-public suspend fun MultishotScope.bind(ints: IntRange): Int = shift { continuation ->
+context(_: Prompt<Region, OuterRegion, Unit>)
+public suspend fun <Region: OuterRegion, OuterRegion> MultishotScope<Region>.bind(ints: IntRange): Int = shift { continuation ->
   (ints.start..ints.endInclusive).forEachIteratorless { i ->
     continuation(i)
   }
 }
 
-public suspend fun <T> MultishotScope.replicate(amount: Int, producer: suspend MultishotScope.(Int) -> T): List<T> =
-  runList {
-    producer(bind(0..<amount))
+public suspend fun <Region, T> MultishotScope<Region>.replicate(
+  amount: Int,
+  producer: suspend MultishotScope<Region>.(Int) -> T
+): List<T> =
+  runList(object : ChoiceFunction<Region, T> {
+    context(_: SingletonRaise<Unit>, _: Prompt<Region2, Region, Unit>)
+    override suspend fun <Region2 : Region> MultishotScope<Region2>.invoke(): T = producer(bind(0..<amount))
+  })
+
+public interface FlowChoiceFunction<Region, R> {
+  context(_: SingletonRaise<Unit>, _: Prompt<Region2, Region, Unit>, _: CoroutineScope)
+  public suspend operator fun <Region2 : Region> MultishotScope<Region2>.invoke(): R
 }
 
 public fun <R> runFlowCC(
-  body: suspend context(SingletonRaise<Unit>, Choose, CoroutineScope) MultishotScope.() -> R
+  body: FlowChoiceFunction<*, R>
 ): Flow<R> = channelFlow {
   runCC {
-    runChoice({ body() }) {
+    runChoice(object : ChoiceFunction<Any?, R> {
+      context(_: SingletonRaise<Unit>, _: Prompt<Region2, Any?, Unit>)
+      override suspend fun <Region2 : Any?> MultishotScope<Region2>.invoke(): R = with(body) { invoke() }
+    }) {
       bridge {
         send(it)
       }
@@ -79,9 +101,9 @@ public fun <R> runFlowCC(
   }
 }
 
-context(_: Choose, scope: CoroutineScope)
+context(_: Prompt<Region, OuterRegion, Unit>, scope: CoroutineScope)
 @OptIn(ExperimentalCoroutinesApi::class)
-public suspend fun <T> MultishotScope.bind(flow: Flow<T>): T = shift { continuation ->
+public suspend fun <Region: OuterRegion, OuterRegion, T> MultishotScope<Region>.bind(flow: Flow<T>): T = shift { continuation ->
   val channel = flow.produceIn(scope)
   channel.consume {
     val iterator = channel.iterator()

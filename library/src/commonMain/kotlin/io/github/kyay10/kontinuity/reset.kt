@@ -6,6 +6,11 @@ import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.startCoroutine
 import kotlin.coroutines.suspendCoroutine
 
+public interface PromptFunction<OuterRegion, R> {
+  context(_: Prompt<Region2, OuterRegion, R>)
+  public suspend operator fun <Region2: OuterRegion> MultishotScope<Region2>.invoke(): R
+}
+
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
 @DslMarker
 public annotation class ResetDsl
@@ -18,7 +23,7 @@ internal enum class OnInit {
   REPUSH,
 }
 
-public class SubCont<in T, out R> @PublishedApi internal constructor(
+public class SubCont<in Region, in T, out R> @PublishedApi internal constructor(
   private var init: SingleUseSegment<T, R>,
   private var onInitialize: OnInit = OnInit.NONE,
 ) {
@@ -39,8 +44,8 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 internal expect open class NoTrace() : CancellationException
 internal data object SuspendedException : NoTrace()
 
-public suspend fun <R> runCC(body: suspend MultishotScope.() -> R): R {
-  val scope = coroutineContext.makeMultishotScope()
+public suspend fun <R> runCC(body: suspend MultishotScope<*>.() -> R): R {
+  val scope = coroutineContext.makeTrampoline()
   return withContext(scope) {
     suspendCoroutine {
       val cont = EmptyCont(it, scope)
