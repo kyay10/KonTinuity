@@ -50,21 +50,19 @@ internal class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>, t
 // frame :: frames ::: rest
 internal class FramesCont<Start, Last>(
   @JvmField var cont: Continuation<Start>,
-  @Suppress("UNCHECKED_CAST")
-  override val rest: SplitSeq<Last>,
+  @JvmField val rest: SplitSeq<Last>,
   @JvmField var copied: Boolean = false,
-) : Segmentable<Start, Last>(rest.trampoline) {
+) : SplitSeq<Start>(rest.trampoline) {
 
   @Suppress("UNCHECKED_CAST")
   inline fun resumeCopiedAndCollectResult(result: Result<Start>, resumer: (SplitSeq<Last>, Result<Last>) -> Unit) {
     // This loop unrolls recursion in current.resumeWith(param) to make saner and shorter stack traces on resume
-    val rest = rest
     val newFramesCont = FramesCont(cont, rest, true)
     var current: Continuation<Any?> = cont as Continuation<Any?>
     var param: Result<Any?> = result
     while (true) {
       val completion = (current.completion ?: error("Not a compiler generated continuation $current")) as Continuation<Any?>
-      if (completion === rest) {
+      if (completion is SplitSeq) {
         // top-level completion reached -- invoke and return
         val outcome = try {
           val outcome = current.copy(completion).invokeSuspend(param)
@@ -107,12 +105,12 @@ internal class FramesCont<Start, Last>(
   @Suppress("UNCHECKED_CAST")
   inline fun resumeAndCollectResult(result: Result<Start>, resumer: (SplitSeq<Last>, Result<Last>) -> Unit) {
     // This loop unrolls recursion in current.resumeWith(param) to make saner and shorter stack traces on resume
-    val rest = rest
     var current: Continuation<Any?> = cont as Continuation<Any?>
     var param: Result<Any?> = result
     while (true) {
       // Use normal resumption when faced with a non-compiler-generated continuation
       val completion = current.completion ?: return current.resumeWith(param)
+      completion as Continuation<Any?>
       val outcome: Result<Any?> =
         try {
           val outcome = current.invokeSuspend(param)
@@ -123,18 +121,19 @@ internal class FramesCont<Start, Last>(
           Result.failure(exception)
         }
       //releaseIntercepted() // this state machine instance is terminating
-      if (completion === rest) {
+      if (completion is SplitSeq<Any?>) {
         // top-level completion reached -- invoke and return
         return resumer(completion, outcome as Result<Last>)
       } else {
         // unrolling recursion via loop
-        current = completion as Continuation<Any?>
+        current = completion
         param = outcome
       }
     }
   }
 
   override val callerFrame: CoroutineStackFrame? get() = cont as? CoroutineStackFrame
+  override fun getStackTraceElement(): StackTraceElement? = null
 }
 
 @JvmInline
