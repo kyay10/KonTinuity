@@ -1,7 +1,9 @@
 package io.github.kyay10.kontinuity
 
 import app.cash.turbine.test
+import arrow.core.raise.SingletonRaise
 import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flattenConcat
@@ -13,12 +15,13 @@ class FlowTest {
   fun empty() = runTest {
     val flow = emptyFlow<Int>()
     var counter = 0
-    val result = runFlowCC {
+    context(_: SingletonRaise<Unit>, _: CoroutineScope)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       val item = bind(flow)
       counter++
       item
     }
-    result.test {
+    runFlowCC { function() }.test {
       awaitComplete()
     }
     counter shouldBe 0
@@ -28,12 +31,13 @@ class FlowTest {
   fun single() = runTest {
     val flow1 = flowOfWithDelay(1, 2, 3)
     var counter = 0
-    val result = runFlowCC {
+    context(_: SingletonRaise<Unit>, _: CoroutineScope)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       val item = bind(flow1)
       counter++
       item
     }
-    result.test {
+    runFlowCC { function() }.test {
       for (i in flow1.toList()) {
         awaitItem() shouldBe i
       }
@@ -45,12 +49,14 @@ class FlowTest {
   @Test
   fun filtering() = runTest {
     val flow = flowOfWithDelay(1, 2, 3)
-    val result = runFlowCC {
+
+    context(_: SingletonRaise<Unit>, _: CoroutineScope)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       val item = bind(flow)
       ensure(item != 2)
       item
     }
-    result.test {
+    runFlowCC { function() }.test {
       for (i in flow.toList().filter { it != 2 }) {
         awaitItem() shouldBe i
       }
@@ -66,7 +72,8 @@ class FlowTest {
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
-    val result = runFlowCC {
+    context(_: SingletonRaise<Unit>, _: CoroutineScope)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       val first = bind(flow1)
       ensure(first != Int.MAX_VALUE)
       firstCounter++
@@ -77,7 +84,7 @@ class FlowTest {
       thirdCounter++
       first to second
     }
-    result.test {
+    runFlowCC { function() }.test {
       for (i in flow1.toList().filter { it != Int.MAX_VALUE }) {
         for (j in flow2.toList().filter { it != Int.MAX_VALUE }) {
           flow3.toList().forEach { _ ->
@@ -98,14 +105,15 @@ class FlowTest {
     val flow = flowOfWithDelay(flowOfWithDelay(1, 2), flowOfWithDelay(3, 4), flowOfWithDelay(5, 6))
     var innerCount = 0
     var itemCount = 0
-    val result = runFlowCC {
+    context(_: SingletonRaise<Unit>, _: CoroutineScope)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       val inner = bind(flow)
       innerCount++
       val item = bind(inner)
       itemCount++
       item
     }
-    result.test {
+    runFlowCC { function() }.test {
       for (i in flow.flattenConcat().toList()) {
         awaitItem() shouldBe i
       }
@@ -119,7 +127,8 @@ class FlowTest {
   fun ifElse() = runTest {
     val flow = flowOfWithDelay(1, 2, 2, 3)
     val twoElements = flowOfWithDelay(0, 0)
-    val result = runFlowCC {
+    context(_: SingletonRaise<Unit>, _: CoroutineScope)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       val x = bind(flow)
       if (x == 2) {
         bind(twoElements)
@@ -131,7 +140,7 @@ class FlowTest {
         "secondBranch"
       }
     }
-    result.test {
+    runFlowCC { function() }.test {
       for (i in flow.toList()) {
         if (i == 2) {
           twoElements.toList().forEach { _ ->
@@ -151,13 +160,14 @@ class FlowTest {
 
   @Test
   fun forLoops() = runTest {
-    val result = runFlowCC {
+    context(_: SingletonRaise<Unit>, _: CoroutineScope)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       (1..10).forEachIteratorless { i ->
         bind(flowOfWithDelay(i, i))
       }
       0
     }
-    result.test {
+    runFlowCC { function() }.test {
       repeat(1024) {
         awaitItem() shouldBe 0
       }
@@ -168,10 +178,11 @@ class FlowTest {
   @Test
   fun permutations() = runTest {
     val numbers = (1..5).toList()
-    val result = runFlowCC {
+    context(_: SingletonRaise<Unit>, _: CoroutineScope)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       numbers.foldRightIteratorless(emptyList<Int>()) { i, acc -> insert(acc, i) }
     }
-    result.test {
+    runFlowCC { function() }.test {
       for (i in numbers.permutations()) {
         awaitItem() shouldBe i
       }

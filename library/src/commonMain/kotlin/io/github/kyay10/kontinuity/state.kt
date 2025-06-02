@@ -15,5 +15,7 @@ public fun <T> get(): T = ask().value
 context(s: State<T>)
 public inline fun <T> modify(f: (T) -> T): Unit = set(f(get()))
 
-public suspend fun <T, R> MultishotScope.runState(value: T, body: suspend context(State<T>) MultishotScope.() -> R): R =
-  runReader(StateValue(value), { copy() }, body)
+public suspend fun <T, R, Region> MultishotScope<Region>.runState(
+  value: T,
+  body: suspend context(State<T>) MultishotScope<Region>.() -> R
+): R = runReader(StateValue(value), { copy() }, body)

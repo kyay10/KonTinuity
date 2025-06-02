@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity
 
+import arrow.core.raise.SingletonRaise
 import io.kotest.matchers.sequences.shouldContainExactly
 import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.persistentListOf
@@ -10,12 +11,12 @@ class ListTest {
   fun empty() = runTestCC {
     val list = emptyList<Int>()
     var counter = 0
-    val result = runList {
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function(): Int {
       val item = bind(list)
       counter++
-      item
+      return item
     }
-    result shouldBe list
+    runList { function() } shouldBe list
     counter shouldBe 0
   }
 
@@ -23,24 +24,25 @@ class ListTest {
   fun single() = runTestCC {
     val list = listOf(1, 2, 3)
     var counter = 0
-    val result = runList {
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function(): Int {
       val item = bind(list)
       counter++
-      item
+      return item
     }
-    result shouldBe list
+    runList { function() } shouldBe list
     counter shouldBe list.size
   }
 
   @Test
   fun filtering() = runTestCC {
     val list = listOf(1, 2, 3)
-    val result = runList {
+    context(_: SingletonRaise<Unit>)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function(): Int {
       val item = bind(list)
       ensure(item != 2)
-      item
+      return item
     }
-    result shouldBe list.filter { it != 2 }
+    runList { function() } shouldBe list.filter { it != 2 }
   }
 
   @Test
@@ -52,7 +54,9 @@ class ListTest {
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
-    val result = runList {
+
+    context(_: SingletonRaise<Unit>)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       noObservedCounter++
       val first = bind(list1)
       ensure(first != Int.MAX_VALUE)
@@ -64,7 +68,7 @@ class ListTest {
       thirdCounter++
       first to second
     }
-    result shouldBe list1.filter { it != Int.MAX_VALUE }.flatMap { first ->
+    runList { function() } shouldBe list1.filter { it != Int.MAX_VALUE }.flatMap { first ->
       list2.filter { it != Int.MAX_VALUE }.flatMap { second ->
         list3.map { _ ->
           first to second
@@ -82,14 +86,15 @@ class ListTest {
     val list = listOf(listOf(1, 2), listOf(3, 4), listOf(5, 6))
     var innerCount = 0
     var itemCount = 0
-    val result = runList {
+    context(_: SingletonRaise<Unit>)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       val inner = bind(list)
       innerCount++
       val item = bind(inner)
       itemCount++
       item
     }
-    result shouldBe list.flatten()
+    runList { function() } shouldBe list.flatten()
     innerCount shouldBe list.size
     itemCount shouldBe list.sumOf { it.size }
   }
@@ -98,7 +103,8 @@ class ListTest {
   fun ifElse() = runTestCC {
     val list = listOf(1, 2, 2, 3)
     val twoElements = listOf(0, 0)
-    val result = runList {
+    context(_: SingletonRaise<Unit>)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       val x = bind(list)
       if (x == 2) {
         bind(twoElements)
@@ -110,7 +116,7 @@ class ListTest {
         "secondBranch"
       }
     }
-    result shouldBe list.flatMap {
+    runList { function() } shouldBe list.flatMap {
       if (it == 2) twoElements.map { "firstBranch" } else twoElements.flatMap {
         twoElements.map { "secondBranch" }
       }
@@ -119,33 +125,41 @@ class ListTest {
 
   @Test
   fun forLoops() = runTestCC {
-    val result = runList {
+
+    context(_: SingletonRaise<Unit>)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       (1..10).forEachIteratorless { i ->
         bind(listOf(i, i))
       }
       0
     }
-    result shouldBe List(1024) { 0 }
+    runList { function() } shouldBe List(1024) { 0 }
   }
 
   @Test
   fun allEightBitPatterns() = runTestCC {
-    val result = runList {
+
+    context(_: SingletonRaise<Unit>)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       replicate(8) {
         choose(0, 1)
       }
     }
-    result.map { it.joinToString("").toInt(2) } shouldBe (0..255).toList()
+    runList { function() }.map { it.joinToString("").toInt(2) } shouldBe (0..255).toList()
   }
 
   @Test
   fun allEightBitPatternsWithOnlyChange() = runTestCC {
+    context(_: SingletonRaise<Unit>, s: StringBuilder)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
+      repeatIteratorless(8) {
+        s.append(choose(0, 1))
+      }
+      s.appendLine()
+    }
     val result = buildString {
       runList {
-        repeatIteratorless(8) {
-          append(choose(0, 1))
-        }
-        appendLine()
+        function()
       }
     }.lines().drop(1).dropLast(1)
     result shouldBe List(256) { it.toString(2).padStart(8, '0') }.zipWithNext { a, b ->
@@ -156,9 +170,10 @@ class ListTest {
   @Test
   fun permutations() = runTestCC {
     val numbers = (1..5).toList()
-    val result = runList {
+    context(_: SingletonRaise<Unit>)
+    suspend fun <IR> PromptCont<Unit, IR, Any?>.function() = kotlin.run {
       numbers.foldRightIteratorless(persistentListOf<Int>()) { i, acc -> insert(acc, i) }
     }
-    result.asSequence().shouldContainExactly(numbers.permutations())
+    runList { function() }.asSequence().shouldContainExactly(numbers.permutations())
   }
 }

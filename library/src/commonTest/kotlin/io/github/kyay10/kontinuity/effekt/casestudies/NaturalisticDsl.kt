@@ -1,10 +1,10 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
+import io.github.kyay10.kontinuity.DelegatingMultishotScope
 import io.github.kyay10.kontinuity.MultishotScope
-import io.github.kyay10.kontinuity.effekt.get
-import io.github.kyay10.kontinuity.effekt.given
-import io.github.kyay10.kontinuity.effekt.handleStateful
-import io.github.kyay10.kontinuity.effekt.use
+import io.github.kyay10.kontinuity.MultishotToken
+import io.github.kyay10.kontinuity.ResetDsl
+import io.github.kyay10.kontinuity.effekt.*
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.reflect.KProperty
@@ -49,41 +49,48 @@ infix fun Person.loves(loved: Person) = Is(this, InLoveWith(loved))
 // John said "Mary loves me"
 val s1 = Say(John, Mary loves John)
 
-fun interface Speaker {
-  suspend fun MultishotScope.speaker(): Person
+fun interface Speaker<in R> {
+  suspend fun MultishotScope<R>.speaker(): Person
 }
 
-context(s: Speaker)
-suspend fun MultishotScope.me() = with(s) { speaker() }
+context(s: Speaker<R>)
+suspend fun <R> MultishotScope<R>.me() = with(s) { speaker() }
 
-inline infix fun Person.said(s: Speaker.() -> Sentence): Sentence = Say(this, Speaker { given<Person>() }.s())
+inline infix fun <R> Person.said(s: Speaker<R>.() -> Sentence): Sentence = Say(this, Speaker<R> { given<Person>() }.s())
 infix fun Person.said(s: Sentence): Sentence = Say(this, s)
 
-suspend fun MultishotScope.s1a() = John said { Mary loves me() }
+suspend fun <R> MultishotScope<R>.s1a() = John said { Mary loves me() }
 
 // John said Mary loves me
-context(s: Speaker)
-suspend fun MultishotScope.s1b() = John said (Mary loves me())
+context(s: Speaker<R>)
+suspend fun <R> MultishotScope<R>.s1b() = John said (Mary loves me())
 
-suspend fun MultishotScope.s1c() = Peter said { s1b() }
+suspend fun <R> MultishotScope<R>.s1c() = Peter said { s1b() }
 
-fun interface Quantification {
-  suspend fun MultishotScope.quantify(who: Predicate): Person
+@QuantDsl
+fun interface Quantification<in R> {
+  suspend fun MultishotScope<R>.quantify(who: Predicate): Person
 }
 
-context(q: Quantification)
-suspend fun MultishotScope.every(who: Predicate) = with(q) { quantify(who) }
+context(q: Quantification<R>)
+suspend fun <R> MultishotScope<R>.every(who: Predicate) = with(q) { quantify(who) }
 
-suspend fun MultishotScope.s2() = scoped { John said { every(Woman) loves me() } }
+private suspend fun <R> QuantScope<R>.s2Scoped() = John said { every(Woman) loves me() }
+suspend fun <R> MultishotScope<R>.s2() = scoped { s2Scoped() }
 
-suspend fun MultishotScope.scoped(s: suspend context(Quantification) MultishotScope.() -> Sentence): Sentence {
+@DslMarker annotation class QuantDsl
+@QuantDsl
+class QuantScope<R>(quantification: Quantification<R>, token: MultishotToken<R>) : DelegatingMultishotScope<R>(token),
+  Quantification<R> by quantification
+
+suspend fun <R> MultishotScope<R>.scoped(s: suspend QuantScope<out R>.() -> Sentence): Sentence {
   data class Data(var i: Int)
-  return handleStateful(Data(0), Data::copy) {
-    s({ who ->
-      use { resume ->
-        val x = Person("x${get().i++}")
-        ForAll(x, Implies(Is(x, who), resume(x)))
-      }
-    }, this)
-  }
+
+  suspend fun <IR : R> StatefulPrompt<Sentence, Data, IR, R>.function() = s(QuantScope({ who ->
+    use { resume ->
+      val x = Person("x${get().i++}")
+      ForAll(x, Implies(Is(x, who), resume(x)))
+    }
+  }, token))
+  return handleStateful(Data(0), Data::copy) { function() }
 }

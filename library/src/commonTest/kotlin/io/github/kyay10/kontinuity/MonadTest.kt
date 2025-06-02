@@ -4,74 +4,79 @@ import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class MonadTest {
-  data class State<S, out A>(val run: suspend MultishotScope.(S) -> Pair<A, S>) {
-    fun <B> flatMap(f: suspend MultishotScope.(A) -> State<S, B>): State<S, B> = State { s0 ->
+  data class State<S, out A, in Region>(val run: suspend MultishotScope<Region>.(S) -> Pair<A, S>) {
+
+    companion object {
+      fun <S, A> of(a: A): State<S, A, Any?> = State { s -> Pair(a, s) }
+    }
+  }
+
+  fun <S, A, B, Region> State<S, A, Region>.flatMap(f: suspend MultishotScope<Region>.(A) -> State<S, B, Region>): State<S, B, Region> =
+    State { s0 ->
       val (a, s1) = run(s0)
       f(a).run(this, s1)
     }
 
-    companion object {
-      fun <S, A> of(a: A): State<S, A> = State { s -> Pair(a, s) }
-    }
-  }
+  context(_: Prompt<State<S, A, OR>, IR, OR>)
+  suspend fun <S, A, B, IR : OR, OR> MultishotScope<IR>.bind(state: State<S, B, OR>): B =
+    shift { k -> state.flatMap { k(it) } }
 
-  context(_: Prompt<State<S, A>>)
-  suspend fun <S, A, B> MultishotScope.bind(state: State<S, B>): B = shift { k -> state.flatMap { k(it) } }
-
-  suspend fun <S, R> MultishotScope.stateReset(body: suspend context(Prompt<State<S, R>>) MultishotScope.() -> R): State<S, R> =
-    newReset { State.of(body(given<Prompt<State<S, R>>>(), this)) }
+  suspend fun <S, R, Region> MultishotScope<Region>.stateReset(body: suspend PromptCont<State<S, R, Region>, *, Region>.() -> R): State<S, R, Region> =
+    newReset { State.of(body()) }
 
   @Test
   fun stateMonad() = runTest {
     // Usage example
     data class CounterState(val count: Int)
 
-    fun incrementCounter(): State<CounterState, Unit> = State { state ->
+    val incrementCounter: State<CounterState, Unit, Any?> = State { state ->
       Pair(Unit, state.copy(count = state.count + 1))
     }
 
-    fun doubleCounter(): State<CounterState, Unit> = State { state ->
+    val doubleCounter: State<CounterState, Unit, Any?> = State { state ->
       Pair(Unit, state.copy(count = state.count * 2))
     }
 
     val result = runCC {
-      stateReset {
-        bind(incrementCounter())
-        bind(doubleCounter())
-        bind(doubleCounter())
-      }.run(this, CounterState(0))
+      suspend fun <IR> PromptCont<State<CounterState, Unit, Any?>, IR, Any?>.function() {
+        bind(incrementCounter)
+        bind(doubleCounter)
+        bind(doubleCounter)
+      }
+      stateReset { function() }.run(this, CounterState(0))
     }
 
     result shouldBe runCC {
-      incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }.run(this, CounterState(0))
+      incrementCounter.flatMap { doubleCounter.flatMap { doubleCounter } }.run(this, CounterState(0))
     }
   }
 
-  class Reader<R, A>(val reader: suspend MultishotScope.(R) -> A) {
-    fun <B> flatMap(f: suspend MultishotScope.(A) -> Reader<R, B>): Reader<R, B> = Reader { r0 ->
+  class Reader<R, A, in Region>(val reader: suspend MultishotScope<Region>.(R) -> A) {
+    companion object {
+      fun <R, A> of(a: A): Reader<R, A, Any?> = Reader { a }
+    }
+  }
+
+  fun <R, A, B, Region> Reader<R, A, Region>.flatMap(f: suspend MultishotScope<Region>.(A) -> Reader<R, B, Region>): Reader<R, B, Region> =
+    Reader { r0 ->
       val a = reader(r0)
-      val reader2 = f(this,a).reader
+      val reader2 = f(this, a).reader
       reader2(r0)
     }
 
-    companion object {
-      fun <R, A> of(a: A): Reader<R, A> = Reader { a }
-    }
-  }
+  context(_: Prompt<Reader<R, A, OR>, IR, OR>)
+  suspend fun <R, A, B, IR : OR, OR> MultishotScope<IR>.bind(reader: Reader<R, B, OR>): B =
+    shift { k -> reader.flatMap { k(it) } }
 
-  context(_: Prompt<Reader<R, A>>)
-  suspend fun <R, A, B> MultishotScope.bind(reader: Reader<R, B>): B = shift { k -> reader.flatMap { k(it) } }
-
-  suspend fun <R, A> MultishotScope.readerReset(body: suspend context(Prompt<Reader<R, A>>) MultishotScope.() -> A): Reader<R, A> =
-    newReset { Reader.of(body(given<Prompt<Reader<R, A>>>(), this)) }
+  suspend fun <R, A, Region> MultishotScope<Region>.readerReset(body: suspend PromptCont<Reader<R, A, Region>, *, Region>.() -> A): Reader<R, A, Region> =
+    newReset { Reader.of(body(this)) }
 
   @Test
   fun readerMonad() = runTest {
-    val one = Reader { input: String -> input.toInt() }
+    val one = Reader<_, _, Any?> { input: String -> input.toInt() }
     val sum = runCC {
-      readerReset {
-        bind(one) + bind(one)
-      }.reader(this, "1")
+      suspend fun <IR> PromptCont<Reader<String, Int, Any?>, IR, Any?>.function() = bind(one) + bind(one)
+      readerReset { function() }.reader(this, "1")
     }
     sum shouldBe 2
   }

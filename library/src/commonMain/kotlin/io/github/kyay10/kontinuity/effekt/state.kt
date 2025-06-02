@@ -31,12 +31,12 @@ public inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
   set(f(get()))
 }
 
-public suspend fun <R> MultishotScope.region(body: suspend context(StateScope) MultishotScope.() -> R): R =
+public suspend fun <R, Region> MultishotScope<Region>.region(body: suspend context(StateScope) MultishotScope<Region>.() -> R): R =
   runReader(MutableTypedMap(), MutableTypedMap::copy) {
     body(MutableStateScope(given<Reader<MutableTypedMap>>()), this)
   }
 
-public suspend fun <R> MultishotScope.persistentRegion(body: suspend context(StateScope) MultishotScope.() -> R): R = runState(PersistentTypedMap()) {
+public suspend fun <R, Region> MultishotScope<Region>.persistentRegion(body: suspend context(StateScope) MultishotScope<Region>.() -> R): R = runState(PersistentTypedMap()) {
   body(PersistentStateScope(given<State<PersistentTypedMap>>()), this)
 }
 
@@ -117,6 +117,6 @@ public interface Stateful<S : Stateful<S>> {
   public fun fork(): S
 }
 
-public suspend inline fun <E, S : Stateful<S>> MultishotScope.handleStateful(
-  value: S, crossinline body: suspend context(StatefulPrompt<E, S>) MultishotScope.() -> E
+public suspend inline fun <E, S : Stateful<S>, Region> MultishotScope<Region>.handleStateful(
+  value: S, crossinline body: suspend StatefulPrompt<E, S, *, Region>.() -> E
 ): E = handleStateful(value, Stateful<S>::fork, body)

@@ -2,8 +2,12 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.core.raise.Raise
 import arrow.core.raise.recover
+import io.github.kyay10.kontinuity.DelegatingMultishotScope
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.MultishotToken
+import io.github.kyay10.kontinuity.ResetDsl
 import io.github.kyay10.kontinuity.effekt.Stateful
+import io.github.kyay10.kontinuity.effekt.StatefulPrompt
 import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.raise
@@ -22,7 +26,8 @@ class LexerTest {
     report {
       lexerFromList(dummyTokens) {
         for (token in dummyTokens) {
-          next() shouldBe token
+          suspend fun <R> LexerScope<R>.check() = next() shouldBe token
+          check()
         }
       }
     }
@@ -33,7 +38,8 @@ class LexerTest {
     report {
       lexer("foo()") {
         for (token in exampleTokens) {
-          next() shouldBe token
+          suspend fun <R> LexerScope<R>.check() = next() shouldBe token
+          check()
         }
       }
     }
@@ -42,8 +48,8 @@ class LexerTest {
   @Test
   fun example3() = runTestCC {
     report {
-      lexer("foo (   \n  )") {
-        skipWhitespace {
+      suspend fun <R> LexerScope<R>.block() {
+        suspend fun <IR: R> LexerScope<IR>.block() {
           for (token in listOf(
             Token(TokenKind.Ident, "foo", Position(1, 1, 0)),
             Token(TokenKind.Punct, "(", Position(1, 5, 4)),
@@ -52,7 +58,9 @@ class LexerTest {
             next() shouldBe token
           }
         }
+        skipWhitespace { block() }
       }
+      lexer("foo (   \n  )") { block() }
     }
   }
 }
@@ -65,30 +73,36 @@ enum class TokenKind {
 
 data class Token(val kind: TokenKind, val text: String, val position: Position)
 
-interface Lexer {
-  suspend fun MultishotScope.peek(): Token?
-  suspend fun MultishotScope.next(): Token
+@LexerDsl
+interface Lexer<in R> {
+  suspend fun MultishotScope<R>.peek(): Token?
+  suspend fun MultishotScope<R>.next(): Token
 }
 
-context(lexer: Lexer)
-suspend fun MultishotScope.next() = with(lexer) { next() }
+context(lexer: Lexer<R>)
+suspend fun <R> MultishotScope<R>.next() = with(lexer) { next() }
 
-context(lexer: Lexer)
-suspend fun MultishotScope.peek() = with(lexer) { peek() }
+context(lexer: Lexer<R>)
+suspend fun <R> MultishotScope<R>.peek() = with(lexer) { peek() }
 
 data class LexerError(val msg: String, val pos: Position)
 
 val dummyPosition = Position(0, 0, 0)
 
-context(raise: Raise<LexerError>)
-suspend fun <R> MultishotScope.lexerFromList(l: List<Token>, block: suspend context(Lexer) MultishotScope.() -> R): R {
+@DslMarker annotation class LexerDsl
+@LexerDsl
+class LexerScope<R>(lexer: Lexer<R>, token: MultishotToken<R>): DelegatingMultishotScope<R>(token), Lexer<R> by lexer
+
+context(_: Raise<LexerError>)
+suspend fun <Ret, R> MultishotScope<R>.lexerFromList(l: List<Token>, block: suspend LexerScope<out R>.() -> Ret): Ret {
   data class Data(var index: Int)
   return handleStateful(Data(0), Data::copy) {
-    block(object : Lexer {
-      override suspend fun MultishotScope.peek(): Token? = l.getOrNull(get().index)
-      override suspend fun MultishotScope.next(): Token =
+    fun <IR: R> StatefulPrompt<Ret, Data, IR, R>.lexer(): LexerScope<IR> = LexerScope(object : Lexer<IR> {
+      override suspend fun MultishotScope<IR>.peek(): Token? = l.getOrNull(get().index)
+      override suspend fun MultishotScope<IR>.next(): Token =
         l.getOrNull(get().index++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
-    }, this)
+    }, token)
+    block(lexer())
   }
 }
 
@@ -104,7 +118,7 @@ private val tokenDescriptors = mapOf(
 )
 
 context(raise: Raise<LexerError>)
-suspend fun <R> MultishotScope.lexer(input: String, block: suspend context(Lexer) MultishotScope.() -> R): R {
+suspend fun <Ret, R> MultishotScope<R>.lexer(input: String, block: suspend LexerScope<out R>.() -> Ret): Ret {
   data class Data(var index: Int, var col: Int, var line: Int) : Stateful<Data> {
     fun toPosition() = Position(line, col, index)
     fun consume(text: String) {
@@ -119,42 +133,44 @@ suspend fun <R> MultishotScope.lexer(input: String, block: suspend context(Lexer
   }
 
   return handleStateful(Data(index = 0, col = 1, line = 1)) {
-    block(object : Lexer {
-      private suspend fun MultishotScope.eos(): Boolean = get().index >= input.length
-      private suspend fun MultishotScope.tryMatch(regex: Regex, tokenKind: TokenKind): Token? =
+
+    fun <IR: R> StatefulPrompt<Ret, Data, IR, R>.lexer(): LexerScope<IR> = LexerScope(object : Lexer<IR> {
+      private suspend fun MultishotScope<IR>.eos(): Boolean = get().index >= input.length
+      private suspend fun MultishotScope<IR>.tryMatch(regex: Regex, tokenKind: TokenKind): Token? =
         regex.find(input.substring(get().index))?.let {
           Token(tokenKind, it.value, get().toPosition())
         }
 
-      private suspend fun MultishotScope.tryMatchAll(map: Map<TokenKind, Regex>): Token? =
+      private suspend fun MultishotScope<IR>.tryMatchAll(map: Map<TokenKind, Regex>): Token? =
         map.firstNotNullOfOrNull { (kind, regex) -> tryMatch(regex, kind) }
 
-      override suspend fun MultishotScope.peek(): Token? = tryMatchAll(tokenDescriptors)
-      override suspend fun MultishotScope.next(): Token {
+      override suspend fun MultishotScope<IR>.peek(): Token? = tryMatchAll(tokenDescriptors)
+      override suspend fun MultishotScope<IR>.next(): Token {
         val position = get().toPosition()
         if (eos()) raise(LexerError("Unexpected EOS", position))
         val tok = peek() ?: raise(LexerError("Cannot tokenize input", position))
         get().consume(tok.text)
         return tok
       }
-    }, this)
+    }, token)
+    block(lexer())
   }
 }
 
-context(lexer: Lexer)
-suspend fun MultishotScope.skipSpaces() {
+context(lexer: Lexer<R>)
+suspend fun <R> MultishotScope<R>.skipSpaces() {
   while (peek()?.kind == TokenKind.Space) next()
 }
 
-context(lexer: Lexer)
-suspend fun <R> MultishotScope.skipWhitespace(block: suspend context(Lexer) MultishotScope.() -> R): R = block(object : Lexer {
-  override suspend fun MultishotScope.next(): Token = with(lexer) {
+context(lexer: Lexer<R>)
+suspend fun <Ret, R> MultishotScope<R>.skipWhitespace(block: suspend LexerScope<out R>.() -> Ret): Ret = block(LexerScope(object : Lexer<R> {
+  override suspend fun MultishotScope<R>.next(): Token = with(lexer) {
     skipSpaces()
     return next()
   }
 
-  override suspend fun MultishotScope.peek(): Token? = with(lexer) {
+  override suspend fun MultishotScope<R>.peek(): Token? = with(lexer) {
     skipSpaces()
     return peek()
   }
-}, this)
+}, token))

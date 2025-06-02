@@ -18,12 +18,12 @@ internal enum class OnInit {
   REPUSH,
 }
 
-public class SubCont<in T, out R> @PublishedApi internal constructor(
-  private var init: SingleUseSegment<T, R>,
+public class SubCont<in T, out R, in Region> @PublishedApi internal constructor(
+  private var init: SingleUseSegment<T, R, Region>,
   private var onInitialize: OnInit = OnInit.NONE,
 ) {
   @PublishedApi
-  internal fun composedWith(stack: SplitSeq<R>): SplitSeq<T> {
+  internal fun composedWith(stack: SplitSeq<R, Region>): SplitSeq<T, *> {
     when (onInitialize) {
       OnInit.REUSABLE -> init = init.makeReusable()
       OnInit.COPY -> init = init.makeCopy()
@@ -39,7 +39,7 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 internal expect open class NoTrace() : CancellationException
 internal data object SuspendedException : NoTrace()
 
-public suspend fun <R> runCC(body: suspend MultishotScope.() -> R): R {
+public suspend fun <R> runCC(body: suspend MultishotScope<*>.() -> R): R {
   val trampoline = coroutineContext.makeTrampoline()
   return withContext(trampoline) {
     suspendCoroutine {

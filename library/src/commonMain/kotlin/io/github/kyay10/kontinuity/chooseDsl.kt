@@ -2,7 +2,6 @@ package io.github.kyay10.kontinuity
 
 import arrow.core.raise.Raise
 import arrow.core.raise.SingletonRaise
-import io.github.kyay10.kontinuity.effekt.given
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -16,25 +15,22 @@ import kotlin.contracts.contract
 
 /** MonadFail-style errors */
 private class PromptFail<R>(
-  private val prompt: Prompt<R>,
-  private val multishotScope: MultishotScope,
+  private val prompt: Prompt<R, *, *>,
   private val failValue: R
 ) : Raise<Unit> {
-  override fun raise(r: Unit): Nothing = with(multishotScope) {
-    prompt.abortWith(Result.success(failValue))
-  }
+  override fun raise(r: Unit): Nothing = with(prompt) { abortWith(Result.success(failValue)) }
 }
 
-public typealias Choose = Prompt<Unit>
+public typealias Choose<Region> = Prompt<Unit, Region, *>
 
-public suspend fun <R> MultishotScope.runChoice(
-  body: suspend context(SingletonRaise<Unit>, Choose) MultishotScope.() -> R,
-  handler: suspend MultishotScope.(R) -> Unit
+public suspend fun <R, Region> MultishotScope<Region>.runChoice(
+  body: suspend context(SingletonRaise<Unit>) PromptCont<Unit, *, Region>.() -> R,
+  handler: suspend MultishotScope<Region>.(R) -> Unit
 ): Unit = newReset {
-  handler(body(SingletonRaise(PromptFail(given<Prompt<Unit>>(), this, Unit)), given<Prompt<Unit>>(), this))
+  handler(body(SingletonRaise(PromptFail(this, Unit)), this))
 }
 
-public suspend fun <R> MultishotScope.runList(body: suspend context(SingletonRaise<Unit>, Choose) MultishotScope.() -> R): List<R> =
+public suspend fun <R, Region> MultishotScope<Region>.runList(body: suspend context(SingletonRaise<Unit>) PromptCont<Unit, *, Region>.() -> R): List<R> =
   runReader(mutableListOf(), MutableList<R>::toMutableList) {
     runChoice(body) {
       ask().add(it)
@@ -42,33 +38,37 @@ public suspend fun <R> MultishotScope.runList(body: suspend context(SingletonRai
     ask()
   }
 
-context(_: Choose)
-public suspend fun <T> MultishotScope.bind(list: List<T>): T = shift { continuation ->
+context(_: Prompt<Unit, IR, OR>)
+public suspend fun <T, IR : OR, OR> MultishotScope<IR>.bind(list: List<T>): T = shift { continuation ->
   (0..list.lastIndex).forEachIteratorless { item ->
     continuation(list[item])
   }
 }
 
-context(_: Choose)
-public suspend fun <T> MultishotScope.choose(left: T, right: T): T = shift { continuation ->
+context(_: Prompt<Unit, IR, OR>)
+public suspend fun <T, IR : OR, OR> MultishotScope<IR>.choose(left: T, right: T): T = shift { continuation ->
   continuation(left)
   continuation(right)
 }
 
-context(_: Choose)
-public suspend fun MultishotScope.bind(ints: IntRange): Int = shift { continuation ->
+context(_: Prompt<Unit, IR, OR>)
+public suspend fun <IR : OR, OR> MultishotScope<IR>.bind(ints: IntRange): Int = shift { continuation ->
   (ints.start..ints.endInclusive).forEachIteratorless { i ->
     continuation(i)
   }
 }
 
-public suspend fun <T> MultishotScope.replicate(amount: Int, producer: suspend MultishotScope.(Int) -> T): List<T> =
+public suspend fun <T, Region> MultishotScope<Region>.replicate(
+  amount: Int,
+  producer: suspend MultishotScope<Region>.(Int) -> T
+): List<T> =
   runList {
-    producer(bind(0..<amount))
+    suspend fun <IR: Region> PromptCont<Unit, IR, Region>.function() = producer(bind(0..<amount))
+    function()
 }
 
 public fun <R> runFlowCC(
-  body: suspend context(SingletonRaise<Unit>, Choose, CoroutineScope) MultishotScope.() -> R
+  body: suspend context(SingletonRaise<Unit>, CoroutineScope) PromptCont<Unit, *, Any?>.() -> R
 ): Flow<R> = channelFlow {
   runCC {
     runChoice({ body() }) {
@@ -79,9 +79,9 @@ public fun <R> runFlowCC(
   }
 }
 
-context(_: Choose, scope: CoroutineScope)
+context(_: Prompt<Unit, IR, OR>, scope: CoroutineScope)
 @OptIn(ExperimentalCoroutinesApi::class)
-public suspend fun <T> MultishotScope.bind(flow: Flow<T>): T = shift { continuation ->
+public suspend fun <T, IR : OR, OR> MultishotScope<IR>.bind(flow: Flow<T>): T = shift { continuation ->
   val channel = flow.produceIn(scope)
   channel.consume {
     val iterator = channel.iterator()

@@ -3,7 +3,10 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 import arrow.core.Either.Right
 import arrow.core.raise.Raise
 import arrow.core.raise.either
+import io.github.kyay10.kontinuity.DelegatingMultishotScope
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.MultishotToken
+import io.github.kyay10.kontinuity.ResetDsl
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -58,35 +61,46 @@ class BuildSystemTest {
 typealias Key = String
 typealias Val = Int
 
-fun interface Need {
-  suspend fun MultishotScope.need(key: Key): Val
+@NeedDsl
+fun interface Need<R> {
+  suspend fun MultishotScope<R>.need(key: Key): Val
 }
-context(need: Need)
-suspend fun MultishotScope.need(key: Key): Val = with(need) { need(key) }
 
-fun interface NeedInput {
-  suspend fun MultishotScope.needInput(key: Key): Val
+context(need: Need<R>)
+suspend fun <R> MultishotScope<R>.need(key: Key): Val = with(need) { need(key) }
+
+@NeedInputDsl
+fun interface NeedInput<R> {
+  suspend fun MultishotScope<R>.needInput(key: Key): Val
 }
-context(needInput: NeedInput)
-suspend fun MultishotScope.needInput(key: Key): Val = with(needInput) { needInput(key) }
 
-context(input: NeedInput, need: Need)
-suspend fun MultishotScope.example1(key: Key): Val = when (key) {
+context(needInput: NeedInput<R>)
+suspend fun <R> MultishotScope<R>.needInput(key: Key): Val = with(needInput) { needInput(key) }
+
+context(input: NeedInput<R>, need: Need<R>)
+suspend fun <R> MultishotScope<R>.example1(key: Key): Val = when (key) {
   "B1" -> need("A1") + need("A2")
   "B2" -> need("B1") * 2
   else -> needInput(key)
 }
 
-suspend fun MultishotScope.build(target: Key, tasks: suspend context(Need) MultishotScope.(Key) -> Val): Val = tasks(Need { build(it, tasks) }, this, target)
+@DslMarker annotation class NeedDsl
+@NeedDsl
+class NeedScope<R>(need: Need<R>, token: MultishotToken<R>) : DelegatingMultishotScope<R>(token), Need<R> by need
 
-context(need: Need)
-suspend fun <R> MultishotScope.memo(block: suspend context(Need) MultishotScope.() -> R): R {
+suspend fun <R> MultishotScope<R>.build(target: Key, tasks: suspend NeedScope<R>.(Key) -> Val): Val =
+  scoped(NeedScope({ build(it, tasks) }, token)) { tasks(target) }
+
+context(need: Need<R>)
+suspend fun <Ret, R> MultishotScope<R>.memo(block: suspend NeedScope<R>.() -> Ret): Ret {
   val cache = mutableMapOf<Key, Val>()
-  return block(Need { key -> cache.getOrPut(key) { need(key) } }, this)
+  return scoped(NeedScope({ key -> cache.getOrPut(key) { need(key) } }, token)) {
+    block()
+  }
 }
 
-context(need: Need, input: NeedInput)
-suspend fun MultishotScope.example2(key: Key): Val = when (key) {
+context(need: Need<R>, input: NeedInput<R>)
+suspend fun <R> MultishotScope<R>.example2(key: Key): Val = when (key) {
   "B1" -> need("A1") + need("A2")
   "B2" -> need("B1") * need("B1")
   else -> needInput(key)
@@ -94,6 +108,13 @@ suspend fun MultishotScope.example2(key: Key): Val = when (key) {
 
 data class KeyNotFound(val key: Key)
 
+@DslMarker annotation class NeedInputDsl
+@NeedInputDsl
+class NeedInputScope<R>(needInput: NeedInput<R>, token: MultishotToken<R>) : DelegatingMultishotScope<R>(token),
+  NeedInput<R> by needInput
+
 context(raise: Raise<KeyNotFound>)
-suspend fun <R> MultishotScope.supplyInput(store: Map<Key, Val>, block: suspend context(NeedInput) MultishotScope.() -> R): R =
-  block(NeedInput { key -> store[key] ?: raise.raise(KeyNotFound(key)) }, this)
+suspend fun <Ret, R> MultishotScope<R>.supplyInput(
+  store: Map<Key, Val>,
+  block: suspend NeedInputScope<R>.() -> Ret
+): Ret = scoped(NeedInputScope({ key -> store[key] ?: raise.raise(KeyNotFound(key)) }, token)) { block() }
