@@ -12,7 +12,7 @@ public expect interface CoroutineStackFrame {
 }
 
 internal expect val Continuation<*>.completion: Continuation<*>?
-internal expect fun <T> Continuation<T>.copy(completion: SplitSeq<*>): Continuation<T>
+internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>
 internal expect fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any?
 
 public sealed class SplitSeq<in Start>(@JvmField internal val realContext: CoroutineContext) : CoroutineStackFrame, CoroutineContext, Continuation<Start> {
