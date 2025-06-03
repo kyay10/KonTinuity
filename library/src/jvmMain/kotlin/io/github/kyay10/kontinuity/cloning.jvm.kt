@@ -4,7 +4,7 @@ import java.lang.reflect.Modifier
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.jvm.internal.CloningUtils
 public interface MultishotContinuation {
-  public fun copy(completion: SplitSeq<*>): Continuation<*>
+  public fun copy(completion: Continuation<*>): Continuation<*>
 }
 
 public actual typealias StackTraceElement = Any
@@ -49,7 +49,7 @@ private tailrec fun <T> copyDeclaredFields(
 }
 
 @Suppress("UNCHECKED_CAST")
-internal actual fun <T> Continuation<T>.copy(completion: SplitSeq<*>): Continuation<T> = when (this) {
+internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T> = when (this) {
   is MultishotContinuation -> this.copy(completion) as Continuation<T>
   else -> {
     val clazz = javaClass

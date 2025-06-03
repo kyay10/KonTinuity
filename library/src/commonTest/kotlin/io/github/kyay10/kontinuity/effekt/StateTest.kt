@@ -163,8 +163,8 @@ class MyState<R>(prompt: StatefulPrompt<R, Data<Int>>) : CrazyState,
 }
 
 suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R =
-  handleStateful(SpecialState.Data(init)) {
-    block(MyState<R>(this))
+  handleStateful<_, SpecialState.Data<Int>>(SpecialState.Data(init)) {
+    block(MyState(this))
   }
 
 open class SpecialState<R, S>(prompt: StatefulPrompt<R, Data<S>>) : State<S>,
@@ -180,7 +180,7 @@ open class SpecialState<R, S>(prompt: StatefulPrompt<R, Data<S>>) : State<S>,
 }
 
 suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
-  handleStateful(SpecialState.Data(init)) {
+  handleStateful<_, SpecialState.Data<S>>(SpecialState.Data(init)) {
     block(SpecialState(this))
   }
 
