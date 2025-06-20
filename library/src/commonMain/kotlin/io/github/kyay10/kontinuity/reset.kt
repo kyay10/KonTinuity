@@ -27,7 +27,7 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
   private var onInitialize: OnInit = OnInit.NONE,
 ) {
   @PublishedApi
-  internal fun composedWith(stack: SplitSeq<R>): SplitSeq<T> {
+  internal fun composedWith(stack: FramesCont<in R, *>): SplitSeq<T> {
     when (onInitialize) {
       OnInit.REUSABLE -> init = init.makeReusable()
       OnInit.COPY -> init = init.makeCopy()
@@ -180,6 +180,7 @@ public fun <R> Prompt<R>.abortS(value: suspend () -> R): Nothing {
 
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
 internal expect open class NoTrace() : CancellationException
+@PublishedApi
 internal data object SuspendedException : NoTrace()
 
 public suspend fun <R> runCC(body: suspend () -> R): R = withContext(coroutineContext.makeTrampoline()) {
