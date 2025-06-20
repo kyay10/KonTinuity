@@ -41,6 +41,10 @@ public sealed class SplitCont<in Start>(realContext: CoroutineContext) : Corouti
     realContext[key]
 }
 
+internal sealed interface HasCopied {
+  var copied: Boolean
+}
+
 internal tailrec fun <Start> SplitSeq<Start>.resumeWithImpl(result: Result<Start>): Unit = when (this) {
   is EmptyCont -> underlying.resumeWith(result)
 
@@ -68,8 +72,8 @@ internal class FramesCont<Start, Last>(
   @JvmField var cont: Continuation<Start>,
   @Suppress("UNCHECKED_CAST")
   @JvmField val rest: SplitCont<Last> = cont.context as SplitCont<Last>,
-  @JvmField var copied: Boolean = false,
-) : SplitSeq<Start>(rest.realContext) {
+  override var copied: Boolean = false,
+) : SplitSeq<Start>(rest.realContext), HasCopied {
   override val context: CoroutineContext get() = rest
 
   @Suppress("UNCHECKED_CAST")
@@ -180,8 +184,8 @@ public class ReaderT<S, Start> @PublishedApi internal constructor(
 @PublishedApi
 internal class UnderCont<Start, RealStart>(
   @JvmField val captured: SingleUseSegment<RealStart, Start>, override val rest: FramesCont<in Start, *>
-) : Segmentable<RealStart, Start>(rest.realContext) {
-  var copied: Boolean
+) : Segmentable<RealStart, Start>(rest.realContext), HasCopied {
+  override var copied: Boolean
     get() = captured.copying
     set(value) {
       captured.copying = value
@@ -200,98 +204,107 @@ internal class SingleUseSegment<Start, End>(
   @JvmField val delimiter: Prompt<End>,
   @JvmField val cont: FramesCont<Start, *>,
   @JvmField var values: Array<out Any?>? = null,
+  @JvmField var owned: List<HasCopied>? = null,
   @JvmField var copying: Boolean = false
 ) {
   fun makeReusable(): SingleUseSegment<Start, End> {
     prepareValues()
-    return SingleUseSegment(delimiter, cont, values, true)
+    return SingleUseSegment(delimiter, cont, values, null, true)
   }
 
   fun makeCopy(): SingleUseSegment<Start, End> {
     prepareValues()
-    return SingleUseSegment(delimiter, cont, null, true)
+    return SingleUseSegment(delimiter, cont, null, null, true)
   }
 
   private fun prepareValues() {
     if (values == null) {
       cont.copied = true
-      values = cont.rest.collectValues(delimiter)
+      val owned = mutableListOf<HasCopied>()
+      values = cont.rest.collectValues(delimiter, owned)
+      this.owned = owned
     }
   }
 
   private fun prepareValues2() {
     if (values == null) values = ArrayList<Any?>(10).apply {
       cont.copied = true
-      cont.rest.collectValues(delimiter, this)
+      val owned = mutableListOf<HasCopied>()
+      cont.rest.collectValues(delimiter, this, owned)
+      this@SingleUseSegment.owned = owned
     }.toTypedArray()
   }
 
   fun repushValues() {
     val values = values ?: return
+    val copying = copying
     cont.copied = copying
+    if (!copying) owned!!.forEach { it.copied = copying }
     cont.rest.repushValues(delimiter, values, copying, 0)
   }
 }
 
 private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
   delimiter: Prompt<End>,
-  values: MutableList<in Any?>
+  values: MutableList<in Any?>,
+  owned: MutableList<in HasCopied>,
 ): Unit = when (this) {
   is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
   is Prompt<*> if this === delimiter -> {}
   is FramesCont<*, *> -> {
-    values.add(copied)
+    if (!copied) owned.add(this)
     copied = true
-    rest.collectValues(delimiter, values)
+    rest.collectValues(delimiter, values, owned)
   }
   is Prompt<*> -> {
     val rest = rest
     values.add(rest)
-    rest.collectValues(delimiter, values)
+    rest.collectValues(delimiter, values, owned)
   }
   is ReaderT<*, *> -> {
     values.add(state)
     values.add(forkOnFirstRead)
     forkOnFirstRead = true
-    rest.collectValues(delimiter, values)
+    rest.collectValues(delimiter, values, owned)
   }
   is UnderCont<*, *> -> {
-    values.add(copied)
+    if (!copied) owned.add(this)
     copied = true
-    rest.collectValues(delimiter, values)
+    rest.collectValues(delimiter, values, owned)
   }
 }
 
 private fun <Start, End> SplitSeq<Start>.collectValues(
   delimiter: Prompt<End>,
-  index: Int = 0
+  owned: MutableList<in HasCopied>,
+  index: Int = 0,
 ): Array<Any?> = when (this) {
   is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
   is Prompt<*> if this === delimiter -> {
     arrayOfNulls(index)
   }
   is FramesCont<*, *> -> {
-    val arr = rest.collectValues(delimiter, index + 1)
-    arr[index] = copied
+    val arr = rest.collectValues(delimiter, owned, index)
+    if (!copied) owned.add(this)
     copied = true
     arr
   }
   is Prompt<*> -> {
     val rest = rest
-    val arr = rest.collectValues(delimiter, index + 1)
+    val arr = rest.collectValues(delimiter, owned, index + 1)
     arr[index] = rest
     arr
   }
   is ReaderT<*, *> -> {
-    val arr = rest.collectValues(delimiter, index + 2)
+    val arr = rest.collectValues(delimiter, owned, index + 2)
     arr[index] = state
     arr[index + 1] = forkOnFirstRead
     forkOnFirstRead = true
     arr
   }
   is UnderCont<*, *> -> {
-    val arr = rest.collectValues(delimiter, index + 1)
-    arr[index] = copied
+    val arr = rest.collectValues(delimiter, owned, index)
+    if (!copied) owned.add(this)
     copied = true
     arr
   }
@@ -305,12 +318,6 @@ private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
 ): Unit = when (this) {
   is EmptyCont -> error("Delimiter not found $delimiter in $this")
   is Prompt if this === delimiter -> {}
-  is FramesCont<Start, *> -> {
-    @Suppress("UNCHECKED_CAST")
-    val copied = values[index] as Boolean
-    this.copied = copied || copying
-    rest.repushValues(delimiter, values, copying, index + 1)
-  }
   is Prompt -> {
     @Suppress("UNCHECKED_CAST")
     val value = values[index] as FramesCont<Start, *>
@@ -321,16 +328,13 @@ private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
     @Suppress("UNCHECKED_CAST")
     this as ReaderT<Any?, Start>
     val value = values[index]
-    val forkOnFirstRead = values[index + 1] as Boolean
     this.state = value
-    this.forkOnFirstRead = forkOnFirstRead || copying
+    this.forkOnFirstRead = copying || (values[index + 1] as Boolean)
     rest.repushValues(delimiter, values, copying, index + 2)
   }
-  is UnderCont<*, Start> -> {
-    val copied = values[index] as Boolean
-    this.copied = copied || copying
-    rest.repushValues(delimiter, values, copying, index + 1)
-  }
+
+  is FramesCont<Start, *> -> rest.repushValues(delimiter, values, copying, index)
+  is UnderCont<*, Start> -> rest.repushValues(delimiter, values, copying, index)
 }
 
 public sealed class Segmentable<Start, in Rest>(context: CoroutineContext) : SplitCont<Start>(context) {
