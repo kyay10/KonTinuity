@@ -239,7 +239,7 @@ internal class SingleUseSegment<Start, End>(
     val values = values ?: return
     val copying = copying
     cont.copied = copying
-    if (!copying) owned!!.forEach { it.copied = copying }
+    if (!copying) owned!!.forEach { it.copied = false }
     cont.rest.repushValues(delimiter, values, copying, 0)
   }
 }
@@ -274,21 +274,13 @@ private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
   }
 }
 
-private fun <Start, End> SplitSeq<Start>.collectValues(
+private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
   delimiter: Prompt<End>,
   owned: MutableList<in HasCopied>,
   index: Int = 0,
 ): Array<Any?> = when (this) {
   is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
-  is Prompt<*> if this === delimiter -> {
-    arrayOfNulls(index)
-  }
-  is FramesCont<*, *> -> {
-    val arr = rest.collectValues(delimiter, owned, index)
-    if (!copied) owned.add(this)
-    copied = true
-    arr
-  }
+  is Prompt<*> if this === delimiter -> arrayOfNulls(index)
   is Prompt<*> -> {
     val rest = rest
     val arr = rest.collectValues(delimiter, owned, index + 1)
@@ -302,11 +294,15 @@ private fun <Start, End> SplitSeq<Start>.collectValues(
     forkOnFirstRead = true
     arr
   }
-  is UnderCont<*, *> -> {
-    val arr = rest.collectValues(delimiter, owned, index)
+  is FramesCont<*, *> -> {
     if (!copied) owned.add(this)
     copied = true
-    arr
+    rest.collectValues(delimiter, owned, index)
+  }
+  is UnderCont<*, *> -> {
+    if (!copied) owned.add(this)
+    copied = true
+    rest.collectValues(delimiter, owned, index)
   }
 }
 
@@ -320,16 +316,15 @@ private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
   is Prompt if this === delimiter -> {}
   is Prompt -> {
     @Suppress("UNCHECKED_CAST")
-    val value = values[index] as FramesCont<Start, *>
-    this.rest = value
-    value.repushValues(delimiter, values, copying, index + 1)
+    val rest = values[index] as FramesCont<Start, *>
+    this.rest = rest
+    rest.repushValues(delimiter, values, copying, index + 1)
   }
   is ReaderT<*, Start> -> {
     @Suppress("UNCHECKED_CAST")
     this as ReaderT<Any?, Start>
-    val value = values[index]
-    this.state = value
-    this.forkOnFirstRead = copying || (values[index + 1] as Boolean)
+    state = values[index]
+    forkOnFirstRead = copying || (values[index + 1] as Boolean)
     rest.repushValues(delimiter, values, copying, index + 2)
   }
 
