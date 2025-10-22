@@ -3,12 +3,14 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 import arrow.core.Either.Right
 import arrow.core.raise.Raise
 import arrow.core.raise.either
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class BuildSystemTest {
   val inputs = mapOf("A1" to 10, "A2" to 20)
+
   @Test
   fun ex1() = runTestCC {
     val accessed = mutableListOf<Key>()
@@ -58,26 +60,32 @@ typealias Key = String
 typealias Val = Int
 
 fun interface Need {
+  context(_: MultishotScope)
   suspend fun need(key: Key): Val
 }
 
 fun interface NeedInput {
+  context(_: MultishotScope)
   suspend fun needInput(key: Key): Val
 }
 
+context(_: MultishotScope)
 suspend fun Need.example1(key: Key, input: NeedInput): Val = when (key) {
   "B1" -> need("A1") + need("A2")
   "B2" -> need("B1") * 2
   else -> input.needInput(key)
 }
 
-suspend fun build(target: Key, tasks: suspend Need.(Key) -> Val): Val = Need { build(it, tasks) }.tasks(target)
+context(_: MultishotScope)
+suspend fun build(target: Key, tasks: suspend context(MultishotScope) Need.(Key) -> Val): Val = Need { build(it, tasks) }.tasks(target)
 
-suspend fun <R> Need.memo(block: suspend Need.() -> R): R {
+context(_: MultishotScope)
+suspend fun <R> Need.memo(block: suspend context(MultishotScope) Need.() -> R): R {
   val cache = mutableMapOf<Key, Val>()
   return Need { key -> cache.getOrPut(key) { need(key) } }.block()
 }
 
+context(_: MultishotScope)
 suspend fun Need.example2(key: Key, input: NeedInput): Val = when (key) {
   "B1" -> need("A1") + need("A2")
   "B2" -> need("B1") * need("B1")
@@ -86,5 +94,9 @@ suspend fun Need.example2(key: Key, input: NeedInput): Val = when (key) {
 
 data class KeyNotFound(val key: Key)
 
-suspend fun <R> Raise<KeyNotFound>.supplyInput(store: Map<Key, Val>, block: suspend NeedInput.() -> R): R =
+context(_: MultishotScope)
+suspend fun <R> Raise<KeyNotFound>.supplyInput(
+  store: Map<Key, Val>,
+  block: suspend context(MultishotScope) NeedInput.() -> R
+): R =
   NeedInput { key -> store[key] ?: raise(KeyNotFound(key)) }.block()

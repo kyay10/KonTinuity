@@ -1,11 +1,13 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class GeneratorTest {
+  context(_: MultishotScope)
   suspend fun Generator<Int>.numbers(to: Int) {
     var i = 0
     while (i <= to) {
@@ -13,7 +15,7 @@ class GeneratorTest {
     }
   }
 
-  context(amb: Amb)
+  context(amb: Amb, _: MultishotScope)
   suspend fun Generator<Int>.numbersFlip(to: Int) {
     var i = 0
     while (i <= to) {
@@ -68,15 +70,18 @@ class GeneratorTest {
 }
 
 interface EffectfulIterator<A> {
+  context(_: MultishotScope)
   suspend operator fun next(): A
+  context(_: MultishotScope)
   suspend operator fun hasNext(): Boolean
 }
 
 fun interface EffectfulIterable<A> {
+  context(_: MultishotScope)
   suspend operator fun iterator(): EffectfulIterator<A>
 }
 
-fun <A> effectfulIterable(body: suspend Generator<A>.() -> Unit) = EffectfulIterable {
+fun <A> effectfulIterable(body: suspend context(MultishotScope) Generator<A>.() -> Unit) = EffectfulIterable {
   EffectfulIteratorImpl(handle {
     body(Iterate(this))
     EffectfulIteratorStep.Done
@@ -84,6 +89,7 @@ fun <A> effectfulIterable(body: suspend Generator<A>.() -> Unit) = EffectfulIter
 }
 
 class EffectfulIteratorImpl<A>(var current: EffectfulIteratorStep<A>) : EffectfulIterator<A> {
+  context(_: MultishotScope)
   override suspend fun next(): A {
     return when (val step = current) {
       is EffectfulIteratorStep.Value -> {
@@ -95,6 +101,7 @@ class EffectfulIteratorImpl<A>(var current: EffectfulIteratorStep<A>) : Effectfu
     }
   }
 
+  context(_: MultishotScope)
   override suspend fun hasNext(): Boolean {
     return when (current) {
       is EffectfulIteratorStep.Value -> true
@@ -111,11 +118,13 @@ sealed interface EffectfulIteratorStep<out A> {
 operator fun <A> EffectfulIterator<A>.iterator() = this
 
 fun interface Generator<A> {
+  context(_: MultishotScope)
   suspend fun yield(value: A)
 }
 
 class Iterate<A>(prompt: HandlerPrompt<EffectfulIteratorStep<A>>) : Handler<EffectfulIteratorStep<A>> by prompt,
   Generator<A> {
+  context(_: MultishotScope)
   override suspend fun yield(value: A): Unit = use {
     EffectfulIteratorStep.Value(value, it)
   }

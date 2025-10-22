@@ -21,7 +21,7 @@ private const val useRunSuspend = false
 fun runTestCC(
   context: CoroutineContext = EmptyCoroutineContext,
   timeout: Duration? = null,
-  testBody: suspend () -> Unit
+  testBody: suspend context(MultishotScope) () -> Unit
 ) = runTest(context, timeout) { runCC { testBody() } }
 
 fun runTest(
@@ -52,7 +52,7 @@ inline fun repeatIteratorless(
   }
 }
 
-context(_: Choose)
+context(_: Choose, _: MultishotScope)
 suspend fun <T> List<T>.insert(element: T): PersistentList<T> {
   val index = (0..size).bind()
   return toPersistentList().add(index, element)

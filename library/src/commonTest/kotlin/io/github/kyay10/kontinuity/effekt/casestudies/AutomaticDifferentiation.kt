@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.autoCloseScope
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.use
 import io.github.kyay10.kontinuity.runTestCC
@@ -73,61 +74,92 @@ class AutomaticDifferentiationTest {
 interface AD<Num> {
   val Double.num: Num
   val Int.num: Num get() = toDouble().num
+
+  context(_: MultishotScope)
   suspend operator fun Num.plus(other: Num): Num
+
+  context(_: MultishotScope)
   suspend operator fun Num.times(other: Num): Num
+
+  context(_: MultishotScope)
   suspend fun exp(x: Num): Num
 }
 
 // d = 3 + 3x^2
+context(_: MultishotScope)
 suspend fun <Num> AD<Num>.prog(x: Num): Num = 3.num * x + x * x * x
 
 // d = exp(1 + 2x) + 2x*exp(x^2)
+context(_: MultishotScope)
 suspend fun <Num> AD<Num>.progExp(x: Num): Num = 0.5.num * exp(1.num + 2.num * x) + exp(x * x)
 
 data class NumF(val value: Double, val d: Double)
 
-suspend fun forwards(x: Double, prog: suspend AD<NumF>.(NumF) -> NumF) = object : AD<NumF> {
+context(_: MultishotScope)
+suspend fun forwards(x: Double, prog: suspend context(MultishotScope) AD<NumF>.(NumF) -> NumF) = object : AD<NumF> {
   override val Double.num: NumF get() = NumF(this, 0.0)
+
+  context(_: MultishotScope)
   override suspend fun NumF.plus(other: NumF) = NumF(value + other.value, d + other.d)
+
+  context(_: MultishotScope)
   override suspend fun NumF.times(other: NumF) = NumF(value * other.value, value * other.d + d * other.value)
+
+  context(_: MultishotScope)
   override suspend fun exp(x: NumF) = NumF(mathExp(x.value), mathExp(x.value) * x.d)
 }.prog(NumF(x, 1.0)).d
 
 data class NumH<N>(val value: N, val d: N)
 
-suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend AD<NumH<N>>.(NumH<N>) -> NumH<N>) = object : AD<NumH<N>> {
-  override val Double.num: NumH<N> get() = with(this@forwardsHigher) { NumH(this@num.num, 0.num) }
-  override suspend fun NumH<N>.plus(other: NumH<N>) = NumH(value + other.value, d + other.d)
-  override suspend fun NumH<N>.times(other: NumH<N>) = NumH(value * other.value, d * other.value + other.d * value)
-  override suspend fun exp(x: NumH<N>) =
-    NumH(this@forwardsHigher.exp(x.value), this@forwardsHigher.exp(x.value) * x.d)
-}.prog(NumH(x, 1.0.num)).d
+context(_: MultishotScope)
+suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend context(MultishotScope) AD<NumH<N>>.(NumH<N>) -> NumH<N>) =
+  object : AD<NumH<N>> {
+    override val Double.num: NumH<N> get() = with(this@forwardsHigher) { NumH(this@num.num, 0.num) }
 
-suspend fun showString(prog: suspend AD<String>.(String) -> String) = object : AD<String> {
+    context(_: MultishotScope)
+    override suspend fun NumH<N>.plus(other: NumH<N>) = NumH(value + other.value, d + other.d)
+
+    context(_: MultishotScope)
+    override suspend fun NumH<N>.times(other: NumH<N>) = NumH(value * other.value, d * other.value + other.d * value)
+
+    context(_: MultishotScope)
+    override suspend fun exp(x: NumH<N>) =
+      NumH(this@forwardsHigher.exp(x.value), this@forwardsHigher.exp(x.value) * x.d)
+  }.prog(NumH(x, 1.0.num)).d
+
+context(_: MultishotScope)
+suspend fun showString(prog: suspend context(MultishotScope) AD<String>.(String) -> String) = object : AD<String> {
   override val Double.num: String get() = toString()
+
   @Suppress("EXTENSION_SHADOWED_BY_MEMBER")
+  context(_: MultishotScope)
   override suspend fun String.plus(other: String) = when {
     this == 0.0.toString() -> other
     other == 0.0.toString() -> this
     else -> "($this + $other)"
   }
 
+  context(_: MultishotScope)
   override suspend fun String.times(other: String) = when {
     this == 0.0.toString() || other == 0.0.toString() -> 0.0.toString()
     this == 1.0.toString() -> other
     else -> "($this * $other)"
   }
 
+  context(_: MultishotScope)
   override suspend fun exp(x: String) = "exp($x)"
 }.prog("x")
 
 data class NumB(val value: Double, var d: Double)
 
-suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double {
+context(_: MultishotScope)
+suspend fun backwards(x: Double, prog: suspend context(MultishotScope) AD<NumB>.(NumB) -> NumB): Double {
   val input = NumB(x, 0.0)
   handle {
     val res = object : AD<NumB> {
       override val Double.num: NumB get() = NumB(this, 0.0)
+
+      context(_: MultishotScope)
       override suspend fun NumB.plus(other: NumB) = use { resume ->
         val z = NumB(value + other.value, 0.0)
         resume(z)
@@ -135,6 +167,7 @@ suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double 
         other.d += z.d
       }
 
+      context(_: MultishotScope)
       override suspend fun NumB.times(other: NumB) = use { resume ->
         val z = NumB(value * other.value, 0.0)
         resume(z)
@@ -143,6 +176,7 @@ suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double 
 
       }
 
+      context(_: MultishotScope)
       override suspend fun exp(x: NumB) = use { resume ->
         val xExp = mathExp(x.value)
         val z = NumB(xExp, 0.0)
@@ -155,11 +189,14 @@ suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double 
   return input.d
 }
 
-suspend fun backwardsAutoClose(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double {
+context(_: MultishotScope)
+suspend fun backwardsAutoClose(x: Double, prog: suspend context(MultishotScope) AD<NumB>.(NumB) -> NumB): Double {
   val input = NumB(x, 0.0)
   autoCloseScope {
     val res = object : AD<NumB> {
       override val Double.num: NumB get() = NumB(this, 0.0)
+
+      context(_: MultishotScope)
       override suspend fun NumB.plus(other: NumB) = NumB(value + other.value, 0.0).also { z ->
         onClose {
           this.d += z.d
@@ -167,6 +204,7 @@ suspend fun backwardsAutoClose(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB)
         }
       }
 
+      context(_: MultishotScope)
       override suspend fun NumB.times(other: NumB) = NumB(value * other.value, 0.0).also { z ->
         onClose {
           d += other.value * z.d
@@ -174,6 +212,7 @@ suspend fun backwardsAutoClose(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB)
         }
       }
 
+      context(_: MultishotScope)
       override suspend fun exp(x: NumB): NumB {
         val xExp = mathExp(x.value)
         val z = NumB(xExp, 0.0)

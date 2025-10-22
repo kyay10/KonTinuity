@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -21,6 +22,7 @@ class ProbabilisticTest {
     }
   }
 
+  context(_: MultishotScope)
   suspend fun Prob.falsePositive(): Boolean {
     val sick = bernoulli(0.01)
     guard(
@@ -49,19 +51,23 @@ class ProbHandler<R>(prompt: StatefulPrompt<List<Weighted<R>>, Data>) : Prob,
     override fun fork() = copy()
   }
 
+  context(_: MultishotScope)
   override suspend fun flip(): Boolean = use { k ->
     val previous = get().p
     k(false).also { get().p = previous } + k(true)
   }
 
+  context(_: MultishotScope)
   override suspend fun fail(): Nothing = discard { emptyList() }
 
+  context(_: MultishotScope)
   override suspend fun factor(p: Double) {
-    get().p = p * get().p
+    get().p *= p
   }
 }
 
-suspend fun <R> probabilistic(body: suspend ProbHandler<R>.() -> R): List<Weighted<R>> =
+context(_: MultishotScope)
+suspend fun <R> probabilistic(body: suspend context(MultishotScope) ProbHandler<R>.() -> R): List<Weighted<R>> =
   handleStateful(ProbHandler.Data()) {
     listOf(Weighted(body(ProbHandler(this)), get().p))
   }
@@ -70,6 +76,7 @@ data class Weighted<T>(val value: T, val weight: Double)
 
 // use mutable state for now.
 class Tracing<R>(prompt: HandlerPrompt<R>, internal val pts: MutableList<SamplePoint<R>>) : Amb, Handler<R> by prompt {
+  context(_: MultishotScope)
   override suspend fun flip(): Boolean = use { k ->
     val choice = Random.nextBoolean()
     pts.add(SamplePoint(mutableListOf(choice), k))
@@ -77,7 +84,8 @@ class Tracing<R>(prompt: HandlerPrompt<R>, internal val pts: MutableList<SampleP
   }
 }
 
-suspend fun tracing(body: suspend Tracing<Int>.() -> Int): Int {
+context(_: MultishotScope)
+suspend fun tracing(body: suspend context(MultishotScope) Tracing<Int>.() -> Int): Int {
   val pts = mutableListOf<SamplePoint<Int>>()
   var res = handle { body(Tracing(this, pts)) }
   // ok some very specialized sampling:
@@ -97,12 +105,18 @@ suspend fun tracing(body: suspend Tracing<Int>.() -> Int): Int {
 data class SamplePoint<out R>(val choices: MutableList<Boolean>, val k: SubCont<Boolean, R>)
 
 interface Prob {
+  context(_: MultishotScope)
   suspend fun flip(): Boolean
+
+  context(_: MultishotScope)
   suspend fun fail(): Nothing
+
+  context(_: MultishotScope)
   suspend fun factor(p: Double)
 }
 
 // could also be the primitive effect op and `flip = bernoulli(0.5)`
+context(_: MultishotScope)
 suspend fun Prob.bernoulli(p: Double): Boolean = if (flip()) {
   factor(p)
   true
@@ -111,6 +125,7 @@ suspend fun Prob.bernoulli(p: Double): Boolean = if (flip()) {
   false
 }
 
+context(_: MultishotScope)
 suspend fun Prob.guard(condition: Boolean) {
   if (!condition) fail()
 }

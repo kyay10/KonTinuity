@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.repeatIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
@@ -9,7 +10,7 @@ import kotlin.test.Test
 class SamplingTests {
   @Test
   fun `test flip with sharing sampling`() = runTestCC {
-    val sharedFlip: suspend context(Probabilistic) () -> Boolean = {
+    val sharedFlip: suspend context(Probabilistic, MultishotScope) () -> Boolean = {
       val v = flip(0.5)
       v && v
     }
@@ -27,7 +28,7 @@ class SamplingTests {
 
   @Test
   fun `test flip without sharing sampling`() = runTestCC {
-    val independentFlips: suspend context(Probabilistic) () -> Boolean = {
+    val independentFlips: suspend context(Probabilistic, MultishotScope) () -> Boolean = {
       flip(0.5) && flip(0.5)
     }
 
@@ -44,7 +45,7 @@ class SamplingTests {
 
   @Test
   fun `test alarm model sampling`() = runTestCC {
-    val alarm: suspend context(Probabilistic) () -> Boolean = {
+    val alarm: suspend context(Probabilistic, MultishotScope) () -> Boolean = {
       val earthquake = flip(0.01)
       val burglary = flip(0.1)
       if (earthquake) {
@@ -118,7 +119,7 @@ class SamplingTests {
 
   @Test
   fun `test ibl t2`() = runTestCC {
-    context(_: Probabilistic, _: Memory)
+    context(_: Probabilistic, _: Memory, _: MultishotScope)
     suspend fun iblT2(): Boolean {
       val x = listOf(
         Probable(0.01, 'a' to 'b'),
@@ -160,7 +161,7 @@ class SamplingTests {
   @Test
   fun `test music 4-2`() = runTestCC {
     sampleImportance(random(1).selector(), 1) {
-      val m: Pair<Char, suspend context(Probabilistic) () -> Boolean> = if (flip(0.01)) {
+      val m: Pair<Char, suspend context(Probabilistic, MultishotScope) () -> Boolean> = if (flip(0.01)) {
         'a' to { flip(0.3) }
       } else {
         'b' to { true }
@@ -174,14 +175,14 @@ class SamplingTests {
     )
   }
 
-  context(_: Probabilistic)
+  context(_: Probabilistic, _: MultishotScope)
   suspend fun drunkCoin(): Boolean {
     val x = flip(0.5)
     ensure(!flip(0.9))
     return x
   }
 
-  context(_: Probabilistic)
+  context(_: Probabilistic, _: MultishotScope)
   suspend fun drunkCoinAnd(n: Int): Boolean {
     repeatIteratorless(n) {
       if (!drunkCoin()) {
@@ -222,7 +223,7 @@ class SamplingTests {
     )
   }
 
-  context(_: Probabilistic)
+  context(_: Probabilistic, _: MultishotScope)
   suspend fun dCoinAndTrue(n: Int) {
     ensure(drunkCoinAnd(n))
   }

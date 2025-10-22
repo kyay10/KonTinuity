@@ -3,6 +3,7 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.math.absoluteValue
@@ -38,6 +39,7 @@ class SelectTest {
 
 class NQueens {
   var tries = 0
+  context(_: MultishotScope)
   suspend fun Select.nqueens(n: Int): List<Pos> {
     val ys = 1..n
     var queens = emptyList<Pos>()
@@ -61,18 +63,23 @@ class NQueens {
 data class Pos(val x: Int, val y: Int)
 
 interface Select {
+  context(_: MultishotScope)
   suspend fun <A> Iterable<A>.select(): A
 }
 
 class SelectAll<R>(p: HandlerPrompt<List<R>>) : Select, Handler<List<R>> by p {
+  context(_: MultishotScope)
   override suspend fun <A> Iterable<A>.select(): A = use { k ->
     fold(emptyList()) { acc, elem -> acc + k(elem) }
   }
 }
 
-suspend fun <R> selectAll(body: suspend Select.() -> R): List<R> = handle { listOf(body(SelectAll(this))) }
+context(_: MultishotScope)
+suspend fun <R> selectAll(body: suspend context(MultishotScope) Select.() -> R): List<R> =
+  handle { listOf(body(SelectAll(this))) }
 
 class SelectFirst<R>(p: HandlerPrompt<Option<R>>) : Select, Handler<Option<R>> by p {
+  context(_: MultishotScope)
   override suspend fun <A> Iterable<A>.select(): A = use { k ->
     forEach {
       val res = k(it)
@@ -82,4 +89,6 @@ class SelectFirst<R>(p: HandlerPrompt<Option<R>>) : Select, Handler<Option<R>> b
   }
 }
 
-suspend fun <R> selectFirst(body: suspend Select.() -> R): Option<R> = handle { Some(body(SelectFirst(this))) }
+context(_: MultishotScope)
+suspend fun <R> selectFirst(body: suspend context(MultishotScope) Select.() -> R): Option<R> =
+  handle { Some(body(SelectFirst(this))) }

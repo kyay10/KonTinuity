@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
 import arrow.core.fold
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.foldIteratorless
 import io.github.kyay10.kontinuity.repeatIteratorless
 import kotlinx.collections.immutable.PersistentList
@@ -24,7 +25,9 @@ private fun <K, V> PersistentMap<K, V>.insertWith(key: K, value: V, combine: (V,
  *
  * @param maxDepth the maximum depth to explore, or null for no limit
  */
+context(_: MultishotScope)
 suspend fun <A> SearchTree<A>.explore(maxDepth: Int? = null): SearchTree<A> {
+  context(_: MultishotScope)
   tailrec suspend fun SearchTree<A>.loop(
     p: Prob,
     depth: Int,
@@ -60,7 +63,9 @@ private const val nearlyOne = 1.0 - 1e-7
  *
  * @param maxDepth the maximum depth to explore
  */
+context(_: MultishotScope)
 suspend fun <A> SearchTree<A>.shallowExplore(maxDepth: Int): SearchTree<A> {
+  context(_: MultishotScope)
   tailrec suspend fun SearchTree<A>.loop(
     p: Prob,
     depth: Int,
@@ -104,6 +109,7 @@ suspend fun <A> SearchTree<A>.shallowExplore(maxDepth: Int): SearchTree<A> {
  * Returns the empty tree otherwise
  */
 
+context(_: MultishotScope)
 tailrec suspend fun <A> SearchTree<A>.firstSuccess(): SearchTree<A> = if (isEmpty()) this
 else {
   val (pt, v) = first()
@@ -111,7 +117,7 @@ else {
   when (v) {
     is Value.Leaf<A> -> this
     is Value.Branch<A> -> // Unclear, expand and do BFS
-      (rest + v.searchTree().map { it.copy(pt * it.prob) }).firstSuccess()
+      (rest + v.searchTree().map { it.copy(prob = pt * it.prob) }).firstSuccess()
   }
 }
 
@@ -136,13 +142,15 @@ else {
    A successful branch with mass p contributes p to both bounds.
    A failed branch contributes 0 to both bounds.
  */
+context(_: MultishotScope)
 suspend fun <A> SearchTree<A>.boundedExplore(size: Int): ClosedFloatingPointRange<Prob> {
+  context(_: MultishotScope)
   tailrec suspend fun SearchTree<A>.loop(
     explore: Boolean,
     pc: Prob,
     low: Prob,
     high: Prob,
-    jqueue: PersistentMap<Prob, PersistentList<suspend () -> SearchTree<A>>>,
+    jqueue: PersistentMap<Prob, PersistentList<suspend context(MultishotScope) () -> SearchTree<A>>>,
     jsize: Int
   ): ClosedFloatingPointRange<Prob> {
     val (p, v) = firstOrNull() ?: return when (jsize) {
@@ -175,7 +183,8 @@ suspend fun <A> SearchTree<A>.boundedExplore(size: Int): ClosedFloatingPointRang
 }
 
 interface SampleRunner {
-  suspend fun <Seed> run(seed: Seed, sampler: suspend (Seed) -> Seed): Pair<Seed, Int>
+  context(_: MultishotScope)
+  suspend fun <Seed> run(seed: Seed, sampler: suspend context(MultishotScope) (Seed) -> Seed): Pair<Seed, Int>
 }
 
 /**
@@ -184,10 +193,12 @@ interface SampleRunner {
  * @param selector selector among the branches
  */
 
+context(_: MultishotScope)
 suspend fun <A> SearchTree<A>.rejectionSampleDist(
   selector: Selector<Value<A>>,
   iterations: Int,
 ): SearchTree<A> {
+  context(_: MultishotScope)
   tailrec suspend fun SearchTree<A>.loop(
     contribution: Prob,
     ans: PersistentMap<A, Prob>,
@@ -217,11 +228,13 @@ suspend fun <A> SearchTree<A>.rejectionSampleDist(
  * Explore with lookahead sampling
  */
 
+context(_: MultishotScope)
 suspend fun <A> SearchTree<A>.sampleDist(
   selector: Selector<SearchTree<A>>,
   sampleRunner: SampleRunner,
 ): SearchTree<A> {
   // Explores the branch a bit
+  context(_: MultishotScope)
   suspend fun Probable<Value<A>>.lookAhead(
     contribution: Prob,
     ans: PersistentMap<A, Prob>,
@@ -250,18 +263,20 @@ suspend fun <A> SearchTree<A>.sampleDist(
     }
   }
 
+  context(_: MultishotScope)
   tailrec suspend fun SearchTree<A>.loop(
     contribution: Prob,
     ans: PersistentMap<A, Prob>,
   ): PersistentMap<A, Prob> {
     if (isEmpty()) return ans
-    val (p, v) = singleOrNull() ?: foldIteratorless(ans to persistentListOf<Probable<SearchTree<A>>>()) { (ans, acc), e ->
-      e.lookAhead(contribution, ans, acc)
-    }.let { (ans, acc) ->
-      if (acc.isEmpty()) return ans
-      val (total, th) = selector(acc)
-      return th.loop(contribution * total, ans)
-    }
+    val (p, v) = singleOrNull()
+      ?: foldIteratorless(ans to persistentListOf<Probable<SearchTree<A>>>()) { (ans, acc), e ->
+        e.lookAhead(contribution, ans, acc)
+      }.let { (ans, acc) ->
+        if (acc.isEmpty()) return ans
+        val (total, th) = selector(acc)
+        return th.loop(contribution * total, ans)
+      }
     return when (v) {
       is Value.Leaf<A> -> ans.insertWith(v.value, p * contribution, Prob::plus)
 
@@ -269,6 +284,7 @@ suspend fun <A> SearchTree<A>.sampleDist(
     }
   }
 
+  context(_: MultishotScope)
   tailrec suspend fun SearchTree<A>.makeThreads(
     contribution: Prob,
     ans: PersistentMap<A, Prob>,

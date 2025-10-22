@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import kotlinx.collections.immutable.PersistentList
@@ -77,7 +78,15 @@ val Location.isGood: Boolean
 fun extendLoc(board: Board, move: Move, mark: Mark, loc: Location): Pair<Int, Location> {
   return extendLocImpl(board, move, mark, 0, loc, move(loc))
 }
-private tailrec fun extendLocImpl(board: Board, move: Move, mark: Mark, n: Int, currentLoc: Location, nextLoc: Location): Pair<Int, Location> =
+
+private tailrec fun extendLocImpl(
+  board: Board,
+  move: Move,
+  mark: Mark,
+  n: Int,
+  currentLoc: Location,
+  nextLoc: Location
+): Pair<Int, Location> =
   if (nextLoc.isGood && board[nextLoc] == mark) {
     extendLocImpl(board, move, mark, n + 1, nextLoc, move(nextLoc))
   } else {
@@ -134,8 +143,9 @@ fun takeMove(player: Mark, loc: Location, game: Game): Game {
   )
 }
 
-typealias PlayerProc = suspend (Mark, Game) -> Pair<Int, Game>
+typealias PlayerProc = suspend context(MultishotScope) (Mark, Game) -> Pair<Int, Game>
 
+context(_: MultishotScope)
 tailrec suspend fun game(
   player1Mark: Mark,
   player1: PlayerProc,
@@ -170,7 +180,7 @@ val humanPlayer: PlayerProc = humanPlayer@{ mark, game ->
   1 to takeMove(mark, loc, game)
 }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 suspend fun <T> List<T>.choose(): T {
   forEachIteratorless {
     if (flip()) return it
@@ -178,7 +188,7 @@ suspend fun <T> List<T>.choose(): T {
   raise()
 }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 suspend fun IntProgression.choose(): Int {
   forEachIteratorless {
     if (flip()) return it
@@ -186,7 +196,7 @@ suspend fun IntProgression.choose(): Int {
   raise()
 }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 tailrec suspend fun <T> List<T>.chooseBinary(start: Int = 0, endExclusive: Int = size): T {
   if (start == endExclusive) raise()
   if (start + 1 == endExclusive) return this[start]
@@ -221,7 +231,7 @@ fun estimateState(player: Mark, game: Game): Int = when {
 }
 
 // Check if the current player can win in one move
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 suspend fun firstMoveWins(player: Mark, game: Game): Location {
   val move = game.moves.choose()
   val nextGame = takeMove(player, move, game)
@@ -230,8 +240,9 @@ suspend fun firstMoveWins(player: Mark, game: Game): Location {
 }
 
 // Depth-limited minimax search
+context(_: MultishotScope)
 suspend fun minmax(
-  self: suspend (Int, Int, Mark, Game) -> Pair<Int, Game>,
+  self: suspend context(MultishotScope) (Int, Int, Mark, Game) -> Pair<Int, Game>,
   depthLimit: Int,
   breadthLimit: Int,
   player: Mark,
@@ -252,6 +263,7 @@ suspend fun minmax(
 // Optimized AI with depth and breadth limits
 val aiPrime: PlayerProc
   get() = { player, game ->
+    context(_: MultishotScope)
     suspend fun aiPrimeLimited(depthLimit: Int, breadthLimit: Int, player: Mark, game: Game): Pair<Int, Game> =
       when {
         game.winner != null || game.moves.isEmpty() -> estimateState(player, game) to game
@@ -260,7 +272,7 @@ val aiPrime: PlayerProc
             val nextGame = takeMove(player, loc, game)
             val (score, _) = aiPrimeLimited(depthLimit, breadthLimit, player.other, nextGame)
             -score to nextGame
-          } ?: minmax(::aiPrimeLimited, depthLimit, breadthLimit, player, game)
+          } ?: minmax({ a, b, c, d -> aiPrimeLimited(a, b, c, d) }, depthLimit, breadthLimit, player, game)
         }
       }
     aiPrimeLimited(m, globalBreadthLimit, player, game)

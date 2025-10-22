@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
@@ -9,16 +10,16 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlin.test.Test
 
 class NestedTest {
-  context(_: Probabilistic, _: Memory)
+  context(_: Probabilistic, _: Memory, _: MultishotScope)
   suspend fun testn11(): SearchTree<Boolean> = exactReify(
-    listOf<suspend context(Probabilistic, Memory) () -> Boolean>(
+    listOf<suspend context(Probabilistic, Memory, MultishotScope) () -> Boolean>(
       { flip() },
       { true }
     ).uniformly())
 
-  context(_: Probabilistic, _: Memory)
+  context(_: Probabilistic, _: Memory, _: MultishotScope)
   suspend fun testn12(random: OcamlRandom): SearchTree<Boolean> {
-    val block = listOf<suspend context(Probabilistic, Memory) () -> Boolean>(
+    val block = listOf<suspend context(Probabilistic, Memory, MultishotScope) () -> Boolean>(
       { flip() },
       { true }
     ).uniformly()

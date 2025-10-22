@@ -10,35 +10,46 @@ import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmField
 
+@Suppress("UNCHECKED_CAST")
 @PublishedApi
-internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
-  seq.realContext.trampoline.nextStep = SequenceBodyStep(this, seq)
+internal fun <R, P, T> (suspend R.(P) -> T).startCoroutineUninterceptedOrReturn(
+  receiver: R,
+  param: P,
+  completion: Continuation<T>
+): Any? = (this as Function3<R, P, Continuation<T>, Any?>).invoke(receiver, param, completion)
+
+@PublishedApi
+internal fun <T> (suspend context(MultishotScope) () -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
+  seq.trampoline.nextStep = SequenceBodyStep(this, seq)
 }
 
-private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: SplitSeq<T>) : Step {
-  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(seq) }
+private class SequenceBodyStep<T>(
+  private val body: suspend context(MultishotScope) () -> T,
+  override val seq: SplitSeq<T>
+) : Step {
+  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(seq, seq) }
 }
 
 @PublishedApi
-internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
+internal fun <R, T> (suspend context(MultishotScope) R.() -> T).startCoroutineIntercepted(
   receiver: R,
   seq: SplitSeq<T>,
 ) {
-  seq.realContext.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
+  seq.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
 }
 
 private class SequenceBodyReceiverStep<T, R>(
-  private val body: suspend R.() -> T,
+  private val body: suspend context(MultishotScope) R.() -> T,
   private val receiver: R,
   override val seq: SplitSeq<T>
 ) : Step {
-  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(receiver, seq) }
+  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(seq, receiver, seq) }
 }
 
 @PublishedApi
 internal fun <Start> SplitSeq<Start>.resumeWithIntercepted(result: Result<Start>) {
   if (result.exceptionOrNull() !== SuspendedException) {
-    realContext.trampoline.nextStep = SequenceResumeStep(this, result)
+    trampoline.nextStep = SequenceResumeStep(this, result)
   }
 }
 
@@ -50,16 +61,20 @@ private class SequenceResumeStep<Start>(
 }
 
 @OptIn(InternalCoroutinesApi::class)
-internal fun CoroutineContext.makeTrampoline(): CoroutineContext {
-  val interceptor = this[ContinuationInterceptor].let {
-    if (it is Trampoline) it.interceptor else it
-  }
-  return if (interceptor is Delay) TrampolineWithDelay(interceptor, interceptor) else Trampoline(interceptor)
+internal fun CoroutineContext.makeTrampoline(): Trampoline = when (val interceptor = this[ContinuationInterceptor].let {
+  if (it is Trampoline) it.interceptor else it
+}) {
+  is Delay -> TrampolineWithDelay(interceptor, interceptor, this)
+  else -> Trampoline(interceptor, this)
 }
 
 @InternalCoroutinesApi
-private class TrampolineWithDelay(interceptor: ContinuationInterceptor?, delay: Delay) :
-  Trampoline(interceptor), Delay by delay
+private class TrampolineWithDelay(
+  interceptor: ContinuationInterceptor?,
+  delay: Delay,
+  originalContext: CoroutineContext
+) :
+  Trampoline(interceptor, originalContext), Delay by delay
 
 internal interface Step {
   fun stepOrReturn(): Result<Any?>
@@ -74,11 +89,19 @@ private fun Step.step() {
   }
 }
 
-internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
+@PublishedApi
+internal open class Trampoline(
+  @JvmField internal val interceptor: ContinuationInterceptor?,
+  originalContext: CoroutineContext
+) :
   AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
 
   @JvmField
   var nextStep: Step? = null
+
+  @JvmField
+  @PublishedApi
+  internal val coroutineContext: CoroutineContext = originalContext + this
 
   override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> =
     TrampolineContinuation(continuation).let {
@@ -89,8 +112,10 @@ internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
     interceptor?.releaseInterceptedContinuation(continuation)
   }
 
-  private inner class TrampolineContinuation<T>(val cont: Continuation<T>) : Continuation<T> {
-    override val context: CoroutineContext = cont.context
+  @PublishedApi
+  internal inner class TrampolineContinuation<T>(val cont: Continuation<T>) :
+    Continuation<T> {
+    override val context: CoroutineContext = coroutineContext
 
     override fun resumeWith(result: Result<T>) {
       cont.resumeWith(result)
@@ -100,7 +125,3 @@ internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
     }
   }
 }
-
-internal val CoroutineContext.trampoline: Trampoline
-  get() =
-    this[ContinuationInterceptor] as? Trampoline ?: error("No trampoline in context: $this")

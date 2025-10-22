@@ -108,7 +108,7 @@ class LogicTest {
       split { raise() } shouldBe null
       val (x, rest) = split { sample() }.shouldNotBeNull()
       x shouldBe 1
-      rest?.invoke().shouldNotBeNull().value shouldBe 2
+      rest?.let { it() }.shouldNotBeNull().value shouldBe 2
     }
   }
 
@@ -149,7 +149,7 @@ class LogicTest {
             if (flip()) 0 else 1
           }) { a ->
             fairBind({ odds() + a }) { x ->
-              yield()
+              bridge { yield() }
               ensure(x % 2 == 0)
               x
             }
@@ -162,7 +162,7 @@ class LogicTest {
             if (flip()) 0 else 1
           }) { a ->
             val x = odds() + a
-            yield()
+            bridge { yield() }
             ensure(x % 2 == 0)
             x
           }
@@ -172,7 +172,7 @@ class LogicTest {
         bagOfN(4) {
           val a = if (flip()) 0 else 1
           val x = odds() + a
-          yield()
+          bridge { yield() }
           ensure(x % 2 == 0)
           x
         }
@@ -233,33 +233,34 @@ class LogicTest {
   }
 }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun <T : Comparable<T>> List<T>.bogoSort(): List<T> = permute().also { ensure(it.isSorted()) }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun <T> List<T>.permute(): List<T> =
   foldRightIteratorless(persistentListOf()) { i, acc -> acc.insert(i) }
 
 private fun <T : Comparable<T>> List<T>.isSorted(): Boolean = zipWithNext { s1, s2 -> s1 <= s2 }.all { it }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 suspend fun <T> List<T>.insert(element: T): PersistentList<T> {
   val index = (0..size).choose()
   return toPersistentList().add(index, element)
 }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun iota(n: Int) = (1..n).choose()
 
-private suspend fun <R> assertNonTerminatingCC(block: suspend () -> R) =
-  nonTerminatingCC(block) shouldBe null
+context(_: MultishotScope)
+private suspend fun <R> assertNonTerminatingCC(block: suspend context(MultishotScope) () -> R) =
+  bridge { nonTerminatingCC(block) } shouldBe null
 
-private suspend fun <R> nonTerminatingCC(block: suspend () -> R) =
+private suspend fun <R> nonTerminatingCC(block: suspend context(MultishotScope) () -> R) =
   withContext(Dispatchers.Default.limitedParallelism(1)) {
     withTimeoutOrNull(10.milliseconds) { runCC(block) }
   }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun sample() = listOf(1, 2, 3).choose()
 
 private infix fun String.conc(other: String) = "$this $other"
@@ -270,27 +271,27 @@ private inline fun withLogic(block: context(Logic) () -> Unit) {
   }
 }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun nats(): Int = if (flip()) 0 else 1 + nats()
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun odds(): Int = if (flip()) 1 else 2 + odds()
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun oddsOrTwoUnfair(): Int = if (flip()) odds() else 2
 
-context(_: Logic, _: Amb, _: Exc)
+context(_: Logic, _: Amb, _: Exc, _: MultishotScope)
 private suspend fun oddsOrTwoFair(): Int = interleave({ odds() }, { 2 })
 
-context(_: Logic, _: Amb, _: Exc)
+context(_: Logic, _: Amb, _: Exc, _: MultishotScope)
 private suspend fun oddsOrTwo(): Int {
   val x = oddsOrTwoFair()
-  yield()
+  bridge { yield() }
   ensure(x % 2 == 0)
   return once { x }
 }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun odds5Down(): Int = when {
   flip() -> 5
   flip() -> raise()

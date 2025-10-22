@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -13,6 +14,7 @@ class StateTest {
 
   @Test
   fun countDown8() = runTestCC {
+    context(_: MultishotScope)
     suspend fun Amb.countDown(
       s1: State<Int>,
       s2: State<Int>,
@@ -61,6 +63,7 @@ class StateTest {
 
   @Test
   fun countDown() = runTestCC {
+    context(_: MultishotScope)
     suspend fun State<Int>.countDown(): List<Int> {
       val printed = mutableListOf(Int.MIN_VALUE)
       while (get() > 0) {
@@ -77,6 +80,7 @@ class StateTest {
 
   @Test
   fun silentCountDown() = runTestCC(timeout = 10.minutes) {
+    context(_: MultishotScope)
     suspend fun State<Int>.countDown() {
       while (get() > 0) {
         put(get() - 1)
@@ -89,6 +93,7 @@ class StateTest {
 
   @Test
   fun ambientState1() = runTestCC {
+    context(_: MultishotScope)
     suspend fun Amb.ex1(s: CrazyState) {
       if (flip()) {
         s.put(1)
@@ -136,12 +141,16 @@ class StateTest {
 }
 
 interface CrazyState : State<Int> {
+  context(_: MultishotScope)
   suspend fun foo()
+
+  context(_: MultishotScope)
   suspend fun bar()
 }
 
 class MyState<R>(prompt: StatefulPrompt<R, Data<Int>>) : CrazyState,
   SpecialState<R, Int>(prompt) {
+  context(_: MultishotScope)
   override suspend fun foo() {
     put(2)
     use { k ->
@@ -151,6 +160,7 @@ class MyState<R>(prompt: StatefulPrompt<R, Data<Int>>) : CrazyState,
     }
   }
 
+  context(_: MultishotScope)
   override suspend fun bar() {
     put(2)
     use { k ->
@@ -162,7 +172,8 @@ class MyState<R>(prompt: StatefulPrompt<R, Data<Int>>) : CrazyState,
   }
 }
 
-suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R =
+context(_: MultishotScope)
+suspend fun <R> myState(init: Int, block: suspend context(MultishotScope) CrazyState.() -> R): R =
   handleStateful<_, SpecialState.Data<Int>>(SpecialState.Data(init)) {
     block(MyState(this))
   }
@@ -173,24 +184,31 @@ open class SpecialState<R, S>(prompt: StatefulPrompt<R, Data<S>>) : State<S>,
     override fun fork() = copy()
   }
 
+  context(_: MultishotScope)
   override suspend fun get(): S = (this as StatefulHandler<R, Data<S>>).get().state
+
+  context(_: MultishotScope)
   override suspend fun put(value: S) {
     (this as StatefulHandler<R, Data<S>>).get().state = value
   }
 }
 
-suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
+context(_: MultishotScope)
+suspend fun <R, S> specialState(init: S, block: suspend context(MultishotScope) State<S>.() -> R): R =
   handleStateful<_, SpecialState.Data<S>>(SpecialState.Data(init)) {
     block(SpecialState(this))
   }
 
-class StateFun<R, S>(p: HandlerPrompt<suspend (S) -> R>) : State<S>, Handler<suspend (S) -> R> by p {
+class StateFun<R, S>(p: HandlerPrompt<suspend context(MultishotScope) (S) -> R>) : State<S>,
+  Handler<suspend context(MultishotScope) (S) -> R> by p {
+  context(_: MultishotScope)
   override suspend fun get(): S = useOnce { k ->
     { s ->
       k(s)(s)
     }
   }
 
+  context(_: MultishotScope)
   override suspend fun put(value: S) = useOnce { k ->
     {
       k(Unit)(value)
@@ -198,14 +216,19 @@ class StateFun<R, S>(p: HandlerPrompt<suspend (S) -> R>) : State<S>, Handler<sus
   }
 }
 
-suspend fun <R, S> stateFun(init: S, block: suspend State<S>.() -> R): R = handle {
+context(_: MultishotScope)
+suspend fun <R, S> stateFun(init: S, block: suspend context(MultishotScope) State<S>.() -> R): R = handle {
   val res = block(StateFun(this))
   suspendOneArg { res }
 }(init)
 
-private fun <S, R> suspendOneArg(block: suspend (S) -> R): suspend (S) -> R = block
+private fun <S, R> suspendOneArg(block: suspend context(MultishotScope) (S) -> R): suspend context(MultishotScope) (S) -> R =
+  block
 
 interface State<S> {
+  context(_: MultishotScope)
   suspend fun get(): S
+
+  context(_: MultishotScope)
   suspend fun put(value: S)
 }

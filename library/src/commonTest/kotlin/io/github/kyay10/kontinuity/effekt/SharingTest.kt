@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.Reader
 import io.github.kyay10.kontinuity.runReader
 import io.github.kyay10.kontinuity.runTestCC
@@ -12,41 +13,46 @@ import kotlin.time.Duration.Companion.minutes
 
 typealias LazyList<T> = LazyCons<T>?
 
-data class LazyCons<out T>(val head: suspend () -> T, val tail: suspend () -> LazyList<T>) : Shareable<LazyCons<T>> {
+data class LazyCons<out T>(
+  val head: suspend context(MultishotScope) () -> T,
+  val tail: suspend context(MultishotScope) () -> LazyList<T>
+) : Shareable<LazyCons<T>> {
   context(_: Sharing)
   override fun shareArgs() = LazyCons(share(head), share(tail))
 }
 
-context(_: Amb, _: Exc)
+context(_: Amb, _: Exc, _: MultishotScope)
 private suspend fun <T> Stream<T>?.perm(): Stream<T>? {
   this ?: return null
-  suspend fun permuteRest() = tail()?.perm()
-  return insertStream(value, ::permuteRest)
+  suspend fun MultishotScope.permuteRest() = tail()?.perm()
+  return insertStream(value, MultishotScope::permuteRest)
 }
 
-context(amb: Amb, exc: Exc)
-private suspend fun <T> insertStream(x: T, mxs: (suspend () -> Stream<T>?)?): Stream<T> = when {
+context(amb: Amb, exc: Exc, _: MultishotScope)
+private suspend fun <T> insertStream(x: T, mxs: (suspend context(MultishotScope) () -> Stream<T>?)?): Stream<T> = when {
   mxs == null || flip() -> Stream(x, mxs)
   else -> {
     val (y, mys) = mxs() ?: raise()
-    suspend fun insertRest() = insertStream(x, mys)
-    Stream(y, ::insertRest)
+    suspend fun MultishotScope.insertRest() = insertStream(x, mys)
+    Stream(y, MultishotScope::insertRest)
   }
 }
 
+context(_: MultishotScope)
 private tailrec suspend fun <T : Comparable<T>> Stream<T>?.isSorted(): Boolean {
   this ?: return true
   val stream = tail() ?: return true
   return if (value <= stream.value) stream.isSorted() else false
 }
 
-context(_: Sharing, _: Amb, _: Exc)
+context(_: Sharing, _: Amb, _: Exc, _: MultishotScope)
 suspend fun <T : Comparable<T>> Stream<T>?.sort(): Stream<T>? {
   val permutation = share { perm() }
   ensure(permutation().isSorted())
   return permutation()
 }
 
+context(_: MultishotScope)
 suspend fun <T> Stream<T>?.toPersistentList(): PersistentList<T> {
   this ?: return persistentListOf()
   return tail().toPersistentList().add(0, value)
@@ -57,6 +63,7 @@ fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
 }
 
 class SharingTest {
+  context(_: MultishotScope)
   private tailrec suspend fun <T : Comparable<T>> LazyList<T>.isSorted(): Boolean {
     this ?: return true
     val (my, mys) = tail() ?: return true
@@ -65,21 +72,24 @@ class SharingTest {
     return if (x <= y) LazyCons({ y }, mys).isSorted() else false
   }
 
-  context(_: Amb, _: Exc)
+  context(_: Amb, _: Exc, _: MultishotScope)
   private suspend fun <T> LazyList<T>.perm(): LazyList<T> {
     this ?: return null
     return insert(head) { tail().perm() }
   }
 
-  context(_: Sharing, _: Amb, _: Exc)
+  context(_: Sharing, _: Amb, _: Exc, _: MultishotScope)
   private suspend fun <T : Comparable<T>> LazyList<T>.sort(): LazyList<T> {
     val permutation = share { perm() }
     ensure(permutation().isSorted())
     return permutation()
   }
 
-  context(_: Amb, _: Exc)
-  private suspend fun <T> insert(mx: suspend () -> T, mxs: suspend () -> LazyList<T>): LazyList<T> = when {
+  context(_: Amb, _: Exc, _: MultishotScope)
+  private suspend fun <T> insert(
+    mx: suspend context(MultishotScope) () -> T,
+    mxs: suspend context(MultishotScope) () -> LazyList<T>
+  ): LazyList<T> = when {
     flip() -> LazyCons(mx, mxs)
     else -> {
       val (my, mys) = mxs() ?: raise()
@@ -87,6 +97,7 @@ class SharingTest {
     }
   }
 
+  context(_: MultishotScope)
   private suspend fun <T> LazyList<T>.toPersistentList(): PersistentList<T> {
     this ?: return persistentListOf()
     val x = head()
@@ -120,11 +131,11 @@ class SharingTest {
   }
 }
 
-context(r: Reader<out MutableList<in Field<*>>?>)
-private inline fun <A> memo(crossinline block: suspend () -> A): suspend () -> A {
+context(r: Reader<MutableList<in Field<*>>?>)
+private inline fun <A> memo(crossinline block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A {
   val key = Field<A>()
-  return object : Invokable<A> {
-    override suspend fun invoke(): A = key.getOrElse {
+  return Invokable {
+    key.getOrElse {
       block().also {
         key.set(it)
         r.ask()?.add(key)
@@ -133,8 +144,9 @@ private inline fun <A> memo(crossinline block: suspend () -> A): suspend () -> A
   }.invoker()
 }
 
-fun <A> Invokable<A>.invoker(): suspend () -> A = this::invoke
+fun <A> Invokable<A>.invoker(): suspend context(MultishotScope) () -> A = { invoke() }
 fun interface Invokable<A> {
+  context(_: MultishotScope)
   suspend fun invoke(): A
 }
 
@@ -159,11 +171,11 @@ private class Field<T> {
 }
 
 interface Sharing {
-  fun <A> share(block: suspend () -> A): suspend () -> A
+  fun <A> share(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A
 }
 
 context(s: Sharing)
-fun <A> share(block: suspend () -> A): suspend () -> A = s.share(block)
+fun <A> share(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A = s.share(block)
 
 interface Shareable<out A : Shareable<A>> {
   context(_: Sharing)
@@ -177,11 +189,15 @@ fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
   shareArgs() as A
 } else this
 
-suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R =
+context(_: MultishotScope)
+suspend fun <R> sharing(block: suspend context(Sharing, MultishotScope) () -> R): R =
   runReader(null as MutableList<Field<*>>?, { mutableListOf() }) {
-    block(object : Sharing {
-      override fun <A> share(block: suspend () -> A): suspend () -> A = memo { block().shareArgs() }
-    }).also {
-      ask()?.forEach { it.clear() }
+    context(object : Sharing {
+      override fun <A> share(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A =
+        memo { block().shareArgs() }
+    }) {
+      block().also {
+        ask()?.forEach { it.clear() }
+      }
     }
   }

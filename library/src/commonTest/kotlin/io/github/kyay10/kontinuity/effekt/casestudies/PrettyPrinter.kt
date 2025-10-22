@@ -1,27 +1,19 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
+import arrow.core.*
 import arrow.core.Either.Left
 import arrow.core.Either.Right
-import arrow.core.None
-import arrow.core.Option
-import arrow.core.getOrElse
 import arrow.core.raise.SingletonRaise
-import arrow.core.recover
-import arrow.core.some
+import io.github.kyay10.kontinuity.*
 import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
-import io.github.kyay10.kontinuity.given
-import io.github.kyay10.kontinuity.Raise
-import io.github.kyay10.kontinuity.raise
-import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
-import kotlin.text.repeat
 
 class PrettyPrinterTest {
-  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
   suspend fun example4b() {
     text("def"); space(); text("foo"); parens {
       group {
@@ -36,7 +28,7 @@ class PrettyPrinterTest {
     }
   }
 
-  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
   suspend fun example3b() {
     example4b()
     space()
@@ -51,7 +43,7 @@ class PrettyPrinterTest {
     }
   }
 
-  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
   suspend fun example6() {
     group {
       text("this")
@@ -64,7 +56,7 @@ class PrettyPrinterTest {
     }
   }
 
-  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
   suspend fun example7() {
     group {
       text("this")
@@ -79,7 +71,7 @@ class PrettyPrinterTest {
     }
   }
 
-  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
+  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
   suspend fun helloWorld() {
     text("hello")
     line()
@@ -161,48 +153,53 @@ enum class Direction {
 }
 
 fun interface Indent {
+  context(_: MultishotScope)
   suspend fun indent(): Int
 }
 
-context(indent: Indent)
+context(indent: Indent, _: MultishotScope)
 suspend fun indent() = indent.indent()
 
 fun interface DefaultIndent {
+  context(_: MultishotScope)
   suspend fun defaultIndent(): Int
 }
 
-context(defaultIndent: DefaultIndent)
+context(defaultIndent: DefaultIndent, _: MultishotScope)
 suspend fun defaultIndent() = defaultIndent.defaultIndent()
 
 fun interface Flow {
+  context(_: MultishotScope)
   suspend fun flow(): Direction
 }
 
-context(flow: Flow)
+context(flow: Flow, _: MultishotScope)
 suspend fun flow() = flow.flow()
 
 fun interface Emit {
+  context(_: MultishotScope)
   suspend fun emitText(text: String)
+  context(_: MultishotScope)
   suspend fun emitNewline() = emitText("\n")
 }
 
-context(emit: Emit)
+context(emit: Emit, _: MultishotScope)
 suspend fun text(content: String) = emit.emitText(content)
 
-context(emit: Emit)
+context(emit: Emit, _: MultishotScope)
 suspend fun newline() = emit.emitNewline()
 
-context(_: Emit)
+context(_: Emit, _: MultishotScope)
 suspend fun space() = text(" ")
 
-context(_: Emit)
+context(_: Emit, _: MultishotScope)
 suspend fun spaces(n: Int) {
   if (n > 0) {
     text(" ".repeat(n))
   }
 }
 
-context(_: Indent, _: Flow, _: Emit)
+context(_: Indent, _: Flow, _: Emit, _: MultishotScope)
 suspend fun lineOr(replace: String) = when (flow()) {
   Direction.Horizontal -> text(replace)
   Direction.Vertical -> {
@@ -211,64 +208,66 @@ suspend fun lineOr(replace: String) = when (flow()) {
   }
 }
 
-context(_: Indent, _: Flow, _: Emit)
+context(_: Indent, _: Flow, _: Emit, _: MultishotScope)
 suspend fun line() = lineOr(" ")
 
-context(_: Indent, _: Flow, _: Emit)
+context(_: Indent, _: Flow, _: Emit, _: MultishotScope)
 suspend fun linebreak() = lineOr("")
 
 // Uses `n` as the indentation in the given document
-context(_: Indent)
-suspend inline fun <R> withIndent(n: Int, doc: suspend context(Indent) () -> R): R = with(Indent { n }) {
+context(_: Indent, _: MultishotScope)
+suspend inline fun <R> withIndent(n: Int, doc: suspend context(Indent, MultishotScope) () -> R): R =
+  context(Indent { n }) {
+    doc()
+  }
+
+context(_: Indent, _: MultishotScope)
+suspend inline fun <R> nest(
+  j: Int, doc: suspend context(Indent, MultishotScope) () -> R
+): R = withIndent(indent() + j, doc)
+
+context(_: Indent, _: DefaultIndent, _: MultishotScope)
+suspend inline fun <R> nested(
+  doc: suspend context(Indent, MultishotScope) () -> R
+): R = nest(defaultIndent(), doc)
+
+context(_: Flow, _: MultishotScope)
+suspend inline fun <R> fix(
+  direction: Direction, doc: suspend context(Flow, MultishotScope) () -> R
+): R = context(Flow { direction }) {
   doc()
 }
 
-context(_: Indent)
-suspend inline fun <R> nest(
-  j: Int, doc: suspend context(Indent) () -> R
-): R = withIndent(indent() + j, doc)
-
-context(_: Indent, _: DefaultIndent)
-suspend inline fun <R> nested(
-  doc: suspend context(Indent) () -> R
-): R = nest(defaultIndent(), doc)
-
-context(_: Flow)
-suspend inline fun <R> fix(
-  direction: Direction, doc: suspend context(Flow) () -> R
-): R = with(Flow { direction }) {
-  doc(given<Flow>())
-}
-
-context(_: Flow)
+context(_: Flow, _: MultishotScope)
 suspend inline fun <R> horizontal(
-  doc: suspend context(Flow) () -> R
+  doc: suspend context(Flow, MultishotScope) () -> R
 ): R = fix(Direction.Horizontal, doc)
 
-context(_: Flow)
+context(_: Flow, _: MultishotScope)
 suspend inline fun <R> vertical(
-  doc: suspend context(Flow) () -> R
+  doc: suspend context(Flow, MultishotScope) () -> R
 ): R = fix(Direction.Vertical, doc)
 
 fun interface LayoutChoice {
+  context(_: MultishotScope)
   suspend fun choice(): Direction
 }
 
-context(layoutChoice: LayoutChoice)
+context(layoutChoice: LayoutChoice, _: MultishotScope)
 suspend fun choice() = layoutChoice.choice()
 
-context(_: Flow, _: LayoutChoice)
+context(_: Flow, _: LayoutChoice, _: MultishotScope)
 suspend inline fun group(
-  doc: suspend context(Flow) () -> Unit
+  doc: suspend context(Flow, MultishotScope) () -> Unit
 ) = fix(choice(), doc)
 
-context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
+context(_: Indent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
 suspend fun softline() = group { line() }
 
-context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
+context(_: Indent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
 suspend fun softbreak() = group { linebreak() }
 
-context(_: Indent, _: Flow, _: Emit)
+context(_: Indent, _: Flow, _: Emit, _: MultishotScope)
 suspend fun example1(l: List<Int>) {
   text("[")
   var n = 0
@@ -281,7 +280,7 @@ suspend fun example1(l: List<Int>) {
   text("]")
 }
 
-context(_:Indent, _: Flow, _: Emit, _: LayoutChoice)
+context(_: Indent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
 suspend fun example2() {
   group {
     text("Hi")
@@ -291,7 +290,7 @@ suspend fun example2() {
   text("!!!")
 }
 
-context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
+context(_: Indent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
 suspend fun example3() = group {
   text("this")
   nest(9) {
@@ -306,31 +305,37 @@ suspend fun example3() = group {
   text("lines")
 }
 
-suspend fun <R> searchLayout(p: suspend context(SingletonRaise<Unit>, LayoutChoice) () -> R): Option<R> = handle {
-  p(SingletonRaise(Raise { None })) {
-    use { k ->
-      k(Direction.Horizontal).recover { k(Direction.Vertical).bind() }
-    }
-  }.some()
-}
+context(_: MultishotScope)
+suspend fun <R> searchLayout(p: suspend context(SingletonRaise<Unit>, LayoutChoice, MultishotScope) () -> R): Option<R> =
+  handle {
+    context(SingletonRaise<Unit>(Raise { None }), LayoutChoice {
+      use { k ->
+        k(Direction.Horizontal).recover { k(Direction.Vertical).bind() }
+      }
+    }) { p() }.some()
+  }
 
-suspend fun writer(p: suspend context(Emit) () -> Unit): String {
+context(_: MultishotScope)
+suspend fun writer(p: suspend context(Emit, MultishotScope) () -> Unit): String {
   data class Data(var content: String)
   return handleStateful(Data(""), Data::copy) {
-    p { text ->
+    context(Emit { text ->
       get().content += text
+    }) {
+      p()
     }
     get().content
   }
 }
 
-context(emit: Emit, layoutChoice: LayoutChoice, _: SingletonRaise<*>)
+context(emit: Emit, layoutChoice: LayoutChoice, _: SingletonRaise<*>, _: MultishotScope)
 suspend fun printer(
-  width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit
+  width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit, MultishotScope) () -> Unit
 ) {
   data class PrinterData(var pos: Int)
   handleStateful(PrinterData(0), PrinterData::copy) {
-    block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(layoutChoice::choice), object : Emit {
+    context(Indent { 0 }, DefaultIndent { defaultIndent }, Flow { layoutChoice.choice() }, object : Emit {
+      context(_: MultishotScope)
       override suspend fun emitText(text: String) {
         get().pos += text.length
         if (get().pos > width) {
@@ -340,25 +345,29 @@ suspend fun printer(
         }
       }
 
+      context(_: MultishotScope)
       override suspend fun emitNewline() {
         emit.emitNewline()
         get().pos = 0
       }
-    })
+    }) {
+      block()
+    }
   }
 }
 
+context(_: MultishotScope)
 suspend fun pretty(
-  width: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit, LayoutChoice) () -> Unit
+  width: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit, LayoutChoice, MultishotScope) () -> Unit
 ): String = searchLayout {
   writer {
     printer(width, 2) {
-      block(given<Indent>(), given<DefaultIndent>(), given<Flow>(), given<Emit>(), given<LayoutChoice>())
+      block()
     }
   }
 }.getOrElse { "Cannot print document, since it would overflow." }
 
-context(_: Emit)
+context(_: Emit, _: MultishotScope)
 suspend inline fun parens(block: () -> Unit) {
   text("(")
   block()
@@ -366,7 +375,7 @@ suspend inline fun parens(block: () -> Unit) {
 }
 
 
-context(_: Emit)
+context(_: Emit, _: MultishotScope)
 suspend inline fun braces(block: () -> Unit) {
   text("{")
   block()
@@ -374,7 +383,7 @@ suspend inline fun braces(block: () -> Unit) {
 }
 
 
-context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
+context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
 suspend fun Tree.emit(): Unit = when (this) {
   is Lit -> text(value.toString())
   is Var -> text(name)
@@ -401,9 +410,11 @@ suspend fun Tree.emit(): Unit = when (this) {
   }
 }
 
+context(_: MultishotScope)
 suspend fun parseAndPrint(text: String, width: Int): String = when (val t = parse(text) { parseExpr() }) {
   is Right -> pretty(width) { t.value.emit() }
   is Left -> t.value
 }
 
+context(_: MultishotScope)
 suspend fun example4() = parseAndPrint("let x = (let y = 2 in 1) in 42", 10)

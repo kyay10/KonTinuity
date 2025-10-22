@@ -2,6 +2,7 @@ package io.github.kyay10.kontinuity.effekt.hansei
 
 import arrow.core.None
 import arrow.core.Some
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
@@ -34,7 +35,7 @@ class LazyMemoTest {
     exactReify {
       val u = listOf(0, 1).uniformly()
 
-      context(_: Probabilistic)
+      context(_: Probabilistic, _: MultishotScope)
       suspend fun x() = expensiveFunction(listOf(u + 10, u + 20).uniformly())
 
       if (u == 0) None else Some(Triple(flip(0.5), x(), x()))
@@ -93,7 +94,7 @@ class LazyMemoTest {
     var expensiveComputation = 0
     fun <A> expensiveFunction(x: A): A = x.also { expensiveComputation++ }
 
-    context(_: Probabilistic)
+    context(_: Probabilistic, _: MultishotScope)
     suspend fun testl1(): Pair<Int, Int> {
       val u = (1..2).uniformly()
       val x = expensiveFunction(listOf(2 * u, 3 * u).uniformly())
@@ -107,7 +108,7 @@ class LazyMemoTest {
       Probable(0.25, Value.Leaf(1 to 1)),
     )
     expensiveComputation shouldBe 4
-    context(_: Probabilistic, _: Memory)
+    context(_: Probabilistic, _: Memory, _: MultishotScope)
     suspend fun testl2(): Pair<Int, Int> {
       val u = (1..2).uniformly()
       val x = letLazy { expensiveFunction(listOf(2 * u, 3 * u).uniformly()) }
@@ -135,7 +136,7 @@ class LazyMemoTest {
       Probable(0.5, Value.Leaf(1 to 1)),
     )
     expensiveComputation shouldBe 2
-    context(_: Probabilistic, _: Memory)
+    context(_: Probabilistic, _: Memory, _: MultishotScope)
     suspend fun testl3(): Triple<Int, Boolean, Int> {
       val u = (1..2).uniformly()
       val x = expensiveFunction(listOf(10 * u, 100 * u).uniformly())
@@ -153,7 +154,7 @@ class LazyMemoTest {
       Probable(0.125, Value.Leaf(Triple(1, false, 10))),
     )
     expensiveComputation shouldBe 4
-    context(_: Probabilistic, _: Memory)
+    context(_: Probabilistic, _: Memory, _: MultishotScope)
     suspend fun testl4(): Triple<Int, Boolean, Int> {
       val u = (1..2).uniformly()
       val x = letLazy { expensiveFunction(listOf(10 * u, 100 * u).uniformly()) }
@@ -214,7 +215,7 @@ class LazyMemoTest {
     )
     expensiveComputation shouldBe 8
 
-    context(_: Probabilistic, _: Memory)
+    context(_: Probabilistic, _: Memory, _: MultishotScope)
     suspend fun testl51(): Pair<Int, Int> {
       val u = letLazy { (1..2).uniformly() }
       val x = expensiveFunction(listOf(2 * u(), 3 * u()).uniformly())
@@ -230,7 +231,7 @@ class LazyMemoTest {
     )
     expensiveComputation shouldBe 4
 
-    context(_: Probabilistic, _: Memory)
+    context(_: Probabilistic, _: Memory, _: MultishotScope)
     suspend fun testl52(): Pair<Int, Int> {
       val u = letLazy { (1..2).uniformly() }
       val x = letLazy { expensiveFunction(listOf(2 * u(), 3 * u()).uniformly()) }
@@ -247,10 +248,14 @@ class LazyMemoTest {
     expensiveComputation shouldBe 4
 
 
-    context(_: Probabilistic, _: Memory)
+    context(_: Probabilistic, _: Memory, _: MultishotScope)
     suspend fun testl54(): Triple<Boolean, Int, Int> {
       val u = letLazy { (1..2).uniformly() }
-      val x = letLazy { expensiveFunction(listOf(u().let { suspend { it} }, u).uniformly()()) }
+      val x = letLazy {
+        val uRes = u()
+        val newU: suspend context(MultishotScope) () -> Int = { uRes }
+        expensiveFunction(listOf(newU, u).uniformly()())
+      }
       val c = flip()
       // "backwards" because RTL
       return if(c) Triple(c, x().also { u() }, x().let { u() })
@@ -267,7 +272,7 @@ class LazyMemoTest {
   }
 }
 
-fun <R> stupidLazy(block: suspend () -> R): suspend () -> R {
+fun <R> stupidLazy(block: suspend context(MultishotScope) () -> R): suspend context(MultishotScope) () -> R {
   var result: R? = null
   return {
     if (result == null) {

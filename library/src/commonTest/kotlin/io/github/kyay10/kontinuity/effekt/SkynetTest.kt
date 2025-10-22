@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.repeatIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import kotlinx.coroutines.test.runTest as coroutinesRunTest
@@ -19,6 +20,7 @@ class SkynetTest {
   // not using effects at all
   @Test
   fun skynetNoEffects() = runTestCC(timeout = 10.minutes) {
+    context(_: MultishotScope)
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val children = Array(div) {
@@ -41,9 +43,10 @@ class SkynetTest {
   // not suspending so not using algebraic effects at all.
   @Test
   fun skynetOverhead() = runTestCC {
+    context(_: MultishotScope)
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
-      val children = Array<suspend () -> Long>(div) {
+      val children = Array<suspend context(MultishotScope) () -> Long>(div) {
         val subNum = num + it * (size / div)
         { skynet(subNum, size / div, div) }
       }
@@ -75,6 +78,7 @@ class SkynetTest {
   fun skynetScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
+    context(_: MultishotScope)
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
@@ -100,6 +104,7 @@ class SkynetTest {
   fun skynetFlippedScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
+    context(_: MultishotScope)
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
@@ -125,6 +130,7 @@ class SkynetTest {
   fun skynetFastScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
+    context(_: MultishotScope)
     suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
@@ -152,6 +158,7 @@ class SkynetTest {
   // when using kotlinx-coroutines debugging.
   @Test
   fun skynetSuspend() = runTestCC(timeout = 10.minutes) {
+    context(_: MultishotScope)
     suspend fun Suspendable.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong().also { suspend() }
       val children = Array(div) {

@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
+import io.github.kyay10.kontinuity.MultishotScope
 import org.kotlincrypto.hash.md.MD5
 
 typealias Prob = Double
@@ -10,11 +11,11 @@ typealias CDist<A> = List<Probable<A>> // conditional probability distribution (
 
 sealed class Value<out A> {
   data class Leaf<out A>(val value: A) : Value<A>()
-  data class Branch<out A>(val searchTree: suspend () -> SearchTree<A>) : Value<A>()
+  data class Branch<out A>(val searchTree: suspend context(MultishotScope) () -> SearchTree<A>) : Value<A>()
 }
 
 typealias SearchTree<A> = List<Probable<Value<A>>>
-typealias Selector<A> = suspend (CDist<A>) -> Probable<A>
+typealias Selector<A> = suspend context(MultishotScope) (CDist<A>) -> Probable<A>
 
 // https://github.com/ocaml/stdlib-random/blob/main/random4/random4.ml
 // Probably doesn't need Longs, but if it ain't broke, don't fix it

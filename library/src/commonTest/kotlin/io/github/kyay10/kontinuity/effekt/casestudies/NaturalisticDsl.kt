@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
@@ -48,30 +49,39 @@ infix fun Person.loves(loved: Person) = Is(this, InLoveWith(loved))
 val s1 = Say(John, Mary loves John)
 
 fun interface Speaker {
+  context(_: MultishotScope)
   suspend fun speaker(): Person
 }
 
+context(_: MultishotScope)
 suspend fun Speaker.me() = speaker()
 
 inline infix fun Person.said(s: Speaker.() -> Sentence): Sentence = Say(this, Speaker { this }.s())
 infix fun Person.said(s: Sentence): Sentence = Say(this, s)
 
+context(_: MultishotScope)
 suspend fun s1a() = John said { Mary loves me() }
 
 // John said Mary loves me
+context(_: MultishotScope)
 suspend fun Speaker.s1b() = John said (Mary loves me())
 
+context(_: MultishotScope)
 suspend fun s1c() = Peter said { s1b() }
 
 fun interface Quantification {
+  context(_: MultishotScope)
   suspend fun quantify(who: Predicate): Person
 }
 
+context(_: MultishotScope)
 suspend fun Quantification.every(who: Predicate) = quantify(who)
 
+context(_: MultishotScope)
 suspend fun s2() = scoped { John said { every(Woman) loves me() } }
 
-suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence {
+context(_: MultishotScope)
+suspend fun scoped(s: suspend context(MultishotScope) Quantification.() -> Sentence): Sentence {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
     s { who ->

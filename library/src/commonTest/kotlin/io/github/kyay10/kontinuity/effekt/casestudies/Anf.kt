@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.core.Either
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
@@ -61,29 +62,34 @@ data class CApp(val name: String, val arg: Expr) : Stmt
 data class CRet(val expr: Expr) : Stmt
 
 fun interface Fresh {
+  context(_: MultishotScope)
   suspend fun fresh(): String
 }
 
-context(fresh: Fresh)
+context(fresh: Fresh, _: MultishotScope)
 suspend fun fresh(): String = fresh.fresh()
 
-suspend fun <R> freshVars(block: suspend context(Fresh) () -> R): R {
+context(_: MultishotScope)
+suspend fun <R> freshVars(block: suspend context(Fresh, MultishotScope) () -> R): R {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
-    block {
+    context(Fresh {
       "x${++get().i}"
+    }) {
+      block()
     }
   }
 }
 
 fun interface Bind {
+  context(_: MultishotScope)
   suspend fun Stmt.bind(): Expr
 }
 
-context(bind: Bind)
+context(bind: Bind, _: MultishotScope)
 suspend fun Stmt.bind(): Expr = with(bind) { bind() }
 
-context(_: Bind, _: Fresh)
+context(_: Bind, _: Fresh, _: MultishotScope)
 suspend fun Tree.toStmt(): Stmt = when (this) {
   is Lit -> CRet(CLit(value))
   is Var -> CRet(CVar(name))
@@ -94,19 +100,22 @@ suspend fun Tree.toStmt(): Stmt = when (this) {
   is Let -> CLet(name, bindHere { binding.toStmt() }, bindHere { body.toStmt() })
 }
 
-context(_: Fresh)
-suspend fun bindHere(block: suspend context(Bind) () -> Stmt): Stmt = handle {
-  block {
+context(_: Fresh, _: MultishotScope)
+suspend fun bindHere(block: suspend context(Bind, MultishotScope) () -> Stmt): Stmt = handle {
+  context(Bind {
     use { resume ->
       val id = fresh()
       CLet(id, this, resume(CVar(id)))
     }
+  }) {
+    block()
   }
 }
 
+context(_: MultishotScope)
 suspend fun translate(e: Tree): Stmt = freshVars { bindHere { e.toStmt() } }
 
-context(_: Emit)
+context(_: Emit, _: MultishotScope)
 suspend fun Expr.emit() = text(
   when (this) {
     is CLit -> value.toString()
@@ -114,7 +123,7 @@ suspend fun Expr.emit() = text(
   }
 )
 
-context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
+context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
 suspend fun Stmt.emit(): Unit = when (this) {
   is CLet -> {
     text("let"); space(); text(name); space(); text("=")
@@ -143,8 +152,10 @@ suspend fun Stmt.emit(): Unit = when (this) {
   }
 }
 
+context(_: MultishotScope)
 suspend fun pretty(s: Stmt): String = pretty(40) { s.emit() }
 
+context(_: MultishotScope)
 suspend fun pipeline(input: String): String = when (val res = parse(input) { parseExpr() }) {
   is Either.Right -> pretty(translate(res.value))
   is Either.Left -> res.value

@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import kotlin.test.Test
@@ -23,7 +24,7 @@ class FooIblTests {
   fun `test foo ibl program 2`() = runTestCC {
     val result = exactReify {
       val x = 'a'
-      val f: suspend (Char, Char) -> Char = { x: Char, y: Char ->
+      val f: suspend context(MultishotScope) (Char, Char) -> Char = { x: Char, y: Char ->
         if (flip(0.2)) x else y
       }
       Pair(f('d', listOf(Probable(0.4, 'b'), Probable(0.6, 'c')).dist()), 'e')
@@ -76,8 +77,8 @@ class FooIblTests {
   @Test
   fun `test music tr 4-1`() = runTestCC {
     val result = exactReify {
-      val f = suspend { flip(0.1) }
-      val g = suspend { flip(0.3) }
+      val f: suspend context(MultishotScope) () -> Boolean = { flip(0.1) }
+      val g: suspend context(MultishotScope) () -> Boolean = { flip(0.3) }
       ensure(listOf(Probable(0.8, f), Probable(0.2, g)).dist()())
       true
     }
@@ -89,8 +90,10 @@ class FooIblTests {
   @Test
   fun `test music tr 4-2`() = runTestCC {
     val result = exactReify {
-      val f = suspend { flip(0.01) }
-      val (mp, mq) = if (f()) 'a' to suspend { flip(0.3) } else 'b' to suspend { true }
+      val f: suspend context(MultishotScope) () -> Boolean = { flip(0.01) }
+      val f1: suspend context(MultishotScope) () -> Boolean = { flip(0.3) }
+      val f2: suspend context(MultishotScope) () -> Boolean = { true }
+      val (mp, mq) = if (f()) 'a' to f1 else 'b' to f2
       ensure(mp == 'a')
       mq()
     }

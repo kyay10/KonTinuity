@@ -9,6 +9,7 @@ class ArrowTest {
   @Test
   fun yieldAListAndStackSafety() = runTestCC {
     newReset {
+      context(_: MultishotScope)
       suspend fun <A> Prompt<List<A>>.yield(a: A): Unit = shiftOnce { k -> listOf(a) + k(Unit) }
       for (i in 0..10_000) yield(i)
       emptyList()

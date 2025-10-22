@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
 import arrow.core.getOrElse
+import io.github.kyay10.kontinuity.MultishotScope
 import io.github.kyay10.kontinuity.effekt.*
 import io.github.kyay10.kontinuity.repeatIteratorless
 import kotlinx.collections.immutable.persistentMapOf
@@ -10,72 +11,85 @@ import kotlin.math.pow
 import kotlin.random.Random
 
 interface Probabilistic : Exc {
+  context(_: MultishotScope)
   suspend fun <A> Dist<A>.dist(): A
+
+  context(_: MultishotScope)
   override suspend fun raise(msg: String): Nothing = emptyList<Probable<Nothing>>().dist()
 }
 
 interface Memory {
-  fun <A> letLazy(block: suspend () -> A): suspend () -> A
+  fun <A> letLazy(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A
 
   fun <A, B> memo(
-    block: suspend (A) -> B
-  ): suspend (A) -> B
+    block: suspend context(MultishotScope) (A) -> B
+  ): suspend context(MultishotScope) (A) -> B
 }
 
-context(p: Probabilistic) suspend inline fun <A> Dist<A>.dist(): A = with(p) { dist() }
-suspend inline fun <A> reify(crossinline block: suspend context(Probabilistic, Memory) () -> A): SearchTree<A> = probabilistic {
-  memory {
-    block()
-  }
-}
+context(p: Probabilistic, _: MultishotScope)
+suspend inline fun <A> Dist<A>.dist(): A = with(p) { dist() }
 
-@PublishedApi
-internal suspend inline fun <A> probabilistic(crossinline block: suspend context(Probabilistic) () -> A): SearchTree<A> = handle {
-  val result = block(object : Probabilistic {
-    override suspend fun <A> Dist<A>.dist(): A = use { resume ->
-      map { (p, v) ->
-        Probable(p, Value.Branch { resume(v) })
-      }
+context(_: MultishotScope)
+suspend inline fun <A> reify(crossinline block: suspend context(Probabilistic, Memory, MultishotScope) () -> A): SearchTree<A> =
+  probabilistic {
+    memory {
+      block()
     }
-
-    // Slightly faster
-    override suspend fun raise(msg: String): Nothing = discardWithFast(Result.success(emptyList()))
-  })
-  listOf(Probable(1.0, Value.Leaf(result)))
-}
+  }
 
 @PublishedApi
-internal suspend inline fun <A> memory(crossinline block: suspend context(Memory) () -> A): A = persistentRegion {
-  block(object : Memory {
-    override fun <A> letLazy(block: suspend () -> A): suspend () -> A {
-      val loc = field<A>()
-      return {
-        loc.getOrNone().getOrElse {
-          block().also { loc.set(it) }
+context(_: MultishotScope)
+internal suspend inline fun <A> probabilistic(crossinline block: suspend context(Probabilistic, MultishotScope) () -> A): SearchTree<A> =
+  handle {
+    val result = context(object : Probabilistic {
+      context(_: MultishotScope)
+      override suspend fun <A> Dist<A>.dist(): A = use { resume ->
+        map { (p, v) ->
+          Probable(p, Value.Branch { resume(v) })
         }
       }
-    }
 
-    override fun <A, B> memo(block: suspend (A) -> B): suspend (A) -> B {
-      var map by field(persistentMapOf<A, B>())
-      return { a ->
-        map.getOrNone(a).getOrElse {
-          block(a).also { v ->
-            map += a to v // we intentionally fetch `map` again, since it might've been changed by `block`
+      // Slightly faster
+      context(_: MultishotScope)
+      override suspend fun raise(msg: String): Nothing = discardWithFast(Result.success(emptyList()))
+    }) { block() }
+    listOf(Probable(1.0, Value.Leaf(result)))
+  }
+
+@PublishedApi
+context(_: MultishotScope)
+internal suspend inline fun <A> memory(crossinline block: suspend context(Memory, MultishotScope) () -> A): A =
+  persistentRegion {
+    context(object : Memory {
+      override fun <A> letLazy(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A {
+        val loc = field<A>()
+        return {
+          loc.getOrNone().getOrElse {
+            block().also { loc.set(it) }
           }
         }
       }
-    }
-  })
-}
 
-context(_: Probabilistic)
+      override fun <A, B> memo(block: suspend context(MultishotScope) (A) -> B): suspend context(MultishotScope) (A) -> B {
+        var map by field(persistentMapOf<A, B>())
+        return { a ->
+          map.getOrNone(a).getOrElse {
+            block(a).also { v ->
+              map += a to v // we intentionally fetch `map` again, since it might've been changed by `block`
+            }
+          }
+        }
+      }
+    }) { block() }
+  }
+
+context(_: Probabilistic, _: MultishotScope)
 suspend inline fun flip(p: Prob = 0.5): Boolean = listOf(
   Probable(p, true),
   Probable(1 - p, false)
 ).dist()
 
-context(_: Probabilistic)
+context(_: Probabilistic, _: MultishotScope)
 suspend inline fun uniform(count: Int): Int {
   if (count <= 0) error("count must be positive")
   if (count == 1) return 0
@@ -92,13 +106,13 @@ suspend inline fun uniform(count: Int): Int {
   }.dist()
 }
 
-context(_: Probabilistic)
+context(_: Probabilistic, _: MultishotScope)
 suspend inline fun <A> List<A>.uniformly(): A = this[uniform(size)]
 
-context(_: Probabilistic)
+context(_: Probabilistic, _: MultishotScope)
 suspend inline fun IntRange.uniformly(): Int = start + uniform(endInclusive - start + 1)
 
-context(_: Probabilistic)
+context(_: Probabilistic, _: MultishotScope)
 suspend fun geometric(p: Prob): Int {
   fun loop(n: Int): SearchTree<Int> = listOf(
     Probable(p, Value.Branch { listOf(Probable(1.0, Value.Leaf(n))) }), // Not sure why it's written like this!
@@ -107,7 +121,7 @@ suspend fun geometric(p: Prob): Int {
   return loop(0).reflect()
 }
 
-context(_: Probabilistic)
+context(_: Probabilistic, _: MultishotScope)
 suspend inline fun geometric(p: Prob, endInclusive: Int): Int = buildList {
   var pp = p / (1 - (1 - p).pow(endInclusive + 1))
   for (i in 0..endInclusive) {
@@ -116,13 +130,13 @@ suspend inline fun geometric(p: Prob, endInclusive: Int): Int = buildList {
   }
 }.dist()
 
-context(_: Probabilistic)
+context(_: Probabilistic, _: MultishotScope)
 tailrec suspend fun <A> SearchTree<A>.reflect(): A = when (val v = dist()) {
   is Value.Leaf -> v.value
   is Value.Branch -> v.searchTree().reflect()
 }
 
-context(_: Probabilistic)
+context(_: Probabilistic, _: MultishotScope)
 suspend fun ensure(condition: Boolean) {
   contract {
     returns() implies condition
@@ -130,8 +144,8 @@ suspend fun ensure(condition: Boolean) {
   if (!condition) raise()
 }
 
-context(_: Probabilistic)
-suspend fun <B> variableElimination(block: suspend context(Probabilistic, Memory) () -> B): B =
+context(_: Probabilistic, _: MultishotScope)
+suspend fun <B> variableElimination(block: suspend context(Probabilistic, Memory, MultishotScope) () -> B): B =
   exactReify(block).reflect()
 
 fun <A> Random.selector(): Selector<A> {
@@ -168,21 +182,28 @@ fun <A> distSelector(): Selector<A> = { choices ->
 // End-user inference procedure:
 // compute the probability distribution for a given non-deterministic program
 
-suspend fun <A> exactReify(block: suspend context(Probabilistic, Memory) () -> A): SearchTree<A> =
+context(_: MultishotScope)
+suspend fun <A> exactReify(block: suspend context(Probabilistic, Memory, MultishotScope) () -> A): SearchTree<A> =
   reify(block).explore()
 
+context(_: MultishotScope)
 suspend fun <A> sampleRejection(
   selector: Selector<Value<A>>,
   samples: Int,
-  block: suspend context(Probabilistic, Memory) () -> A
+  block: suspend context(Probabilistic, Memory, MultishotScope) () -> A
 ): SearchTree<A> = reify(block).rejectionSampleDist(selector, samples)
 
+context(_: MultishotScope)
 suspend fun <A> sampleImportance(
   selector: Selector<SearchTree<A>>,
   samples: Int,
-  block: suspend context(Probabilistic, Memory) () -> A
+  block: suspend context(Probabilistic, Memory, MultishotScope) () -> A
 ): SearchTree<A> = reify(block).shallowExplore(3).sampleDist(selector, object : SampleRunner {
-  override suspend fun <Seed> run(seed: Seed, sampler: suspend (Seed) -> Seed): Pair<Seed, Int> {
+  context(_: MultishotScope)
+  override suspend fun <Seed> run(
+    seed: Seed,
+    sampler: suspend context(MultishotScope) (Seed) -> Seed
+  ): Pair<Seed, Int> {
     var s = seed
     repeatIteratorless(samples) {
       s = sampler(s)
@@ -191,10 +212,11 @@ suspend fun <A> sampleImportance(
   }
 })
 
-context(m: Memory)
-fun <A> letLazy(block: suspend () -> A): suspend () -> A = m.letLazy(block)
+context(m: Memory, _: MultishotScope)
+fun <A> letLazy(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A =
+  m.letLazy(block)
 
-context(m: Memory)
+context(m: Memory, _: MultishotScope)
 fun <A, B> memo(
-  block: suspend (A) -> B
-): suspend (A) -> B = m.memo(block)
+  block: suspend context(MultishotScope) (A) -> B
+): suspend context(MultishotScope) (A) -> B = m.memo(block)
