@@ -10,9 +10,10 @@ import kotlin.test.Test
 class SamplingTests {
   @Test
   fun `test flip with sharing sampling`() = runTestCC {
-    val sharedFlip: suspend context(Probabilistic, MultishotScope) () -> Boolean = {
+    context(_: Probabilistic<Region>, _: MultishotScope<Region>)
+    suspend fun <Region> sharedFlip(): Boolean {
       val v = flip(0.5)
-      v && v
+      return v && v
     }
 
     sampleRejection(random(1).selector(), 100) { sharedFlip() } shouldContainExactlyInAnyOrder listOf(
@@ -28,8 +29,9 @@ class SamplingTests {
 
   @Test
   fun `test flip without sharing sampling`() = runTestCC {
-    val independentFlips: suspend context(Probabilistic, MultishotScope) () -> Boolean = {
-      flip(0.5) && flip(0.5)
+    context(_: Probabilistic<Region>, _: MultishotScope<Region>)
+    suspend fun <Region> independentFlips(): Boolean {
+      return flip(0.5) && flip(0.5)
     }
 
     sampleRejection(random(1).selector(), 100) { independentFlips() } shouldContainExactlyInAnyOrder listOf(
@@ -45,10 +47,11 @@ class SamplingTests {
 
   @Test
   fun `test alarm model sampling`() = runTestCC {
-    val alarm: suspend context(Probabilistic, MultishotScope) () -> Boolean = {
+    context(_: Probabilistic<Region>, _: MultishotScope<Region>)
+    suspend fun <Region> alarm(): Boolean {
       val earthquake = flip(0.01)
       val burglary = flip(0.1)
-      if (earthquake) {
+      return if (earthquake) {
         if (burglary) flip(0.99) else flip(0.2)
       } else {
         if (burglary) flip(0.98) else flip(0.01)
@@ -119,8 +122,8 @@ class SamplingTests {
 
   @Test
   fun `test ibl t2`() = runTestCC {
-    context(_: Probabilistic, _: Memory, _: MultishotScope)
-    suspend fun iblT2(): Boolean {
+    context(_: Probabilistic<Region>, _: Memory, _: MultishotScope<Region>)
+    suspend fun <Region> iblT2(): Boolean {
       val x = listOf(
         Probable(0.01, 'a' to 'b'),
         Probable(0.02, 'a' to 'c'),
@@ -161,11 +164,12 @@ class SamplingTests {
   @Test
   fun `test music 4-2`() = runTestCC {
     sampleImportance(random(1).selector(), 1) {
-      val m: Pair<Char, suspend context(Probabilistic, MultishotScope) () -> Boolean> = if (flip(0.01)) {
-        'a' to { flip(0.3) }
-      } else {
-        'b' to { true }
-      }
+      val m: Pair<Char, suspend context(Probabilistic<SampleImportanceRegion>, MultishotScope<SampleImportanceRegion>) () -> Boolean> =
+        if (flip(0.01)) {
+          'a' to { flip(0.3) }
+        } else {
+          'b' to { true }
+        }
       val (p, q) = m
       ensure(p == 'a')
       q()
@@ -175,15 +179,15 @@ class SamplingTests {
     )
   }
 
-  context(_: Probabilistic, _: MultishotScope)
-  suspend fun drunkCoin(): Boolean {
+  context(_: Probabilistic<Region>, _: MultishotScope<Region>)
+  suspend fun <Region> drunkCoin(): Boolean {
     val x = flip(0.5)
     ensure(!flip(0.9))
     return x
   }
 
-  context(_: Probabilistic, _: MultishotScope)
-  suspend fun drunkCoinAnd(n: Int): Boolean {
+  context(_: Probabilistic<Region>, _: MultishotScope<Region>)
+  suspend fun <Region> drunkCoinAnd(n: Int): Boolean {
     repeatIteratorless(n) {
       if (!drunkCoin()) {
         return false
@@ -223,8 +227,8 @@ class SamplingTests {
     )
   }
 
-  context(_: Probabilistic, _: MultishotScope)
-  suspend fun dCoinAndTrue(n: Int) {
+  context(_: Probabilistic<Region>, _: MultishotScope<Region>)
+  suspend fun <Region> dCoinAndTrue(n: Int) {
     ensure(drunkCoinAnd(n))
   }
 

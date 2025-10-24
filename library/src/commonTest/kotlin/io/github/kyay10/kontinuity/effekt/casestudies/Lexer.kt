@@ -66,36 +66,36 @@ enum class TokenKind {
 
 data class Token(val kind: TokenKind, val text: String, val position: Position)
 
-interface Lexer {
-  context(_: MultishotScope)
+interface Lexer<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun peek(): Token?
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   suspend fun next(): Token
 }
 
-context(lexer: Lexer, _: MultishotScope)
-suspend fun next() = lexer.next()
+context(lexer: Lexer<Region>, _: MultishotScope<Region>)
+suspend fun <Region> next() = lexer.next()
 
-context(lexer: Lexer, _: MultishotScope)
-suspend fun peek() = lexer.peek()
+context(lexer: Lexer<Region>, _: MultishotScope<Region>)
+suspend fun <Region> peek() = lexer.peek()
 
 data class LexerError(val msg: String, val pos: Position)
 
 val dummyPosition = Position(0, 0, 0)
 
-context(_: MultishotScope)
-suspend fun <R> Raise<LexerError>.lexerFromList(
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> Raise<LexerError>.lexerFromList(
   l: List<Token>,
-  block: suspend context(MultishotScope) Lexer.() -> R
+  block: suspend context(MultishotScope<Region>) Lexer<Region>.() -> R
 ): R {
   data class Data(var index: Int)
   return handleStateful(Data(0), Data::copy) {
-    object : Lexer {
-      context(_: MultishotScope)
+    object : Lexer<Region> {
+      context(_: MultishotScope<Region>)
       override suspend fun peek(): Token? = l.getOrNull(get().index)
 
-      context(_: MultishotScope)
+      context(_: MultishotScope<Region>)
       override suspend fun next(): Token =
         l.getOrNull(get().index++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
     }.block()
@@ -113,8 +113,8 @@ private val tokenDescriptors = mapOf(
   TokenKind.Space to "^[ \t\n]+".toRegex()
 )
 
-context(_: MultishotScope)
-suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend context(MultishotScope) Lexer.() -> R): R {
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> Raise<LexerError>.lexer(input: String, block: suspend context(MultishotScope<Region>) Lexer<Region>.() -> R): R {
   data class Data(var index: Int, var col: Int, var line: Int) : Stateful<Data> {
     fun toPosition() = Position(line, col, index)
     fun consume(text: String) {
@@ -129,7 +129,7 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend context(Mu
   }
 
   return handleStateful(Data(index = 0, col = 1, line = 1)) {
-    object : Lexer {
+    object : Lexer<Region> {
       private fun eos(): Boolean = get().index >= input.length
       private fun tryMatch(regex: Regex, tokenKind: TokenKind): Token? =
         regex.find(input.substring(get().index))?.let {
@@ -139,10 +139,10 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend context(Mu
       private fun tryMatchAll(map: Map<TokenKind, Regex>): Token? =
         map.firstNotNullOfOrNull { (kind, regex) -> tryMatch(regex, kind) }
 
-      context(_: MultishotScope)
+      context(_: MultishotScope<Region>)
       override suspend fun peek(): Token? = tryMatchAll(tokenDescriptors)
 
-      context(_: MultishotScope)
+      context(_: MultishotScope<Region>)
       override suspend fun next(): Token {
         val position = get().toPosition()
         if (eos()) raise(LexerError("Unexpected EOS", position))
@@ -154,20 +154,19 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend context(Mu
   }
 }
 
-context(_: MultishotScope)
-suspend fun Lexer.skipSpaces() {
+context(_: MultishotScope<Region>)
+suspend fun <Region> Lexer<Region>.skipSpaces() {
   while (peek()?.kind == TokenKind.Space) next()
 }
 
-context(_: MultishotScope)
-suspend fun <R> Lexer.skipWhitespace(block: suspend context(MultishotScope) Lexer.() -> R): R = object : Lexer {
-  context(_: MultishotScope)
+inline fun <R, Region> Lexer<Region>.skipWhitespace(block: Lexer<Region>.() -> R): R = object : Lexer<Region> {
+  context(_: MultishotScope<Region>)
   override suspend fun next(): Token = with(this@skipWhitespace) {
     skipSpaces()
     return next()
   }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   override suspend fun peek(): Token? = with(this@skipWhitespace) {
     skipSpaces()
     return peek()

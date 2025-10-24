@@ -7,6 +7,9 @@ public fun <T> StackState<T>.getLast(): T = ask().value.last()
 
 public inline fun <T> StackState<T>.modifyLast(f: (T) -> T): Unit = plusAssign(f(getLast()))
 
-context(_: MultishotScope)
-public suspend fun <T, R> runStackState(value: T, body: suspend context(MultishotScope) StackState<T>.() -> R): R =
+context(_: MultishotScope<Region>)
+public suspend fun <T, R, Region> runStackState(
+  value: T,
+  body: suspend context(MultishotScope<Region>) StackState<T>.() -> R
+): R =
   runState(listOf(value), body)

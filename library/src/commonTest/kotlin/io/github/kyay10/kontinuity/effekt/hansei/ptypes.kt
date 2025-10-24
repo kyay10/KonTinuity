@@ -9,13 +9,14 @@ data class Probable<out A>(val prob: Prob, val value: A)
 typealias Dist<A> = List<Probable<A>> // probability distribution (adds up to 1.0)
 typealias CDist<A> = List<Probable<A>> // conditional probability distribution (not necessarily adds up to 1.0)
 
-sealed class Value<out A> {
-  data class Leaf<out A>(val value: A) : Value<A>()
-  data class Branch<out A>(val searchTree: suspend context(MultishotScope) () -> SearchTree<A>) : Value<A>()
+sealed class Value<out A, in Region> {
+  data class Leaf<out A>(val value: A) : Value<A, Any?>()
+  data class Branch<out A, in Region>(val searchTree: suspend context(MultishotScope<Region>) () -> SearchTree<A, Region>) :
+    Value<A, Region>()
 }
 
-typealias SearchTree<A> = List<Probable<Value<A>>>
-typealias Selector<A> = suspend context(MultishotScope) (CDist<A>) -> Probable<A>
+typealias SearchTree<A, Region> = List<Probable<Value<A, Region>>>
+typealias Selector<A, Region> = suspend context(MultishotScope<Region>) (CDist<A>) -> Probable<A>
 
 // https://github.com/ocaml/stdlib-random/blob/main/random4/random4.ml
 // Probably doesn't need Longs, but if it ain't broke, don't fix it

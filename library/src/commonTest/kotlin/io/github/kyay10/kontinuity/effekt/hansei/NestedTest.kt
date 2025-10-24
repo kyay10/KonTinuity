@@ -10,21 +10,17 @@ import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlin.test.Test
 
 class NestedTest {
-  context(_: Probabilistic, _: Memory, _: MultishotScope)
-  suspend fun testn11(): SearchTree<Boolean> = exactReify(
-    listOf<suspend context(Probabilistic, Memory, MultishotScope) () -> Boolean>(
-      { flip() },
-      { true }
-    ).uniformly())
+  context(_: Probabilistic<Region>, _: Memory, _: MultishotScope<Region>)
+  suspend fun <Region> testn11(): SearchTree<Boolean, Region> {
+    val shouldFlip = flip()
+    return exactReify { if (shouldFlip) flip() else true }
+  }
 
-  context(_: Probabilistic, _: Memory, _: MultishotScope)
-  suspend fun testn12(random: OcamlRandom): SearchTree<Boolean> {
-    val block = listOf<suspend context(Probabilistic, Memory, MultishotScope) () -> Boolean>(
-      { flip() },
-      { true }
-    ).uniformly()
+  context(_: Probabilistic<Region>, _: Memory, _: MultishotScope<Region>)
+  suspend fun <Region> testn12(random: OcamlRandom): SearchTree<Boolean, Region> {
+    val shouldFlip = flip()
     random.reinit(17)
-    return sampleRejection(random.selector(), 10, block)
+    return sampleRejection(random.selector(), 10) { if (shouldFlip) flip() else true }
   }
 
   @Test
@@ -35,7 +31,7 @@ class NestedTest {
       res shouldContain first
       res.single { it != first }.should {
         it.prob shouldBe 0.5
-        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean>>>().value shouldContainExactlyInAnyOrder listOf(
+        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean, Any?>>>().value shouldContainExactlyInAnyOrder listOf(
           Probable(0.5, Value.Leaf(true)),
           Probable(0.5, Value.Leaf(false)),
         )
@@ -46,7 +42,7 @@ class NestedTest {
       res shouldContain first
       res.single { it != first }.should {
         it.prob shouldBe 0.5
-        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean>>>().value shouldContainExactlyInAnyOrder listOf(
+        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean, Any?>>>().value shouldContainExactlyInAnyOrder listOf(
           Probable(0.6, Value.Leaf(true)),
           Probable(0.4, Value.Leaf(false)),
         )
@@ -58,7 +54,7 @@ class NestedTest {
       res shouldContain first
       res.single { it != first }.should {
         it.prob shouldBe 0.5
-        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean>>>().value shouldContainExactlyInAnyOrder listOf(
+        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean, Any?>>>().value shouldContainExactlyInAnyOrder listOf(
           Probable(0.6, Value.Leaf(true)),
           Probable(0.4, Value.Leaf(false)),
         )
@@ -77,7 +73,7 @@ class NestedTest {
       res shouldContain first
       res.single { it != first }.should {
         it.prob shouldBe 0.5
-        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean>>>().value shouldContainExactlyInAnyOrder listOf(
+        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean, Any?>>>().value shouldContainExactlyInAnyOrder listOf(
           Probable(0.5, Value.Leaf(true)),
           Probable(0.5, Value.Leaf(false)),
         )
@@ -91,7 +87,7 @@ class NestedTest {
       res shouldContain first
       res.single { it != first }.should {
         it.prob shouldBe 0.5
-        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean>>>().value shouldContainExactlyInAnyOrder listOf(
+        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean, Any?>>>().value shouldContainExactlyInAnyOrder listOf(
           Probable(0.6, Value.Leaf(true)),
           Probable(0.4, Value.Leaf(false)),
         )
@@ -105,7 +101,7 @@ class NestedTest {
       res shouldContain first
       res.single { it != first }.should {
         it.prob shouldBe 0.5
-        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean>>>().value shouldContainExactlyInAnyOrder listOf(
+        it.value.shouldBeInstanceOf<Value.Leaf<SearchTree<Boolean, Any?>>>().value shouldContainExactlyInAnyOrder listOf(
           Probable(0.5, Value.Leaf(true)),
           Probable(0.5, Value.Leaf(false)),
         )

@@ -1,6 +1,8 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -22,8 +24,8 @@ class ProbabilisticTest {
     }
   }
 
-  context(_: MultishotScope)
-  suspend fun Prob.falsePositive(): Boolean {
+  context(_: MultishotScope<Region>)
+  suspend fun <Region> Prob<Region>.falsePositive(): Boolean {
     val sick = bernoulli(0.01)
     guard(
       if (sick) {
@@ -45,29 +47,29 @@ class ProbabilisticTest {
   }
 }
 
-class ProbHandler<R>(prompt: StatefulPrompt<List<Weighted<R>>, Data>) : Prob,
-  StatefulHandler<List<Weighted<R>>, ProbHandler.Data> by prompt {
+class ProbHandler<R, in IR, OR>(prompt: StatefulPrompt<List<Weighted<R>>, Data, IR, OR>) : Prob<IR>,
+  StatefulHandler<List<Weighted<R>>, ProbHandler.Data, IR, OR> by prompt {
   data class Data(var p: Double = 1.0) : Stateful<Data> {
     override fun fork() = copy()
   }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun flip(): Boolean = use { k ->
     val previous = get().p
     k(false).also { get().p = previous } + k(true)
   }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun fail(): Nothing = discard { emptyList() }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun factor(p: Double) {
     get().p *= p
   }
 }
 
-context(_: MultishotScope)
-suspend fun <R> probabilistic(body: suspend context(MultishotScope) ProbHandler<R>.() -> R): List<Weighted<R>> =
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> probabilistic(body: suspend context(NewScope<Region>) Prob<NewRegion>.() -> R): List<Weighted<R>> =
   handleStateful(ProbHandler.Data()) {
     listOf(Weighted(body(ProbHandler(this)), get().p))
   }
@@ -75,8 +77,8 @@ suspend fun <R> probabilistic(body: suspend context(MultishotScope) ProbHandler<
 data class Weighted<T>(val value: T, val weight: Double)
 
 // use mutable state for now.
-class Tracing<R>(prompt: HandlerPrompt<R>, internal val pts: MutableList<SamplePoint<R>>) : Amb, Handler<R> by prompt {
-  context(_: MultishotScope)
+class Tracing<R, in IR, OR>(prompt: HandlerPrompt<R, IR, OR>, internal val pts: MutableList<SamplePoint<R, OR>>) : Amb<IR>, Handler<R, IR, OR> by prompt {
+  context(_: MultishotScope<IR>)
   override suspend fun flip(): Boolean = use { k ->
     val choice = Random.nextBoolean()
     pts.add(SamplePoint(mutableListOf(choice), k))
@@ -84,9 +86,9 @@ class Tracing<R>(prompt: HandlerPrompt<R>, internal val pts: MutableList<SampleP
   }
 }
 
-context(_: MultishotScope)
-suspend fun tracing(body: suspend context(MultishotScope) Tracing<Int>.() -> Int): Int {
-  val pts = mutableListOf<SamplePoint<Int>>()
+context(_: MultishotScope<Region>)
+suspend fun <Region> tracing(body: suspend context(NewScope<Region>) Amb<NewRegion>.() -> Int): Int {
+  val pts = mutableListOf<SamplePoint<Int, Region>>()
   var res = handle { body(Tracing(this, pts)) }
   // ok some very specialized sampling:
   //   We are trying to find a result which is == 1
@@ -102,22 +104,22 @@ suspend fun tracing(body: suspend context(MultishotScope) Tracing<Int>.() -> Int
   return res
 }
 
-data class SamplePoint<out R>(val choices: MutableList<Boolean>, val k: SubCont<Boolean, R>)
+data class SamplePoint<out R, in Region>(val choices: MutableList<Boolean>, val k: SubCont<Boolean, R, Region>)
 
-interface Prob {
-  context(_: MultishotScope)
+interface Prob<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun flip(): Boolean
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   suspend fun fail(): Nothing
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   suspend fun factor(p: Double)
 }
 
 // could also be the primitive effect op and `flip = bernoulli(0.5)`
-context(_: MultishotScope)
-suspend fun Prob.bernoulli(p: Double): Boolean = if (flip()) {
+context(_: MultishotScope<Region>)
+suspend fun <Region> Prob<Region>.bernoulli(p: Double): Boolean = if (flip()) {
   factor(p)
   true
 } else {
@@ -125,7 +127,7 @@ suspend fun Prob.bernoulli(p: Double): Boolean = if (flip()) {
   false
 }
 
-context(_: MultishotScope)
-suspend fun Prob.guard(condition: Boolean) {
+context(_: MultishotScope<Region>)
+suspend fun <Region> Prob<Region>.guard(condition: Boolean) {
   if (!condition) fail()
 }

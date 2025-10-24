@@ -1,6 +1,8 @@
 package io.github.kyay10.kontinuity.effekt.higherorder
 
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.effekt.*
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -37,33 +39,33 @@ class WriterTest {
   }
 }
 
-interface Writer<T> {
-  context(_: MultishotScope)
+interface Writer<T, in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun tell(value: T)
 
-  context(_: MultishotScope)
-  suspend fun <R> listen(block: suspend context(MultishotScope) Writer<T>.() -> R): Pair<T, R>
+  context(_: MultishotScope<IR>)
+  suspend fun <R, IR: Region> listen(block: suspend context(NewScope<IR>) Writer<T, NewRegion>.() -> R): Pair<T, R>
 }
 
 private data class WriterData<T>(var acc: T)
 
-context(_: MultishotScope)
-suspend fun <T, R> runWriter(
+context(_: MultishotScope<Region>)
+suspend fun <T, R, Region> runWriter(
   initial: T,
   combine: (T, T) -> T,
-  block: suspend context(MultishotScope) Writer<T>.() -> R
+  block: suspend context(MultishotScope<Region>) Writer<T, Region>.() -> R
 ): Pair<T, R> =
   handleStateful(
     WriterData(initial), WriterData<T>::copy
   ) {
-    val res = block(object : Writer<T> {
-      context(_: MultishotScope)
+    val res = block(object : Writer<T, Region> {
+      context(_: MultishotScope<Region>)
       override suspend fun tell(value: T) {
         get().acc = combine(get().acc, value)
       }
 
-      context(_: MultishotScope)
-      override suspend fun <R> listen(block: suspend context(MultishotScope) Writer<T>.() -> R): Pair<T, R> =
+      context(_: MultishotScope<IR>)
+      override suspend fun <R, IR: Region> listen(block: suspend context(NewScope<IR>) Writer<T, NewRegion>.() -> R): Pair<T, R> =
         run writer@{
           handleStateful(WriterData(initial), WriterData<T>::copy) {
             val res = block(WriterListener(this@writer, initial, combine, this))
@@ -74,20 +76,20 @@ suspend fun <T, R> runWriter(
     get().acc to res
   }
 
-private class WriterListener<T, R>(
-  val delegate: Writer<T>,
+private class WriterListener<T, R, IR: OR, OR>(
+  val delegate: Writer<T, OR>,
   val initial: T,
   val combine: (T, T) -> T,
-  p: StatefulPrompt<R, WriterData<T>>
-) : Writer<T>, StatefulHandler<R, WriterData<T>> by p {
-  context(_: MultishotScope)
+  p: StatefulPrompt<R, WriterData<T>, IR, OR>
+) : Writer<T, IR>, StatefulHandler<R, WriterData<T>, IR, OR> by p {
+  context(_: MultishotScope<IR>)
   override suspend fun tell(value: T) {
     get().acc = combine(get().acc, value)
     delegate.tell(value)
   }
 
-  context(_: MultishotScope)
-  override suspend fun <R> listen(block: suspend context(MultishotScope) Writer<T>.() -> R): Pair<T, R> =
+  context(_: MultishotScope<IIR>)
+  override suspend fun <R, IIR: IR> listen(block: suspend context(NewScope<IIR>) Writer<T, NewRegion>.() -> R): Pair<T, R> =
     handleStateful(WriterData(initial), WriterData<T>::copy) {
       val res = block(WriterListener(this@WriterListener, initial, combine, this))
       get().acc to res

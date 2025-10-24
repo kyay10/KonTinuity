@@ -8,6 +8,8 @@ import arrow.core.raise.Raise
 import arrow.core.recover
 import arrow.core.right
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.Raise
 import io.github.kyay10.kontinuity.effekt.casestudies.TokenKind.*
 import io.github.kyay10.kontinuity.effekt.handle
@@ -45,55 +47,55 @@ class ParserTest {
   }
 }
 
-fun interface Nondet {
-  context(_: MultishotScope)
+fun interface Nondet<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun alt(): Boolean
 }
 
-context(nondet: Nondet, _: MultishotScope)
-suspend fun alt() = nondet.alt()
+context(nondet: Nondet<Region>, _: MultishotScope<Region>)
+suspend fun <Region> alt() = nondet.alt()
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend inline fun accept(expectedText: String = "", predicate: (Token) -> Boolean): Token {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend inline fun <Region> accept(expectedText: String = "", predicate: (Token) -> Boolean): Token {
   val token = next()
   return if (predicate(token)) token
   else raise("unexpected token $token, expected $expectedText")
 }
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun any() = accept { t -> true }
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> any() = accept { t -> true }
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun accept(exp: TokenKind) = accept(exp.toString()) { t -> t.kind == exp }
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> accept(exp: TokenKind) = accept(exp.toString()) { t -> t.kind == exp }
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun ident() = accept(Ident).text
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> ident() = accept(Ident).text
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun number() = accept(Number).text
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> number() = accept(Number).text
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun punct(p: String) {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> punct(p: String) {
   val text = accept(Punct).text
   if (text != p) raise("Expected $p but got $text")
 }
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun kw(exp: String) {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> kw(exp: String) {
   val text = ident()
   if (text != exp) raise("Expected keyword $exp but got $text")
 }
 
-context(_: Nondet, _: MultishotScope)
-suspend inline fun <R> opt(block: () -> R): R? = if (alt()) block() else null
+context(_: Nondet<Region>, _: MultishotScope<Region>)
+suspend inline fun <R, Region> opt(block: () -> R): R? = if (alt()) block() else null
 
-context(_: Nondet, _: MultishotScope)
-suspend inline fun many(block: () -> Unit) {
+context(_: Nondet<Region>, _: MultishotScope<Region>)
+suspend inline fun <Region> many(block: () -> Unit) {
   while (alt()) block()
 }
 
-context(_: Nondet, _: MultishotScope)
-suspend inline fun some(block: () -> Unit) {
+context(_: Nondet<Region>, _: MultishotScope<Region>)
+suspend inline fun <Region> some(block: () -> Unit) {
   do block() while (alt())
 }
 
@@ -103,20 +105,20 @@ data class Var(val name: String) : Tree
 data class Let(val name: String, val binding: Tree, val body: Tree) : Tree
 data class App(val name: String, val arg: Tree) : Tree
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun parseNum(): Tree {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> parseNum(): Tree {
   val num = number()
   return Lit(num.toIntOrNull() ?: raise("Expected number, but cannot convert input to integer: $num"))
 }
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun parseVar(): Tree = Var(ident())
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> parseVar(): Tree = Var(ident())
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun parseAtom(): Tree = opt { parseNum() } ?: parseVar()
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> parseAtom(): Tree = opt { parseNum() } ?: parseVar()
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun parseLet(): Tree {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> parseLet(): Tree {
   kw("let")
   val name = ident()
   punct("=")
@@ -126,16 +128,16 @@ suspend fun parseLet(): Tree {
   return Let(name, binding, body)
 }
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun parseGroup(): Tree = opt { parseAtom() } ?: run {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> parseGroup(): Tree = opt { parseAtom() } ?: run {
   punct("(")
   val expr = parseExpr()
   punct(")")
   return expr
 }
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun parseApp(): Tree {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> parseApp(): Tree {
   val name = ident()
   punct("(")
   val arg = parseExpr()
@@ -143,16 +145,16 @@ suspend fun parseApp(): Tree {
   return App(name, arg)
 }
 
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun parseExpr(): Tree = when {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> parseExpr(): Tree = when {
   alt() -> parseLet()
   alt() -> parseApp()
   else -> parseGroup()
 }
 
 // <EXPR> ::= <NUMBER> | <IDENT> `(` <EXPR> (`,` <EXPR>)*  `)`
-context(_: Nondet, _: Lexer, _: Raise<String>, _: MultishotScope)
-suspend fun parseCalls(): Int = if (alt()) {
+context(_: Nondet<Region>, _: Lexer<Region>, _: Raise<String>, _: MultishotScope<Region>)
+suspend fun <Region> parseCalls(): Int = if (alt()) {
   number()
   1
 } else {
@@ -170,10 +172,10 @@ suspend fun parseCalls(): Int = if (alt()) {
 
 typealias ParseResult<R> = Either<String, R>
 
-context(_: MultishotScope)
-suspend fun <R> parse(
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> parse(
   input: String,
-  block: suspend context(Nondet, Lexer, Raise<String>, MultishotScope) () -> R
+  block: suspend context(Nondet<NewRegion>, Lexer<NewRegion>, Raise<String>, NewScope<Region>) () -> R
 ): ParseResult<R> =
   handle {
     Raise<LexerError, _> { Left("${it.msg}: ${it.pos}") }.lexer(input) {

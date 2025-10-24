@@ -14,6 +14,7 @@ plugins {
   alias(libs.plugins.kotlinMultiplatform)
   id("module.publication")
   id("org.jetbrains.kotlinx.benchmark") version "0.4.14"
+  id("io.github.kyay10.regional") version "0.0.1"
 }
 
 repositories {

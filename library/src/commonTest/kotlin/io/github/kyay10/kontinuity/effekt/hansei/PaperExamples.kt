@@ -5,7 +5,7 @@ import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import kotlin.test.Test
 
-private fun SearchTree<Boolean>.atLeast(prob: Prob, v: Boolean): Boolean {
+private fun SearchTree<Boolean, *>.atLeast(prob: Prob, v: Boolean): Boolean {
   return (find { it.value == Value.Leaf(v) }?.prob ?: 0.0) >= prob
 }
 
@@ -82,7 +82,7 @@ class PaperExamples {
   }
 }
 
-private fun <A> SearchTree<A>.normalize(): SearchTree<A> {
+private fun <A, Region> SearchTree<A, Region>.normalize(): SearchTree<A, Region> {
   val total = sumOf { it.prob }
   return map { it.copy(prob = it.prob / total) }.sortedByDescending { it.prob }
 }

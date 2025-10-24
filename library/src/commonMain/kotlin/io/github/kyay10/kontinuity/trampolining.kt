@@ -19,44 +19,44 @@ internal fun <R, P, T> (suspend R.(P) -> T).startCoroutineUninterceptedOrReturn(
 ): Any? = (this as Function3<R, P, Continuation<T>, Any?>).invoke(receiver, param, completion)
 
 @PublishedApi
-internal fun <T> (suspend context(MultishotScope) () -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
+internal fun <T, Region> (suspend context(MultishotScope<Region>) () -> T).startCoroutineIntercepted(seq: SplitSeq<T, Region>) {
   seq.trampoline.nextStep = SequenceBodyStep(this, seq)
 }
 
-private class SequenceBodyStep<T>(
-  private val body: suspend context(MultishotScope) () -> T,
-  override val seq: SplitSeq<T>
-) : Step {
+private class SequenceBodyStep<T, Region>(
+  private val body: suspend context(MultishotScope<Region>) () -> T,
+  override val seq: SplitSeq<T, Region>
+) : Step<Region> {
   override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(seq, seq) }
 }
 
 @PublishedApi
-internal fun <R, T> (suspend context(MultishotScope) R.() -> T).startCoroutineIntercepted(
+internal fun <R, T, Region> (suspend context(MultishotScope<Region>) R.() -> T).startCoroutineIntercepted(
   receiver: R,
-  seq: SplitSeq<T>,
+  seq: SplitSeq<T, Region>,
 ) {
   seq.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
 }
 
-private class SequenceBodyReceiverStep<T, R>(
-  private val body: suspend context(MultishotScope) R.() -> T,
+private class SequenceBodyReceiverStep<T, R, Region>(
+  private val body: suspend context(MultishotScope<Region>) R.() -> T,
   private val receiver: R,
-  override val seq: SplitSeq<T>
-) : Step {
+  override val seq: SplitSeq<T, Region>
+) : Step<Region> {
   override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(seq, receiver, seq) }
 }
 
 @PublishedApi
-internal fun <Start> SplitSeq<Start>.resumeWithIntercepted(result: Result<Start>) {
+internal fun <Start> SplitSeq<Start, *>.resumeWithIntercepted(result: Result<Start>) {
   if (result.exceptionOrNull() !== SuspendedException) {
     trampoline.nextStep = SequenceResumeStep(this, result)
   }
 }
 
 private class SequenceResumeStep<Start>(
-  override val seq: SplitSeq<Start>,
+  override val seq: SplitSeq<Start, *>,
   private val result: Result<Start>
-) : Step {
+) : Step<Any?> {
   override fun stepOrReturn() = result
 }
 
@@ -76,13 +76,13 @@ private class TrampolineWithDelay(
 ) :
   Trampoline(interceptor, originalContext), Delay by delay
 
-internal interface Step {
+internal interface Step<Region> {
   fun stepOrReturn(): Result<Any?>
-  val seq: SplitSeq<*>
+  val seq: SplitSeq<*, Region>
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun Step.step() {
+private fun Step<*>.step() {
   val result = stepOrReturn()
   if (result.getOrNull() !== COROUTINE_SUSPENDED && result.exceptionOrNull() !== SuspendedException) {
     seq.resumeWithImpl(result as Result<Nothing>)
@@ -97,7 +97,7 @@ internal open class Trampoline(
   AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
 
   @JvmField
-  var nextStep: Step? = null
+  var nextStep: Step<*>? = null
 
   @JvmField
   @PublishedApi

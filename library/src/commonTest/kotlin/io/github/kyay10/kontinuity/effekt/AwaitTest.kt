@@ -1,6 +1,8 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.bridge
 import io.github.kyay10.kontinuity.runCC
 import io.kotest.matchers.shouldBe
@@ -58,29 +60,29 @@ class AwaitTest {
   }
 }
 
-interface Await {
-  context(_: MultishotScope)
-  suspend fun <A> await(body: suspend context(MultishotScope) (suspend context(MultishotScope) (A) -> Unit) -> Unit): A
+interface Await<in IR, OR> {
+  context(_: MultishotScope<IR>)
+  suspend fun <A> await(body: suspend context(MultishotScope<OR>) (suspend context(MultishotScope<OR>) (A) -> Unit) -> Unit): A
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   suspend fun fork(): Boolean
 }
 
-context(_: MultishotScope)
-tailrec suspend fun Await.forkN(n: Int): Int = when {
+context(_: MultishotScope<IR>)
+tailrec suspend fun <IR> Await<IR, *>.forkN(n: Int): Int = when {
   n <= 1 -> 0
   fork() -> n - 1
   else -> forkN(n - 1)
 }
 
-context(_: MultishotScope)
-suspend fun Await.exit(): Nothing = await { }
+context(_: MultishotScope<IR>)
+suspend fun <IR> Await<IR, *>.exit(): Nothing = await { }
 
-context(_: MultishotScope)
-suspend fun Await.yield() = await { it(Unit) }
+context(_: MultishotScope<IR>)
+suspend fun <IR> Await<IR, *>.yield() = await { it(Unit) }
 
-context(_: MultishotScope)
-suspend fun <A> Await.await(d: Deferred<A>): A {
+context(_: MultishotScope<IR>)
+suspend fun <A, IR> Await<IR, *>.await(d: Deferred<A>): A {
   do {
     yield()
     bridge { kotlinx.coroutines.yield() } // so that the deferred has a chance to run if we're single threaded
@@ -88,12 +90,12 @@ suspend fun <A> Await.await(d: Deferred<A>): A {
   return bridge { d.await() }
 }
 
-class MutableAwait(
-  prompt: HandlerPrompt<Unit>,
-  private val processes: MutableList<suspend context(MultishotScope) () -> Unit>
-) : Await, Handler<Unit> by prompt {
-  context(_: MultishotScope)
-  override suspend fun <A> await(body: suspend context(MultishotScope) (suspend context(MultishotScope) (A) -> Unit) -> Unit): A =
+class MutableAwait<in IR, OR>(
+  prompt: HandlerPrompt<Unit, IR, OR>,
+  private val processes: MutableList<suspend context(MultishotScope<OR>) () -> Unit>
+) : Await<IR, OR>, Handler<Unit, IR, OR> by prompt {
+  context(_: MultishotScope<IR>)
+  override suspend fun <A> await(body: suspend context(MultishotScope<OR>) (suspend context(MultishotScope<OR>) (A) -> Unit) -> Unit): A =
     use { k ->
       body {
         processes.add { k(it) }
@@ -101,16 +103,16 @@ class MutableAwait(
       }
     }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun fork(): Boolean = use { k ->
     processes.add { k(false) }
     k(true)
   }
 }
 
-context(_: MultishotScope)
-suspend fun mutableAwait(body: suspend context(MultishotScope) MutableAwait.() -> Unit) {
-  val processes = mutableListOf<suspend context(MultishotScope) () -> Unit>()
+context(_: MultishotScope<Region>)
+suspend fun <Region> mutableAwait(body: suspend context(NewScope<Region>) Await<NewRegion, Region>.() -> Unit) {
+  val processes = mutableListOf<suspend context(MultishotScope<Region>) () -> Unit>()
   handle { body(MutableAwait(this, processes)) }
   while (processes.isNotEmpty()) processes.removeFirst()()
 }

@@ -1,6 +1,8 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
@@ -48,40 +50,40 @@ infix fun Person.loves(loved: Person) = Is(this, InLoveWith(loved))
 // John said "Mary loves me"
 val s1 = Say(John, Mary loves John)
 
-fun interface Speaker {
-  context(_: MultishotScope)
+fun interface Speaker<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun speaker(): Person
 }
 
-context(_: MultishotScope)
-suspend fun Speaker.me() = speaker()
+context(_: MultishotScope<Region>)
+suspend fun <Region> Speaker<Region>.me() = speaker()
 
-inline infix fun Person.said(s: Speaker.() -> Sentence): Sentence = Say(this, Speaker { this }.s())
+inline infix fun Person.said(s: Speaker<Any?>.() -> Sentence): Sentence = Say(this, Speaker<Any?> { this }.s())
 infix fun Person.said(s: Sentence): Sentence = Say(this, s)
 
-context(_: MultishotScope)
+context(_: MultishotScope<Any?>)
 suspend fun s1a() = John said { Mary loves me() }
 
 // John said Mary loves me
-context(_: MultishotScope)
-suspend fun Speaker.s1b() = John said (Mary loves me())
+context(_: MultishotScope<Region>)
+suspend fun <Region> Speaker<Region>.s1b() = John said (Mary loves me())
 
-context(_: MultishotScope)
+context(_: MultishotScope<Any?>)
 suspend fun s1c() = Peter said { s1b() }
 
-fun interface Quantification {
-  context(_: MultishotScope)
+fun interface Quantification<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun quantify(who: Predicate): Person
 }
 
-context(_: MultishotScope)
-suspend fun Quantification.every(who: Predicate) = quantify(who)
+context(_: MultishotScope<Region>)
+suspend fun <Region> Quantification<Region>.every(who: Predicate) = quantify(who)
 
-context(_: MultishotScope)
+context(_: MultishotScope<Any?>)
 suspend fun s2() = scoped { John said { every(Woman) loves me() } }
 
-context(_: MultishotScope)
-suspend fun scoped(s: suspend context(MultishotScope) Quantification.() -> Sentence): Sentence {
+context(_: MultishotScope<Region>)
+suspend fun <Region> scoped(s: suspend context(NewScope<Region>) Quantification<NewRegion>.() -> Sentence): Sentence {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
     s { who ->

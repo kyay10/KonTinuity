@@ -34,8 +34,8 @@ class HExcTest {
     if (x > 0) state.set(x - 1) else raise(Unit)
   }
 
-  context(r: Raise<Unit>, recover: Recover, state: State<Int>, _: MultishotScope)
-  private suspend fun tripleDecr() {
+  context(r: Raise<Unit>, recover: Recover<Region>, state: State<Int>, _: MultishotScope<Region>)
+  private suspend fun <Region> tripleDecr() {
     decr()
     recover.recover({
       decr()
@@ -82,7 +82,7 @@ class HExcTest {
   @Test
   fun withNonDetTest() = runTestCC {
     for (logic in listOf(LogicDeep, LogicTree, LogicSimple)) with(logic) {
-      runHExc<Unit, _> {
+      runHExc<Unit, _, _> {
         bagOfN {
           recover({
             if (flip()) raise(Unit)
@@ -90,7 +90,7 @@ class HExcTest {
           }) { false }
         }
       } shouldBe Right(listOf(false, true))
-      runHExcTransactional<Unit, _> {
+      runHExcTransactional<Unit, _, _> {
         bagOfN {
           recover({
             if (flip()) raise(Unit)
@@ -111,45 +111,45 @@ class HExcTest {
 
   @Test
   fun shortCircuitTest() = runTestCC {
-    runHExc<Unit, _> {
+    runHExc<Unit, _, _> {
       recover({
         raise(Unit)
       }) { }
     } shouldBe Right(Unit)
-    runHExcTransactional<Unit, _> {
+    runHExcTransactional<Unit, _, _> {
       recover({
         raise(Unit)
       }) { }
     } shouldBe Right(Unit)
-    runEither<Nothing, _> {
+    runEither<Nothing, _, _> {
       subJump {
         recover.recover({ raise(Unit) }) {}
       }
     } shouldBe Right(Unit)
     runHExc {
-      recover<Nothing, Nothing>({
+      recover<Nothing, Nothing, _>({
         raise(Unit)
       }) { it }
     } shouldBe Left(Unit)
     runHExcTransactional {
-      recover<Nothing, Nothing>({
+      recover<Nothing, Nothing, _>({
         raise(Unit)
       }) { it }
     } shouldBe Left(Unit)
     runEither {
       subJump {
-        recover.recover<Nothing, Nothing>({ raise(Unit) }) { it }
+        recover.recover<Nothing, Nothing, _>({ raise(Unit) }) { it }
       }
     } shouldBe Left(Unit)
   }
 
-  context(_: MultishotScope)
-  suspend fun Amb.action1(err: HExc<Unit>) = err.recover({
+  context(_: MultishotScope<Region>)
+  suspend fun <Region> Amb<Region>.action1(err: HExc<Unit, Region>) = err.recover({
     if (flip()) true else raise(Unit)
   }) { false }
 
-  context(_: MultishotScope)
-  suspend fun Amb.action2(err: HExc<Unit>) = err.recover({
+  context(_: MultishotScope<Region>)
+  suspend fun <Region> Amb<Region>.action2(err: HExc<Unit, Region>) = err.recover({
     if (flip()) raise(Unit) else true
   }) { false }
 
@@ -250,27 +250,27 @@ class HExcTest {
   }
 }
 
-interface Recover {
-  context(_: MultishotScope)
-  suspend fun <E, A> recover(
-    block: suspend context(MultishotScope) Raise<E>.() -> A,
-    recover: suspend context(MultishotScope) (E) -> A
+interface Recover<in Region> {
+  context(_: MultishotScope<IR>)
+  suspend fun <E, A, IR: Region> recover(
+    block: suspend context(MultishotScope<IR>) Raise<E>.() -> A,
+    recover: suspend context(MultishotScope<IR>) (E) -> A
   ): A
 }
 
-interface HExc<E> : Recover, Raise<E>
+interface HExc<E, in Region> : Recover<Region>, Raise<E>
 
-context(_: MultishotScope)
-suspend fun <E, A> runHExcTransactional(block: suspend context(MultishotScope) HExc<E>.() -> A): Either<E, A> = handle {
-  block(object : HExc<E> {
+context(_: MultishotScope<Region>)
+suspend fun <E, A, Region> runHExcTransactional(block: suspend context(NewScope<Region>) HExc<E, NewRegion>.() -> A): Either<E, A> = handle {
+  block(object : HExc<E, HandleRegion> {
     override fun raise(r: E) = discardWith(Result.success(Left(r)))
 
-    context(_: MultishotScope)
-    override suspend fun <E, A> recover(
-      block: suspend context(MultishotScope) Raise<E>.() -> A,
-      recover: suspend context(MultishotScope) (E) -> A
+    context(_: MultishotScope<IR>)
+    override suspend fun <E, A, IR: HandleRegion> recover(
+      block: suspend context(MultishotScope<IR>) Raise<E>.() -> A,
+      recover: suspend context(MultishotScope<IR>) (E) -> A
     ): A {
-      val res: Either<E, HExc<E>> = use { resume ->
+      val res: Either<E, Raise<E>> = use { resume ->
         runHExcTransactional {
           resume(this.right())
         }.getOrElse {
@@ -282,63 +282,63 @@ suspend fun <E, A> runHExcTransactional(block: suspend context(MultishotScope) H
   }).right()
 }
 
-context(_: MultishotScope)
-suspend fun <E, A> runHExc(block: suspend context(MultishotScope) HExc<E>.() -> A): Either<E, A> = handle {
-  block(object : HExc<E> {
+context(_: MultishotScope<Region>)
+suspend fun <E, A, Region> runHExc(block: suspend context(NewScope<Region>) HExc<E, NewRegion>.() -> A): Either<E, A> = handle {
+  block(object : HExc<E, HandleRegion> {
     override fun raise(r: E) = discardWith(Result.success(Left(r)))
 
-    context(_: MultishotScope)
-    override suspend fun <E, A> recover(
-      block: suspend context(MultishotScope) Raise<E>.() -> A,
-      recover: suspend context(MultishotScope) (E) -> A
+    context(_: MultishotScope<IR>)
+    override suspend fun <E, A, IR: HandleRegion> recover(
+      block: suspend context(MultishotScope<IR>) Raise<E>.() -> A,
+      recover: suspend context(MultishotScope<IR>) (E) -> A
     ): A =
       runHExc(block).getOrElse { recover(it) }
   }).right()
 }
 
-context(_: MultishotScope)
-suspend fun <E, A> runHExcSubJump(block: suspend context(MultishotScope) HExc<E>.() -> A): Either<E, A> = runEither {
+context(_: MultishotScope<Region>)
+suspend fun <E, A, Region> runHExcSubJump(block: suspend context(NewScope<Region>) HExc<E, NewRegion>.() -> A): Either<E, A> = runEither {
   subJump {
-    block(object : HExc<E>, Recover by recover, Raise<E> by this@runEither {})
+    block(object : HExc<E, SubJumpRegion>, Recover<SubJumpRegion> by recover, Raise<E> by this@runEither {})
   }
 }
 
-context(_: MultishotScope)
-suspend fun <E, A> runEither(block: suspend context(MultishotScope) Raise<E>.() -> A): Either<E, A> = handle {
+context(_: MultishotScope<Region>)
+suspend fun <E, A, Region> runEither(block: suspend context(MultishotScope<Region>) Raise<E>.() -> A): Either<E, A> = handle {
   block(Raise(::Left)).right()
 }
 
-val SubJump.recover: Recover
-  get() = object : Recover {
-    context(_: MultishotScope)
-    override suspend fun <E, A> recover(
-      block: suspend context(MultishotScope) Raise<E>.() -> A,
-      recover: suspend context(MultishotScope) (E) -> A
+val <Region> SubJump<Region>.recover: Recover<Region>
+  get() = object : Recover<Region> {
+    context(_: MultishotScope<IR>)
+    override suspend fun <E, A, IR: Region> recover(
+      block: suspend context(MultishotScope<IR>) Raise<E>.() -> A,
+      recover: suspend context(MultishotScope<IR>) (E) -> A
     ): A =
       sub({ jump -> runEither(block).getOrElse { jump(it) } }, { recover(it) })
   }
 
-context(_: MultishotScope)
-suspend fun <E, A> hRecover(block: suspend context(MultishotScope) HExc<E>.() -> A): Either<E, A> = handle {
-  block(object : HExc<E> {
+context(_: MultishotScope<Region>)
+suspend fun <E, A, Region> hRecover(block: suspend context(NewScope<Region>) HExc<E, NewRegion>.() -> A): Either<E, A> = handle {
+  block(object : HExc<E, HandleRegion> {
     override fun raise(r: E) = discardWith(Result.success(Left(r)))
 
-    context(_: MultishotScope)
-    override suspend fun <E, A> recover(
-      block: suspend context(MultishotScope) Raise<E>.() -> A,
-      recover: suspend context(MultishotScope) (E) -> A
-    ): A = use { resume ->
-      resume.locally {
+    context(_: MultishotScope<IR>)
+    override suspend fun <E, A, IR: HandleRegion> recover(
+      block: suspend context(MultishotScope<IR>) Raise<E>.() -> A,
+      recover: suspend context(MultishotScope<IR>) (E) -> A
+    ): A = use<suspend context(MultishotScope<IR>) () -> A, _, _, _> { resume ->
+      resume {
         hRecover(block).getOrElse { error ->
-          discard { resume.locally { recover(error) } }
+          discard { resume { recover(error) } }
         }
       }
-    }
+    }()
   }).right()
 }
 
-context(_: MultishotScope)
-suspend fun <T, R> runStatePair(value: T, body: suspend context(MultishotScope) State<T>.() -> R): Pair<T, R> =
+context(_: MultishotScope<Region>)
+suspend fun <T, R, Region> runStatePair(value: T, body: suspend context(MultishotScope<Region>) State<T>.() -> R): Pair<T, R> =
   runState(value) {
     val res = body()
     get() to res

@@ -143,9 +143,9 @@ fun takeMove(player: Mark, loc: Location, game: Game): Game {
   )
 }
 
-typealias PlayerProc = suspend context(MultishotScope) (Mark, Game) -> Pair<Int, Game>
+typealias PlayerProc = suspend context(MultishotScope<Any?>) (Mark, Game) -> Pair<Int, Game>
 
-context(_: MultishotScope)
+context(_: MultishotScope<Any?>)
 tailrec suspend fun game(
   player1Mark: Mark,
   player1: PlayerProc,
@@ -180,24 +180,24 @@ val humanPlayer: PlayerProc = humanPlayer@{ mark, game ->
   1 to takeMove(mark, loc, game)
 }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-suspend fun <T> List<T>.choose(): T {
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+suspend fun <T, Region> List<T>.choose(): T {
   forEachIteratorless {
     if (flip()) return it
   }
   raise()
 }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-suspend fun IntProgression.choose(): Int {
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+suspend fun <Region> IntProgression.choose(): Int {
   forEachIteratorless {
     if (flip()) return it
   }
   raise()
 }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-tailrec suspend fun <T> List<T>.chooseBinary(start: Int = 0, endExclusive: Int = size): T {
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+tailrec suspend fun <T, Region> List<T>.chooseBinary(start: Int = 0, endExclusive: Int = size): T {
   if (start == endExclusive) raise()
   if (start + 1 == endExclusive) return this[start]
   val mid = (start + endExclusive) / 2
@@ -231,8 +231,8 @@ fun estimateState(player: Mark, game: Game): Int = when {
 }
 
 // Check if the current player can win in one move
-context(_: Amb, _: Exc, _: MultishotScope)
-suspend fun firstMoveWins(player: Mark, game: Game): Location {
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+suspend fun <Region> firstMoveWins(player: Mark, game: Game): Location {
   val move = game.moves.choose()
   val nextGame = takeMove(player, move, game)
   ensure(nextGame.winner?.second == player)
@@ -240,9 +240,9 @@ suspend fun firstMoveWins(player: Mark, game: Game): Location {
 }
 
 // Depth-limited minimax search
-context(_: MultishotScope)
+context(_: MultishotScope<Any?>)
 suspend fun minmax(
-  self: suspend context(MultishotScope) (Int, Int, Mark, Game) -> Pair<Int, Game>,
+  self: suspend context(MultishotScope<Any?>) (Int, Int, Mark, Game) -> Pair<Int, Game>,
   depthLimit: Int,
   breadthLimit: Int,
   player: Mark,
@@ -263,7 +263,7 @@ suspend fun minmax(
 // Optimized AI with depth and breadth limits
 val aiPrime: PlayerProc
   get() = { player, game ->
-    context(_: MultishotScope)
+    context(_: MultishotScope<Any?>)
     suspend fun aiPrimeLimited(depthLimit: Int, breadthLimit: Int, player: Mark, game: Game): Pair<Int, Game> =
       when {
         game.winner != null || game.moves.isEmpty() -> estimateState(player, game) to game

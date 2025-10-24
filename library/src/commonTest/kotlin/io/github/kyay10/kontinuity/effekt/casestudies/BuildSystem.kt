@@ -59,34 +59,34 @@ class BuildSystemTest {
 typealias Key = String
 typealias Val = Int
 
-fun interface Need {
-  context(_: MultishotScope)
+fun interface Need<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun need(key: Key): Val
 }
 
-fun interface NeedInput {
-  context(_: MultishotScope)
+fun interface NeedInput<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun needInput(key: Key): Val
 }
 
-context(_: MultishotScope)
-suspend fun Need.example1(key: Key, input: NeedInput): Val = when (key) {
+context(_: MultishotScope<Region>)
+suspend fun <Region> Need<Region>.example1(key: Key, input: NeedInput<Region>): Val = when (key) {
   "B1" -> need("A1") + need("A2")
   "B2" -> need("B1") * 2
   else -> input.needInput(key)
 }
 
-context(_: MultishotScope)
-suspend fun build(target: Key, tasks: suspend context(MultishotScope) Need.(Key) -> Val): Val = Need { build(it, tasks) }.tasks(target)
+context(_: MultishotScope<Region>)
+suspend fun <Region> build(target: Key, tasks: suspend context(MultishotScope<Region>) Need<Region>.(Key) -> Val): Val =
+  Need { build(it, tasks) }.tasks(target)
 
-context(_: MultishotScope)
-suspend fun <R> Need.memo(block: suspend context(MultishotScope) Need.() -> R): R {
+inline fun <R, Region> Need<Region>.memo(block: Need<Region>.() -> R): R {
   val cache = mutableMapOf<Key, Val>()
   return Need { key -> cache.getOrPut(key) { need(key) } }.block()
 }
 
-context(_: MultishotScope)
-suspend fun Need.example2(key: Key, input: NeedInput): Val = when (key) {
+context(_: MultishotScope<Region>)
+suspend fun <Region> Need<Region>.example2(key: Key, input: NeedInput<Region>): Val = when (key) {
   "B1" -> need("A1") + need("A2")
   "B2" -> need("B1") * need("B1")
   else -> input.needInput(key)
@@ -94,9 +94,8 @@ suspend fun Need.example2(key: Key, input: NeedInput): Val = when (key) {
 
 data class KeyNotFound(val key: Key)
 
-context(_: MultishotScope)
-suspend fun <R> Raise<KeyNotFound>.supplyInput(
+inline fun <R> Raise<KeyNotFound>.supplyInput(
   store: Map<Key, Val>,
-  block: suspend context(MultishotScope) NeedInput.() -> R
+  block: NeedInput<Any?>.() -> R
 ): R =
-  NeedInput { key -> store[key] ?: raise(KeyNotFound(key)) }.block()
+  NeedInput<Any?> { key -> store[key] ?: raise(KeyNotFound(key)) }.block()

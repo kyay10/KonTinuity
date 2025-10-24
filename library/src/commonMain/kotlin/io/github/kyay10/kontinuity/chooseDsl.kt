@@ -10,24 +10,24 @@ import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.produceIn
 
 /** MonadFail-style errors */
-private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R) : Raise<Unit> {
+private class PromptFail<R>(private val prompt: Prompt<R, *, *>, private val failValue: R) : Raise<Unit> {
   override fun raise(r: Unit): Nothing = prompt.abortWith(Result.success(failValue))
 }
 
-public typealias Choose = Prompt<Unit>
+public typealias Choose<IR, OR> = Prompt<Unit, IR, OR>
 
-context(_: MultishotScope)
-public suspend fun <R> runChoice(
-  body: suspend context(SingletonRaise<Unit>, Choose, MultishotScope) () -> R,
-  handler: suspend context(MultishotScope) (R) -> Unit
+context(_: MultishotScope<Region>)
+public suspend fun <R, Region> runChoice(
+  body: suspend context(SingletonRaise<Unit>, Choose<NewRegion, Region>, NewScope<Region>) () -> R,
+  handler: suspend context(MultishotScope<Region>) (R) -> Unit
 ): Unit = newReset {
   context(SingletonRaise<Unit>(PromptFail(this, Unit))) {
     handler(body())
   }
 }
 
-context(_: MultishotScope)
-public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choose, MultishotScope) () -> R): List<R> =
+context(_: MultishotScope<Region>)
+public suspend fun <R, Region> runList(body: suspend context(SingletonRaise<Unit>, Choose<NewRegion, Region>, NewScope<Region>) () -> R): List<R> =
   runReader(mutableListOf(), MutableList<R>::toMutableList) {
     runChoice(body) {
       ask().add(it)
@@ -35,42 +35,42 @@ public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choos
     ask()
   }
 
-context(_: Choose, _: MultishotScope)
-public suspend fun <T> List<T>.bind(): T = shift { continuation ->
+context(_: Choose<IR, OR>, _: MultishotScope<IR>)
+public suspend fun <T, IR, OR> List<T>.bind(): T = shift { continuation ->
   (0..lastIndex).forEachIteratorless { item ->
     continuation(this[item])
   }
 }
 
-context(_: Choose, _: MultishotScope)
-public suspend fun <T> choose(left: T, right: T): T = shift { continuation ->
+context(_: Choose<IR, OR>, _: MultishotScope<IR>)
+public suspend fun <T, IR, OR> choose(left: T, right: T): T = shift { continuation ->
   continuation(left)
   continuation(right)
 }
 
-context(_: Choose, _: MultishotScope)
-public suspend fun IntRange.bind(): Int = shift { continuation ->
+context(_: Choose<IR, OR>, _: MultishotScope<IR>)
+public suspend fun <IR, OR> IntRange.bind(): Int = shift { continuation ->
   (start..endInclusive).forEachIteratorless { i ->
     continuation(i)
   }
 }
 
-context(_: MultishotScope)
-public suspend fun <T> replicate(amount: Int, producer: suspend context(MultishotScope) (Int) -> T): List<T> = runList {
+context(_: MultishotScope<Region>)
+public suspend fun <T, Region> replicate(amount: Int, producer: suspend context(MultishotScope<Region>) (Int) -> T): List<T> = runList {
   producer((0..<amount).bind())
 }
 
 public fun <R> runFlowCC(
-  body: suspend context(SingletonRaise<Unit>, Choose, CoroutineScope, MultishotScope) () -> R
+  body: suspend context(SingletonRaise<Unit>, Choose<NewRegion, Any?>, CoroutineScope, NewScope<Any?>) () -> R
 ): Flow<R> = channelFlow {
   runCC {
     runChoice({ body() }) { bridge { send(it) } }
   }
 }
 
-context(_: Choose, scope: CoroutineScope, _: MultishotScope)
+context(_: Choose<IR, OR>, scope: CoroutineScope, _: MultishotScope<IR>)
 @OptIn(ExperimentalCoroutinesApi::class)
-public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
+public suspend fun <T, IR, OR> Flow<T>.bind(): T = shift { continuation ->
   val channel = produceIn(scope)
   channel.consume {
     val iterator = channel.iterator()

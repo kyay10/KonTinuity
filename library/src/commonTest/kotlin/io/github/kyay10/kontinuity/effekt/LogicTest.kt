@@ -233,35 +233,35 @@ class LogicTest {
   }
 }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun <T : Comparable<T>> List<T>.bogoSort(): List<T> = permute().also { ensure(it.isSorted()) }
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <T : Comparable<T>, Region> List<T>.bogoSort(): List<T> = permute().also { ensure(it.isSorted()) }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun <T> List<T>.permute(): List<T> =
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <T, Region> List<T>.permute(): List<T> =
   foldRightIteratorless(persistentListOf()) { i, acc -> acc.insert(i) }
 
 private fun <T : Comparable<T>> List<T>.isSorted(): Boolean = zipWithNext { s1, s2 -> s1 <= s2 }.all { it }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-suspend fun <T> List<T>.insert(element: T): PersistentList<T> {
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+suspend fun <T, Region> List<T>.insert(element: T): PersistentList<T> {
   val index = (0..size).choose()
   return toPersistentList().add(index, element)
 }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun iota(n: Int) = (1..n).choose()
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> iota(n: Int) = (1..n).choose()
 
-context(_: MultishotScope)
-private suspend fun <R> assertNonTerminatingCC(block: suspend context(MultishotScope) () -> R) =
+context(_: MultishotScope<*>)
+private suspend fun <R> assertNonTerminatingCC(block: suspend context(MultishotScope<Any?>) () -> R) =
   bridge { nonTerminatingCC(block) } shouldBe null
 
-private suspend fun <R> nonTerminatingCC(block: suspend context(MultishotScope) () -> R) =
+private suspend fun <R> nonTerminatingCC(block: suspend context(MultishotScope<Any?>) () -> R) =
   withContext(Dispatchers.Default.limitedParallelism(1)) {
     withTimeoutOrNull(10.milliseconds) { runCC(block) }
   }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun sample() = listOf(1, 2, 3).choose()
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> sample() = listOf(1, 2, 3).choose()
 
 private infix fun String.conc(other: String) = "$this $other"
 
@@ -271,28 +271,28 @@ private inline fun withLogic(block: context(Logic) () -> Unit) {
   }
 }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun nats(): Int = if (flip()) 0 else 1 + nats()
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> nats(): Int = if (flip()) 0 else 1 + nats()
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun odds(): Int = if (flip()) 1 else 2 + odds()
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> odds(): Int = if (flip()) 1 else 2 + odds()
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun oddsOrTwoUnfair(): Int = if (flip()) odds() else 2
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> oddsOrTwoUnfair(): Int = if (flip()) odds() else 2
 
-context(_: Logic, _: Amb, _: Exc, _: MultishotScope)
-private suspend fun oddsOrTwoFair(): Int = interleave({ odds() }, { 2 })
+context(_: Logic, _: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> oddsOrTwoFair(): Int = interleave({ odds() }, { 2 })
 
-context(_: Logic, _: Amb, _: Exc, _: MultishotScope)
-private suspend fun oddsOrTwo(): Int {
+context(_: Logic, _: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> oddsOrTwo(): Int {
   val x = oddsOrTwoFair()
   bridge { yield() }
   ensure(x % 2 == 0)
   return once { x }
 }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun odds5Down(): Int = when {
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> odds5Down(): Int = when {
   flip() -> 5
   flip() -> raise()
   flip() -> raise()

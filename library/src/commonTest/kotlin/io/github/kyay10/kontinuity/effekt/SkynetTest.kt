@@ -20,12 +20,12 @@ class SkynetTest {
   // not using effects at all
   @Test
   fun skynetNoEffects() = runTestCC(timeout = 10.minutes) {
-    context(_: MultishotScope)
+    context(_: MultishotScope<Any?>)
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val children = Array(div) {
         val subNum = num + it * (size / div)
-        Fibre.create {
+        Fibre.create<_, Any?> {
           skynet(subNum, size / div, div)
         }
       }
@@ -35,7 +35,7 @@ class SkynetTest {
       }
     }
 
-    val f = Fibre.create { skynet(0, N, 10) }
+    val f = Fibre.create<_, Any?> { skynet(0, N, 10) }
     f.resume()
     f.result shouldBe 499_999_500_000L
   }
@@ -43,10 +43,10 @@ class SkynetTest {
   // not suspending so not using algebraic effects at all.
   @Test
   fun skynetOverhead() = runTestCC {
-    context(_: MultishotScope)
+    context(_: MultishotScope<Any?>)
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
-      val children = Array<suspend context(MultishotScope) () -> Long>(div) {
+      val children = Array<suspend context(MultishotScope<Any?>) () -> Long>(div) {
         val subNum = num + it * (size / div)
         { skynet(subNum, size / div, div) }
       }
@@ -78,8 +78,8 @@ class SkynetTest {
   fun skynetScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
-    context(_: MultishotScope)
-    suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: MultishotScope<Region>)
+    suspend fun <Region> Scheduler2<Region, Any?>.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
       repeatIteratorless(div) {
@@ -104,8 +104,8 @@ class SkynetTest {
   fun skynetFlippedScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
-    context(_: MultishotScope)
-    suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: MultishotScope<Region>)
+    suspend fun <Region> Scheduler2<Region, Any?>.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
       repeatIteratorless(div) {
@@ -130,8 +130,8 @@ class SkynetTest {
   fun skynetFastScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
-    context(_: MultishotScope)
-    suspend fun Scheduler2.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: MultishotScope<Region>)
+    suspend fun <Region> Scheduler2<Region, Any?>.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
       repeatIteratorless(div) {
@@ -158,12 +158,12 @@ class SkynetTest {
   // when using kotlinx-coroutines debugging.
   @Test
   fun skynetSuspend() = runTestCC(timeout = 10.minutes) {
-    context(_: MultishotScope)
-    suspend fun Suspendable.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: MultishotScope<Region>)
+    suspend fun <Region> Suspendable<Region>.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong().also { suspend() }
       val children = Array(div) {
         val subNum = num + it * (size / div)
-        Fibre.create {
+        Fibre.create<_, Any?> {
           skynet(subNum, size / div, div)
         }
       }
@@ -174,7 +174,7 @@ class SkynetTest {
       }.also { suspend() }
     }
 
-    val f = Fibre.create { skynet(0, N, 10) }
+    val f = Fibre.create<_, Any?> { skynet(0, N, 10) }
     f.resume()
     f.resume()
     f.result shouldBe 499_999_500_000L

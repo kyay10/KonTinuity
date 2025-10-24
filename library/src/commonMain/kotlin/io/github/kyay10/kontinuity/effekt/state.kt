@@ -46,23 +46,26 @@ public inline operator fun <T> StateScope.Field<T>.setValue(
   value: T
 ) { set(value) }
 
-context(_: MultishotScope)
-public suspend inline fun <R> region(crossinline body: suspend context(MultishotScope) StateScope.() -> R): R =
+context(_: MultishotScope<Region>)
+public suspend inline fun <R, Region> region(crossinline body: suspend context(MultishotScope<Region>) StateScope.() -> R): R =
   runReader(MutableTypedMap(), MutableTypedMap::copy) {
     body(MutableStateScope(this))
   }
 
-context(_: MultishotScope)
-public suspend inline fun <R> persistentRegion(crossinline body: suspend context(MultishotScope) StateScope.() -> R): R = runState(PersistentTypedMap()) {
-  body(PersistentStateScope(this))
-}
+context(_: MultishotScope<Region>)
+public suspend inline fun <R, Region> persistentRegion(crossinline body: suspend context(MultishotScope<Region>) StateScope.() -> R): R =
+  runState(PersistentTypedMap()) {
+    body(PersistentStateScope(this))
+  }
 
-context(_: MultishotScope)
-public suspend inline fun <R> persistentFastRegion(crossinline body: suspend context(MultishotScope) StateScope.() -> R): R = runReader(MutableTypedMap(
-  persistentHashMapOf<MutableTypedMap.Key<*>, Any?>().builder()
-), { MutableTypedMap((map as PersistentMap.Builder).build().builder()) }) {
-  body(MutableStateScope(this))
-}
+context(_: MultishotScope<Region>)
+public suspend inline fun <R, Region> persistentFastRegion(crossinline body: suspend context(MultishotScope<Region>) StateScope.() -> R): R =
+  runReader(
+    MutableTypedMap(
+      persistentHashMapOf<MutableTypedMap.Key<*>, Any?>().builder()
+    ), { MutableTypedMap((map as PersistentMap.Builder).build().builder()) }) {
+    body(MutableStateScope(this))
+  }
 
 @PublishedApi
 internal class MutableTypedMap(val map: MutableMap<Key<*>, Any?>) {
@@ -145,7 +148,8 @@ public interface Stateful<S : Stateful<S>> {
   public fun fork(): S
 }
 
-context(_: MultishotScope)
-public suspend inline fun <E, S : Stateful<S>> handleStateful(
-  value: S, crossinline body: suspend context(MultishotScope) StatefulPrompt<E, S>.() -> E
+context(_: MultishotScope<Region>)
+public suspend inline fun <E, S : Stateful<S>, Region> handleStateful(
+  value: S,
+  noinline body: suspend context(NewScope<Region>) StatefulPrompt<E, S, NewRegion, Region>.() -> E
 ): E = handleStateful(value, Stateful<S>::fork, body)

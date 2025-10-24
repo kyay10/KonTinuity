@@ -11,60 +11,60 @@ import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
 
 
-typealias LazyList<T> = LazyCons<T>?
+typealias LazyList<T, Region> = LazyCons<T, Region>?
 
-data class LazyCons<out T>(
-  val head: suspend context(MultishotScope) () -> T,
-  val tail: suspend context(MultishotScope) () -> LazyList<T>
-) : Shareable<LazyCons<T>> {
+data class LazyCons<out T, in Region>(
+  val head: suspend context(MultishotScope<Region>) () -> T,
+  val tail: suspend context(MultishotScope<Region>) () -> LazyList<T, Region>
+) : Shareable<LazyCons<T, Region>> {
   context(_: Sharing)
   override fun shareArgs() = LazyCons(share(head), share(tail))
 }
 
-context(_: Amb, _: Exc, _: MultishotScope)
-private suspend fun <T> Stream<T>?.perm(): Stream<T>? {
+context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <T, Region> Stream<T, Region>?.perm(): Stream<T, Region>? {
   this ?: return null
-  suspend fun MultishotScope.permuteRest() = tail()?.perm()
-  return insertStream(value, MultishotScope::permuteRest)
+  suspend fun MultishotScope<Region>.permuteRest() = tail()?.perm()
+  return insertStream(value, MultishotScope<Region>::permuteRest)
 }
 
-context(amb: Amb, exc: Exc, _: MultishotScope)
-private suspend fun <T> insertStream(x: T, mxs: (suspend context(MultishotScope) () -> Stream<T>?)?): Stream<T> = when {
+context(amb: Amb<Region>, exc: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <T, Region> insertStream(x: T, mxs: (suspend context(MultishotScope<Region>) () -> Stream<T, Region>?)?): Stream<T, Region> = when {
   mxs == null || flip() -> Stream(x, mxs)
   else -> {
     val (y, mys) = mxs() ?: raise()
-    suspend fun MultishotScope.insertRest() = insertStream(x, mys)
-    Stream(y, MultishotScope::insertRest)
+    suspend fun MultishotScope<Region>.insertRest() = insertStream(x, mys)
+    Stream(y, MultishotScope<Region>::insertRest)
   }
 }
 
-context(_: MultishotScope)
-private tailrec suspend fun <T : Comparable<T>> Stream<T>?.isSorted(): Boolean {
+context(_: MultishotScope<Region>)
+private tailrec suspend fun <T : Comparable<T>, Region> Stream<T, Region>?.isSorted(): Boolean {
   this ?: return true
   val stream = tail() ?: return true
   return if (value <= stream.value) stream.isSorted() else false
 }
 
-context(_: Sharing, _: Amb, _: Exc, _: MultishotScope)
-suspend fun <T : Comparable<T>> Stream<T>?.sort(): Stream<T>? {
+context(_: Sharing, _: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+suspend fun <T : Comparable<T>, Region> Stream<T, Region>?.sort(): Stream<T, Region>? {
   val permutation = share { perm() }
   ensure(permutation().isSorted())
   return permutation()
 }
 
-context(_: MultishotScope)
-suspend fun <T> Stream<T>?.toPersistentList(): PersistentList<T> {
+context(_: MultishotScope<Region>)
+suspend fun <T, Region> Stream<T, Region>?.toPersistentList(): PersistentList<T> {
   this ?: return persistentListOf()
   return tail().toPersistentList().add(0, value)
 }
 
-fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
+fun <T> List<T>.toStream(): Stream<T, Any?>? = fold(null) { acc, i ->
   Stream(i, acc?.let { { acc } })
 }
 
 class SharingTest {
-  context(_: MultishotScope)
-  private tailrec suspend fun <T : Comparable<T>> LazyList<T>.isSorted(): Boolean {
+  context(_: MultishotScope<Region>)
+  private tailrec suspend fun <T : Comparable<T>, Region> LazyList<T, Region>.isSorted(): Boolean {
     this ?: return true
     val (my, mys) = tail() ?: return true
     val x = head()
@@ -72,24 +72,24 @@ class SharingTest {
     return if (x <= y) LazyCons({ y }, mys).isSorted() else false
   }
 
-  context(_: Amb, _: Exc, _: MultishotScope)
-  private suspend fun <T> LazyList<T>.perm(): LazyList<T> {
+  context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+  private suspend fun <T, Region> LazyList<T, Region>.perm(): LazyList<T, Region> {
     this ?: return null
     return insert(head) { tail().perm() }
   }
 
-  context(_: Sharing, _: Amb, _: Exc, _: MultishotScope)
-  private suspend fun <T : Comparable<T>> LazyList<T>.sort(): LazyList<T> {
+  context(_: Sharing, _: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+  private suspend fun <T : Comparable<T>, Region> LazyList<T, Region>.sort(): LazyList<T, Region> {
     val permutation = share { perm() }
     ensure(permutation().isSorted())
     return permutation()
   }
 
-  context(_: Amb, _: Exc, _: MultishotScope)
-  private suspend fun <T> insert(
-    mx: suspend context(MultishotScope) () -> T,
-    mxs: suspend context(MultishotScope) () -> LazyList<T>
-  ): LazyList<T> = when {
+  context(_: Amb<Region>, _: Exc<Region>, _: MultishotScope<Region>)
+  private suspend fun <T, Region> insert(
+    mx: suspend context(MultishotScope<Region>) () -> T,
+    mxs: suspend context(MultishotScope<Region>) () -> LazyList<T, Region>
+  ): LazyList<T, Region> = when {
     flip() -> LazyCons(mx, mxs)
     else -> {
       val (my, mys) = mxs() ?: raise()
@@ -97,14 +97,14 @@ class SharingTest {
     }
   }
 
-  context(_: MultishotScope)
-  private suspend fun <T> LazyList<T>.toPersistentList(): PersistentList<T> {
+  context(_: MultishotScope<Region>)
+  private suspend fun <T, Region> LazyList<T, Region>.toPersistentList(): PersistentList<T> {
     this ?: return persistentListOf()
     val x = head()
     return tail().toPersistentList().add(0, x)
   }
 
-  private fun <T> List<T>.toLazyList(): LazyList<T> = fold(null) { acc, i ->
+  private fun <T> List<T>.toLazyList(): LazyList<T, Any?> = fold(null) { acc, i ->
     LazyCons({ i }) { acc }
   }
 
@@ -132,9 +132,9 @@ class SharingTest {
 }
 
 context(r: Reader<MutableList<in Field<*>>?>)
-private inline fun <A> memo(crossinline block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A {
+private inline fun <A, Region> memo(crossinline block: suspend context(MultishotScope<Region>) () -> A): suspend context(MultishotScope<Region>) () -> A {
   val key = Field<A>()
-  return Invokable {
+  return Invokable<_, Region> {
     key.getOrElse {
       block().also {
         key.set(it)
@@ -144,9 +144,9 @@ private inline fun <A> memo(crossinline block: suspend context(MultishotScope) (
   }.invoker()
 }
 
-fun <A> Invokable<A>.invoker(): suspend context(MultishotScope) () -> A = { invoke() }
-fun interface Invokable<A> {
-  context(_: MultishotScope)
+fun <A, Region> Invokable<A, Region>.invoker(): suspend context(MultishotScope<Region>) () -> A = { invoke() }
+fun interface Invokable<A, in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun invoke(): A
 }
 
@@ -171,11 +171,11 @@ private class Field<T> {
 }
 
 interface Sharing {
-  fun <A> share(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A
+  fun <A, Region> share(block: suspend context(MultishotScope<Region>) () -> A): suspend context(MultishotScope<Region>) () -> A
 }
 
 context(s: Sharing)
-fun <A> share(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A = s.share(block)
+fun <A, Region> share(block: suspend context(MultishotScope<Region>) () -> A): suspend context(MultishotScope<Region>) () -> A = s.share(block)
 
 interface Shareable<out A : Shareable<A>> {
   context(_: Sharing)
@@ -189,11 +189,11 @@ fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
   shareArgs() as A
 } else this
 
-context(_: MultishotScope)
-suspend fun <R> sharing(block: suspend context(Sharing, MultishotScope) () -> R): R =
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> sharing(block: suspend context(Sharing, MultishotScope<Region>) () -> R): R =
   runReader(null as MutableList<Field<*>>?, { mutableListOf() }) {
     context(object : Sharing {
-      override fun <A> share(block: suspend context(MultishotScope) () -> A): suspend context(MultishotScope) () -> A =
+      override fun <A, Region> share(block: suspend context(MultishotScope<Region>) () -> A): suspend context(MultishotScope<Region>) () -> A =
         memo { block().shareArgs() }
     }) {
       block().also {

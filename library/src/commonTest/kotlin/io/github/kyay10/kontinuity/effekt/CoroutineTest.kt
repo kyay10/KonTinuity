@@ -1,6 +1,8 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -8,8 +10,8 @@ import kotlin.test.Test
 
 // Example translated from http://drops.dagstuhl.de/opus/volltexte/2018/9208/
 class CoroutineTest {
-  context(_: Amb, _: YieldAny<Int>, _: MultishotScope)
-  suspend fun randomYield() {
+  context(_: Amb<Region>, _: YieldAny<Int, Region>, _: MultishotScope<Region>)
+  suspend fun <Region> randomYield() {
     yield(0)
     if (flip()) {
       yield(1)
@@ -19,16 +21,16 @@ class CoroutineTest {
     yield(3)
   }
 
-  context(_: YieldAny<A>, _: MultishotScope)
-  suspend fun <A> bucket(b: List<A>) {
+  context(_: YieldAny<A, Region>, _: MultishotScope<Region>)
+  suspend fun <A, Region> bucket(b: List<A>) {
     var i = 0
     while (i < b.size) {
       yield(b[i++])
     }
   }
 
-  context(_: YieldAny<A>, _: MultishotScope)
-  suspend fun <A> buckets(bs: List<List<A>>) {
+  context(_: YieldAny<A, Region>, _: MultishotScope<Region>)
+  suspend fun <A, Region> buckets(bs: List<List<A>>) {
     var i = 0
     while (i < bs.size) {
       bucket(bs[i++])
@@ -39,7 +41,7 @@ class CoroutineTest {
 
   @Test
   fun bucketsTest() = runTestCC {
-    val co = coroutine<Unit, Int, _> { buckets(data) }
+    val co = coroutine<Unit, _, _, _> { buckets(data) }
     buildList {
       do {
         add(co.value)
@@ -49,7 +51,7 @@ class CoroutineTest {
 
   @Test
   fun snapshotTest() = runTestCC {
-    val co = coroutine<Unit, Int, Unit> { buckets(data) }
+    val co = coroutine<Unit, _, _, _> { buckets(data) }
     co.value shouldBe 4
     co.resume()
     co.value shouldBe 3
@@ -66,7 +68,7 @@ class CoroutineTest {
   fun randomTest() = runTestCC {
     buildList {
       ambList {
-        val co: Coroutine<Unit, Int, Unit> = coroutine { randomYield() }
+        val co = coroutine { randomYield() }
         do {
           add(co.value)
         } while (co.resume())
@@ -81,30 +83,30 @@ class CoroutineTest {
 //   Out: values that come out of the coroutine
 //   Result: the final result value of the coroutine
 
-interface Coroutine<In, Out, Result> {
-  context(_: MultishotScope)
+interface Coroutine<In, Out, Result, in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun resume(input: In): Boolean
   val isDone: Boolean
   val value: Out
   val result: Result
-  fun snapshot(): Coroutine<In, Out, Result>
+  fun snapshot(): Coroutine<In, Out, Result, Region>
 }
 
-context(_: MultishotScope)
-suspend fun <In, Out, Result> coroutine(
-  body: CoroutineBody<In, Out, Result>
-): Coroutine<In, Out, Result> = handle<CoroutineState<In, Out, Result>> {
+context(_: MultishotScope<Region>)
+suspend fun <In, Out, Result, Region> coroutine(
+  body: CoroutineBody<In, Out, Result, Region>
+): Coroutine<In, Out, Result, Region> = handle<CoroutineState<In, Out, Result, Region>, _> {
   context(Yielder(this)) {
     CoroutineState.Done(body())
   }
 }.let(::CoroutineInstance)
 
-context(_: MultishotScope)
-suspend fun Coroutine<Unit, *, *>.resume(): Boolean = resume(Unit)
+context(_: MultishotScope<Region>)
+suspend fun <Region> Coroutine<Unit, *, *, Region>.resume(): Boolean = resume(Unit)
 
-data class CoroutineInstance<In, Out, Result>(
-  var state: CoroutineState<In, Out, Result>
-) : Coroutine<In, Out, Result> {
+data class CoroutineInstance<In, Out, Result, Region>(
+  var state: CoroutineState<In, Out, Result, Region>
+) : Coroutine<In, Out, Result, Region> {
   override val isDone: Boolean
     get() = state is CoroutineState.Done
   override val result: Result
@@ -113,14 +115,14 @@ data class CoroutineInstance<In, Out, Result>(
       else -> error("This coroutine is not yet done, can't get result")
     }
 
-  override fun snapshot(): Coroutine<In, Out, Result> = copy()
+  override fun snapshot(): Coroutine<In, Out, Result, Region> = copy()
   override val value: Out
     get() = when (val s = state) {
       is CoroutineState.Paused -> s.yieldValue
       else -> error("Coroutine is done, doesn't have a value, but a result")
     }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   override suspend fun resume(input: In): Boolean {
     val s = state as? CoroutineState.Paused ?: error("Can't resume this coroutine anymore")
     state = s.k(input)
@@ -128,30 +130,30 @@ data class CoroutineInstance<In, Out, Result>(
   }
 }
 
-class Yielder<In, Out, Result>(prompt: HandlerPrompt<CoroutineState<In, Out, Result>>) : Yield<In, Out>,
-  Handler<CoroutineState<In, Out, Result>> by prompt {
-  context(_: MultishotScope)
+class Yielder<In, Out, Result, in IR, OR>(prompt: HandlerPrompt<CoroutineState<In, Out, Result, OR>, IR, OR>) : Yield<In, Out, IR>,
+  Handler<CoroutineState<In, Out, Result, OR>, IR, OR> by prompt {
+  context(_: MultishotScope<IR>)
   override suspend fun yield(value: Out): In = use {
     CoroutineState.Paused(it, value)
   }
 }
 
-sealed interface CoroutineState<in In, out Out, out Result> {
-  data class Paused<in In, out Out, out Result>(val k: SubCont<In, CoroutineState<In, Out, Result>>, val yieldValue: Out) :
-    CoroutineState<In, Out, Result>
+sealed interface CoroutineState<in In, out Out, out Result, in Region> {
+  data class Paused<in In, out Out, out Result, in Region>(val k: SubCont<In, CoroutineState<In, Out, Result, Region>, Region>, val yieldValue: Out) :
+    CoroutineState<In, Out, Result, Region>
 
-  data class Done<Result>(val result: Result) : CoroutineState<Any?, Nothing, Result>
+  data class Done<Result>(val result: Result) : CoroutineState<Any?, Nothing, Result, Any?>
 }
 
-typealias CoroutineBody<In, Out, Result> = suspend context(Yield<In, Out>, MultishotScope) () -> Result
+typealias CoroutineBody<In, Out, Result, Region> = suspend context(Yield<In, Out, NewRegion>, NewScope<Region>) () -> Result
 
-interface Yield<out In, in Out> {
-  context(_: MultishotScope)
+interface Yield<out In, in Out, in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun yield(value: Out): In
 }
-typealias YieldAny<Out> = Yield<*, Out>
+typealias YieldAny<Out, Region> = Yield<*, Out, Region>
 
-context(yield: YieldAny<Out>, _: MultishotScope)
-suspend fun <Out> yield(value: Out) {
+context(yield: YieldAny<Out, Region>, _: MultishotScope<Region>)
+suspend fun <Out, Region> yield(value: Out) {
   yield.yield(value)
 }

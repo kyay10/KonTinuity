@@ -4,6 +4,8 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.math.absoluteValue
@@ -39,8 +41,8 @@ class SelectTest {
 
 class NQueens {
   var tries = 0
-  context(_: MultishotScope)
-  suspend fun Select.nqueens(n: Int): List<Pos> {
+  context(_: MultishotScope<Region>)
+  suspend fun <Region> Select<Region>.nqueens(n: Int): List<Pos> {
     val ys = 1..n
     var queens = emptyList<Pos>()
     var x = 1
@@ -62,24 +64,24 @@ class NQueens {
 
 data class Pos(val x: Int, val y: Int)
 
-interface Select {
-  context(_: MultishotScope)
+interface Select<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun <A> Iterable<A>.select(): A
 }
 
-class SelectAll<R>(p: HandlerPrompt<List<R>>) : Select, Handler<List<R>> by p {
-  context(_: MultishotScope)
+class SelectAll<R, IR, OR>(p: HandlerPrompt<List<R>, IR, OR>) : Select<IR>, Handler<List<R>, IR, OR> by p {
+  context(_: MultishotScope<IR>)
   override suspend fun <A> Iterable<A>.select(): A = use { k ->
     fold(emptyList()) { acc, elem -> acc + k(elem) }
   }
 }
 
-context(_: MultishotScope)
-suspend fun <R> selectAll(body: suspend context(MultishotScope) Select.() -> R): List<R> =
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> selectAll(body: suspend context(NewScope<Region>) Select<NewRegion>.() -> R): List<R> =
   handle { listOf(body(SelectAll(this))) }
 
-class SelectFirst<R>(p: HandlerPrompt<Option<R>>) : Select, Handler<Option<R>> by p {
-  context(_: MultishotScope)
+class SelectFirst<R, IR, OR>(p: HandlerPrompt<Option<R>, IR, OR>) : Select<IR>, Handler<Option<R>, IR, OR> by p {
+  context(_: MultishotScope<IR>)
   override suspend fun <A> Iterable<A>.select(): A = use { k ->
     forEach {
       val res = k(it)
@@ -89,6 +91,6 @@ class SelectFirst<R>(p: HandlerPrompt<Option<R>>) : Select, Handler<Option<R>> b
   }
 }
 
-context(_: MultishotScope)
-suspend fun <R> selectFirst(body: suspend context(MultishotScope) Select.() -> R): Option<R> =
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> selectFirst(body: suspend context(NewScope<Region>) Select<NewRegion>.() -> R): Option<R> =
   handle { Some(body(SelectFirst(this))) }

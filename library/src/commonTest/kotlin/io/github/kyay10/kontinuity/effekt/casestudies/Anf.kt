@@ -2,6 +2,8 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.core.Either
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
@@ -61,19 +63,19 @@ data class CLet(val name: String, val binding: Stmt, val body: Stmt) : Stmt
 data class CApp(val name: String, val arg: Expr) : Stmt
 data class CRet(val expr: Expr) : Stmt
 
-fun interface Fresh {
-  context(_: MultishotScope)
+fun interface Fresh<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun fresh(): String
 }
 
-context(fresh: Fresh, _: MultishotScope)
-suspend fun fresh(): String = fresh.fresh()
+context(fresh: Fresh<Region>, _: MultishotScope<Region>)
+suspend fun <Region> fresh(): String = fresh.fresh()
 
-context(_: MultishotScope)
-suspend fun <R> freshVars(block: suspend context(Fresh, MultishotScope) () -> R): R {
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> freshVars(block: suspend context(Fresh<Region>, MultishotScope<Region>) () -> R): R {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
-    context(Fresh {
+    context(Fresh<Region> {
       "x${++get().i}"
     }) {
       block()
@@ -81,16 +83,16 @@ suspend fun <R> freshVars(block: suspend context(Fresh, MultishotScope) () -> R)
   }
 }
 
-fun interface Bind {
-  context(_: MultishotScope)
+fun interface Bind<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun Stmt.bind(): Expr
 }
 
-context(bind: Bind, _: MultishotScope)
-suspend fun Stmt.bind(): Expr = with(bind) { bind() }
+context(bind: Bind<Region>, _: MultishotScope<Region>)
+suspend fun <Region> Stmt.bind(): Expr = with(bind) { bind() }
 
-context(_: Bind, _: Fresh, _: MultishotScope)
-suspend fun Tree.toStmt(): Stmt = when (this) {
+context(_: Bind<Region>, _: Fresh<Region>, _: MultishotScope<Region>)
+suspend fun <Region> Tree.toStmt(): Stmt = when (this) {
   is Lit -> CRet(CLit(value))
   is Var -> CRet(CVar(name))
   // Here we use bind since other than App, CApp requires an expression
@@ -100,8 +102,8 @@ suspend fun Tree.toStmt(): Stmt = when (this) {
   is Let -> CLet(name, bindHere { binding.toStmt() }, bindHere { body.toStmt() })
 }
 
-context(_: Fresh, _: MultishotScope)
-suspend fun bindHere(block: suspend context(Bind, MultishotScope) () -> Stmt): Stmt = handle {
+context(_: Fresh<Region>, _: MultishotScope<Region>)
+suspend fun <Region> bindHere(block: suspend context(Bind<NewRegion>, NewScope<Region>) () -> Stmt): Stmt = handle {
   context(Bind {
     use { resume ->
       val id = fresh()
@@ -112,19 +114,19 @@ suspend fun bindHere(block: suspend context(Bind, MultishotScope) () -> Stmt): S
   }
 }
 
-context(_: MultishotScope)
+context(_: MultishotScope<Any?>)
 suspend fun translate(e: Tree): Stmt = freshVars { bindHere { e.toStmt() } }
 
-context(_: Emit, _: MultishotScope)
-suspend fun Expr.emit() = text(
+context(_: Emit<Region>, _: MultishotScope<Region>)
+suspend fun <Region> Expr.emit() = text(
   when (this) {
     is CLit -> value.toString()
     is CVar -> name
   }
 )
 
-context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice, _: MultishotScope)
-suspend fun Stmt.emit(): Unit = when (this) {
+context(_: Indent<Region>, _: DefaultIndent<Region>, _: Flow<Region>, _: Emit<Region>, _: LayoutChoice<Region>, _: MultishotScope<Region>)
+suspend fun <Region> Stmt.emit(): Unit = when (this) {
   is CLet -> {
     text("let"); space(); text(name); space(); text("=")
     group {
@@ -152,11 +154,11 @@ suspend fun Stmt.emit(): Unit = when (this) {
   }
 }
 
-context(_: MultishotScope)
-suspend fun pretty(s: Stmt): String = pretty(40) { s.emit() }
+context(_: MultishotScope<Region>)
+suspend fun <Region> pretty(s: Stmt): String = pretty(40) { s.emit() }
 
-context(_: MultishotScope)
-suspend fun pipeline(input: String): String = when (val res = parse(input) { parseExpr() }) {
+context(_: MultishotScope<Region>)
+suspend fun <Region> pipeline(input: String): String = when (val res = parse(input) { parseExpr() }) {
   is Either.Right -> pretty(translate(res.value))
   is Either.Left -> res.value
 }

@@ -111,7 +111,7 @@ class ExactInfTest {
   @Test
   fun `test flips and`() = runTestCC {
     val result = exactReify {
-      context(_: MultishotScope)
+      context(_: MultishotScope<ExactReifyRegion>)
       tailrec suspend fun loop(n: Int): Boolean {
         return if (n == 1) flip(0.5) else flip(0.5) && loop(n - 1)
       }
@@ -126,7 +126,7 @@ class ExactInfTest {
   @Test
   fun `test flips xor`() = runTestCC {
     val result = exactReify {
-      context(_: MultishotScope)
+      context(_: MultishotScope<ExactReifyRegion>)
       suspend fun loop(n: Int): Boolean {
         return if (n == 1) flip(0.5) else flip(0.5) != loop(n - 1)
       }
@@ -142,7 +142,7 @@ class ExactInfTest {
   fun `test flips xor incorrect`() = runTestCC {
     val result = exactReify {
       // doesn't use the context of the variable elimination :o
-      context(_: MultishotScope)
+      context(_: MultishotScope<ExactReifyRegion>)
       suspend fun loop(n: Int): Boolean {
         return if (n == 1) flip(0.5) else {
           val r = variableElimination { loop(n - 1) }
@@ -160,10 +160,10 @@ class ExactInfTest {
   @Test
   fun `test flips xor prime`() = runTestCC {
     val result = exactReify {
-      context(_: Probabilistic, _: MultishotScope)
-      suspend fun loop(n: Int): Boolean {
+      context(_: Probabilistic<Region>, _: MultishotScope<Region>)
+      suspend fun <Region> loop(n: Int): Boolean {
         return if (n == 1) flip(0.5) else {
-          if ((n % 500) == 2) yieldToTrampoline()
+          if ((n % 400) == 2) yieldToTrampoline()
           val r = variableElimination { loop(n - 1) }
           flip(0.5) != r
         }

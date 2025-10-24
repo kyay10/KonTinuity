@@ -21,7 +21,7 @@ private const val useRunSuspend = false
 fun runTestCC(
   context: CoroutineContext = EmptyCoroutineContext,
   timeout: Duration? = null,
-  testBody: suspend context(MultishotScope) () -> Unit
+  testBody: suspend context(MultishotScope<Any?>) () -> Unit
 ) = runTest(context, timeout) { runCC { testBody() } }
 
 fun runTest(
@@ -34,7 +34,7 @@ fun runTest(
   else coroutinesRunTest(context, timeout) { block() }
 }
 
-inline fun <Error, R> HandlerPrompt<R>.Raise(crossinline transform: (Error) -> R): Raise<Error> =
+inline fun <Error, R> HandlerPrompt<R, *, *>.Raise(crossinline transform: (Error) -> R): Raise<Error> =
   object : Raise<Error> {
     override fun raise(r: Error): Nothing = discard { transform(r) }
   }
@@ -52,8 +52,8 @@ inline fun repeatIteratorless(
   }
 }
 
-context(_: Choose, _: MultishotScope)
-suspend fun <T> List<T>.insert(element: T): PersistentList<T> {
+context(_: Choose<IR, *>, _: MultishotScope<IR>)
+suspend fun <T, IR> List<T>.insert(element: T): PersistentList<T> {
   val index = (0..size).bind()
   return toPersistentList().add(index, element)
 }

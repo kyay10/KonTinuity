@@ -4,21 +4,23 @@ import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class UseCasesTest {
-  context(_: MultishotScope)
-  suspend fun <R> String.parseAll(parser: suspend context(Amb, Exc, Receive<Char>, MultishotScope) () -> R): List<R> =
+  context(_: MultishotScope<Region>)
+  suspend fun <R, Region> String.parseAll(parser: suspend context(Amb<NewRegion>, Exc<NewRegion>, Receive<Char, NewRegion>, NewScope<Region>) () -> R): List<R> =
     nonDet {
       stringReader(this@parseAll) {
         parser()
       }
     }
 
-  context(_: MultishotScope)
-  suspend fun <R> String.parseBacktrack(parser: suspend context(Amb, Exc, Receive<Char>, MultishotScope) () -> R): Option<R> =
+  context(_: MultishotScope<Region>)
+  suspend fun <R, Region> String.parseBacktrack(parser: suspend context(Amb<NewRegion>, Exc<NewRegion>, Receive<Char, NewRegion>, NewScope<Region>) () -> R): Option<R> =
     backtrack {
       stringReader(this@parseBacktrack) {
         parser()
@@ -32,15 +34,15 @@ class UseCasesTest {
   }
 }
 
-context(_: Amb, _: Exc, _: Receive<Char>, _: MultishotScope)
-suspend inline fun accept(p: (Char) -> Boolean): Char =
+context(_: Amb<Region>, _: Exc<Region>, _: Receive<Char, Region>, _: MultishotScope<Region>)
+suspend inline fun <Region> accept(p: (Char) -> Boolean): Char =
   receive().also { if (!p(it)) raise("Didn't match $it") }
 
-context(_: Amb, _: Exc, _: Receive<Char>, _: MultishotScope)
-suspend fun digit(): Int = accept(Char::isDigit).digitToInt()
+context(_: Amb<Region>, _: Exc<Region>, _: Receive<Char, Region>, _: MultishotScope<Region>)
+suspend fun <Region> digit(): Int = accept(Char::isDigit).digitToInt()
 
-context(_: Amb, _: Exc, _: Receive<Char>, _: MultishotScope)
-suspend fun number(): Int {
+context(_: Amb<Region>, _: Exc<Region>, _: Receive<Char, Region>, _: MultishotScope<Region>)
+suspend fun <Region> number(): Int {
   var res = digit()
   while (flip()) {
     res = res * 10 + digit()
@@ -52,8 +54,11 @@ data class StringReaderData(var pos: Int = 0) : Stateful<StringReaderData> {
   override fun fork() = copy()
 }
 
-context(_: Exc, _: MultishotScope)
-suspend fun <R> stringReader(input: String, block: suspend context(MultishotScope) Receive<Char>.() -> R): R =
+context(_: Exc<Region>, _: MultishotScope<Region>)
+suspend fun <R, Region> stringReader(
+  input: String,
+  block: suspend context(NewScope<Region>) Receive<Char, NewRegion>.() -> R
+): R =
   handleStateful(StringReaderData()) {
     block {
       if (get().pos >= input.length) raise("Unexpected EOS")
@@ -61,31 +66,33 @@ suspend fun <R> stringReader(input: String, block: suspend context(MultishotScop
     }
   }
 
-context(_: MultishotScope)
-suspend fun <E> nonDet(block: suspend context(Amb, Exc, MultishotScope) () -> E): List<E> = handle {
-  context(AmbList(this), Exc { discard { emptyList() } }) {
-    listOf(block())
+context(_: MultishotScope<Region>)
+suspend fun <E, Region> nonDet(block: suspend context(Amb<NewRegion>, Exc<NewRegion>, NewScope<Region>) () -> E): List<E> =
+  handle {
+    context(AmbList(this), Exc<HandleRegion> { discard { emptyList() } }) {
+      listOf(block())
+    }
   }
-}
 
-class Backtrack<R>(p: HandlerPrompt<Option<R>>) : Amb, Handler<Option<R>> by p {
-  context(_: MultishotScope)
+class Backtrack<R, IR, OR>(p: HandlerPrompt<Option<R>, IR, OR>) : Amb<IR>, Handler<Option<R>, IR, OR> by p {
+  context(_: MultishotScope<IR>)
   override suspend fun flip(): Boolean = use { resume ->
     resume(true).recover { resume(false).bind() }
   }
 }
 
-context(_: MultishotScope)
-suspend fun <R> backtrack(block: suspend context(Amb, Exc, MultishotScope) () -> R): Option<R> = handle {
-  context(Backtrack(this), Maybe(this)) {
-    Some(block())
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> backtrack(block: suspend context(Amb<NewRegion>, Exc<NewRegion>, NewScope<Region>) () -> R): Option<R> =
+  handle {
+    context(Backtrack(this), Maybe(this)) {
+      Some(block())
+    }
   }
-}
 
-fun interface Receive<A> {
-  context(_: MultishotScope)
+fun interface Receive<A, Region> {
+  context(_: MultishotScope<Region>)
   suspend fun receive(): A
 }
 
-context(receive: Receive<A>, _: MultishotScope)
-suspend fun <A> receive(): A = receive.receive()
+context(receive: Receive<A, Region>, _: MultishotScope<Region>)
+suspend fun <A, Region> receive(): A = receive.receive()

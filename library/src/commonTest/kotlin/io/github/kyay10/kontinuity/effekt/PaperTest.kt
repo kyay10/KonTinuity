@@ -4,6 +4,8 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
 import io.kotest.matchers.shouldBe
@@ -71,8 +73,8 @@ class PaperTest {
     }
   }
 
-  context(_: Fiber, _: Async, _: MultishotScope)
-  suspend fun asyncExample() {
+  context(_: Fiber<Region>, _: Async<Region>, _: MultishotScope<Region>)
+  suspend fun <Region> asyncExample() {
     val str = buildString {
       val p = async {
         appendLine("Async 1")
@@ -117,15 +119,15 @@ class PaperTest {
   }
 }
 
-context(amb: Amb, exc: Exc, _: MultishotScope)
-private suspend fun drunkFlip(): String {
+context(amb: Amb<Region>, exc: Exc<Region>, _: MultishotScope<Region>)
+private suspend fun <Region> drunkFlip(): String {
   val caught = amb.flip()
   val heads = if (caught) amb.flip() else exc.raise("We dropped the coin.")
   return if (heads) "Heads" else "Tails"
 }
 
-class Collect<R>(p: HandlerPrompt<List<R>>) : Amb, Handler<List<R>> by p {
-  context(_: MultishotScope)
+class Collect<R, IR, OR>(p: HandlerPrompt<List<R>, IR, OR>) : Amb<IR>, Handler<List<R>, IR, OR> by p {
+  context(_: MultishotScope<IR>)
   override suspend fun flip(): Boolean = use { resume ->
     val ts = resume(true)
     val fs = resume(false)
@@ -133,51 +135,51 @@ class Collect<R>(p: HandlerPrompt<List<R>>) : Amb, Handler<List<R>> by p {
   }
 }
 
-context(_: MultishotScope)
-suspend fun <R> collect(block: suspend context(MultishotScope) Amb.() -> R): List<R> = handle {
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> collect(block: suspend context(NewScope<Region>) Amb<NewRegion>.() -> R): List<R> = handle {
   listOf(block(Collect(this)))
 }
 
-interface Fiber {
-  context(_: MultishotScope)
+interface Fiber<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun suspend()
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   suspend fun fork(): Boolean
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   suspend fun exit(): Nothing
+}
 
-  context(_: MultishotScope)
-  suspend fun forked(p: suspend context(MultishotScope) () -> Unit) {
-    if (fork()) {
-      p()
-      exit()
-    }
+context(_: MultishotScope<Region>)
+suspend inline fun <Region> Fiber<Region>.forked(p: () -> Unit) {
+  if (fork()) {
+    p()
+    exit()
   }
 }
 
-context(fiber: Fiber, _: MultishotScope)
-suspend fun suspend() = fiber.suspend()
+context(fiber: Fiber<Region>, _: MultishotScope<Region>)
+suspend fun <Region> suspend() = fiber.suspend()
 
-interface Async {
-  context(_: MultishotScope)
-  suspend fun <T> async(body: suspend context(MultishotScope) () -> T): Promise<T>
-  interface Promise<T> {
-    context(_: MultishotScope)
+interface Async<Region> {
+  context(_: MultishotScope<Region>)
+  suspend fun <T> async(body: suspend context(MultishotScope<Region>) () -> T): Promise<T, Region>
+  interface Promise<T, in Region> {
+    context(_: MultishotScope<Region>)
     suspend fun await(): T
   }
 }
 
-context(async: Async, _: MultishotScope)
-suspend fun <T> async(body: suspend context(MultishotScope) () -> T): Async.Promise<T> = async.async(body)
+context(async: Async<Region>, _: MultishotScope<Region>)
+suspend fun <T, Region> async(body: suspend context(MultishotScope<Region>) () -> T): Async.Promise<T, Region> = async.async(body)
 
-class Poll(
+class Poll<Region>(
   val state: StateScope,
-  val fiber: Fiber,
-) : Async {
-  private class PromiseImpl<T>(val fiber: Fiber, val field: StateScope.Field<Option<T>>) : Async.Promise<T> {
-    context(_: MultishotScope)
+  val fiber: Fiber<Region>,
+) : Async<Region> {
+  private class PromiseImpl<T, Region>(val fiber: Fiber<Region>, val field: StateScope.Field<Option<T>>) : Async.Promise<T, Region> {
+    context(_: MultishotScope<Region>)
     override tailrec suspend fun await(): T = when (val v = field.get()) {
       is None -> {
         fiber.suspend()
@@ -188,8 +190,8 @@ class Poll(
     }
   }
 
-  context(_: MultishotScope)
-  override suspend fun <T> async(body: suspend context(MultishotScope) () -> T): Async.Promise<T> {
+  context(_: MultishotScope<Region>)
+  override suspend fun <T> async(body: suspend context(MultishotScope<Region>) () -> T): Async.Promise<T, Region> {
     val p = state.field<Option<T>>(None)
     fiber.forked {
       p.set(Some(body()))
@@ -198,51 +200,50 @@ class Poll(
   }
 }
 
-context(state: StateScope, fiber: Fiber, _: MultishotScope)
-suspend inline fun poll(block: suspend context(MultishotScope) Async.() -> Unit) =
-  block(Poll(state, fiber))
+context(state: StateScope, fiber: Fiber<Region>, _: MultishotScope<Region>)
+inline fun <Region> poll(block: Async<Region>.() -> Unit) = block(Poll(state, fiber))
 
-context(_: MultishotScope)
-suspend fun <R> firstResult(block: suspend context(Amb, Exc, MultishotScope) () -> R): Option<R> = backtrack(block)
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> firstResult(block: suspend context(Amb<NewRegion>, Exc<NewRegion>, NewScope<Region>) () -> R): Option<R> = backtrack(block)
 
-class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Unit, Queue> by prompt {
-  context(_: MultishotScope)
+class Scheduler<IR, OR>(prompt: StatefulPrompt<Unit, Queue<OR>, IR, OR>) : Fiber<IR>, StatefulHandler<Unit, Queue<OR>, IR, OR> by prompt {
+  context(_: MultishotScope<IR>)
   override suspend fun exit(): Nothing = discard {}
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun fork(): Boolean = use { resume ->
     get().add(0) { resume(false) }
     get().add(0) { resume(true) }
     run()
   }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun suspend() = use { resume ->
     get().add { resume(Unit) }
     run()
   }
 }
 
-context(_: MultishotScope)
-suspend fun scheduler(block: suspend context(MultishotScope) Fiber.() -> Unit) =
-  handleStateful(mutableListOf(), Queue::toMutableList) {
+context(_: MultishotScope<Region>)
+suspend fun <Region> scheduler(block: suspend context(NewScope<Region>) Fiber<NewRegion>.() -> Unit) =
+  handleStateful(mutableListOf(), Queue<Region>::toMutableList) {
     Scheduler(this).block()
   }
 
-context(_: MultishotScope)
-private suspend fun StatefulHandler<Unit, Queue>.run() {
+context(_: MultishotScope<OR>)
+private suspend fun <IR, OR> StatefulHandler<Unit, Queue<OR>, IR, OR>.run() {
   val q = get()
   if (q.isNotEmpty()) {
     q.removeFirst()()
   }
 }
 
-typealias Queue = MutableList<suspend context(MultishotScope) () -> Unit>
+typealias Queue<Region> = MutableList<suspend context(MultishotScope<Region>) () -> Unit>
 
-fun interface Input {
-  context(_: MultishotScope)
+fun interface Input<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun read(): Char
 }
 
-context(input: Input, _: MultishotScope)
-suspend fun read(): Char = input.read()
+context(input: Input<Region>, _: MultishotScope<Region>)
+suspend fun <Region> read(): Char = input.read()

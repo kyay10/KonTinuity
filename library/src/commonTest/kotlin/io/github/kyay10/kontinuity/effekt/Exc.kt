@@ -4,33 +4,35 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import kotlin.contracts.contract
 
-fun interface Exc {
-  context(_: MultishotScope)
+fun interface Exc<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun raise(msg: String): Nothing
 }
 
-context(exc: Exc, _: MultishotScope)
-suspend inline fun raise(msg: String): Nothing = exc.raise(msg)
+context(exc: Exc<Region>, _: MultishotScope<Region>)
+suspend inline fun <Region> raise(msg: String): Nothing = exc.raise(msg)
 
-context(exc: Exc, _: MultishotScope)
-suspend inline fun raise(): Nothing = raise("")
+context(exc: Exc<Region>, _: MultishotScope<Region>)
+suspend inline fun <Region> raise(): Nothing = raise("")
 
-context(_: Exc, _: MultishotScope)
-suspend fun ensure(condition: Boolean) {
+context(exc: Exc<Region>, _: MultishotScope<Region>)
+suspend fun <Region> ensure(condition: Boolean) {
   contract {
     returns() implies condition
   }
   return if (!condition) raise() else Unit
 }
 
-class Maybe<R>(p: HandlerPrompt<Option<R>>) : Exc, Handler<Option<R>> by p {
-  context(_: MultishotScope)
+class Maybe<R, in IR, OR>(p: HandlerPrompt<Option<R>, IR, OR>) : Exc<IR>, Handler<Option<R>, IR, OR> by p {
+  context(_: MultishotScope<IR>)
   override suspend fun raise(msg: String): Nothing = discard { None }
 }
 
-context(_: MultishotScope)
-suspend fun <R> maybe(block: suspend context(MultishotScope) Exc.() -> R): Option<R> = handle {
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> maybe(block: suspend context(NewScope<Region>) Exc<NewRegion>.() -> R): Option<R> = handle {
   Some(block(Maybe(this)))
 }

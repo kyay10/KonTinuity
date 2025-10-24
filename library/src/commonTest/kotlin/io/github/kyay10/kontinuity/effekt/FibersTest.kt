@@ -1,16 +1,14 @@
 package io.github.kyay10.kontinuity.effekt
 
-import io.github.kyay10.kontinuity.MultishotScope
-import io.github.kyay10.kontinuity.runCC
-import io.github.kyay10.kontinuity.runTest
+import io.github.kyay10.kontinuity.*
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class FibersTest {
   private val printed = StringBuilder()
 
-  context(_: MultishotScope)
-  suspend fun Scheduler2.user1() {
+  context(_: MultishotScope<IR>)
+  suspend fun <IR, OR> Scheduler2<IR, OR>.user1() {
     fastFork {
       printed.appendLine("Hello from fork")
       yield()
@@ -23,9 +21,9 @@ class FibersTest {
     printed.appendLine("Hello from main 3")
   }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<*>)
   suspend fun user2() {
-    val f = Fibre.create {
+    val f = Fibre.create<_, Any?> {
       printed.appendLine("Hello from fiber")
       suspend()
       printed.appendLine("back again")
@@ -70,16 +68,16 @@ class FibersTest {
   }
 }
 
-interface Fibre<A> {
-  context(_: MultishotScope)
+interface Fibre<A, in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun resume()
   val isDone: Boolean
   val result: A
 
   companion object {
-    fun <A> create(block: suspend context(MultishotScope) Suspendable.() -> A): Fibre<A> {
+    fun <A, Region> create(block: suspend context(NewScope<Region>) Suspendable<NewRegion>.() -> A): Fibre<A, Region> {
       // set up the communication channel between the two components
-      val fiber = CanResume<A>()
+      val fiber = CanResume<A, Region>()
       // create first continuation by installing a ScheduledSuspendable handler
       fiber.next {
         handle {
@@ -95,7 +93,7 @@ interface Fibre<A> {
   }
 }
 
-class CanResume<A> : Fibre<A> {
+class CanResume<A, Region> : Fibre<A, Region> {
   private data object EmptyResult
 
   override val isDone get() = res != EmptyResult
@@ -112,8 +110,9 @@ class CanResume<A> : Fibre<A> {
     res = value
   }
 
-  private var k: (suspend context(MultishotScope) () -> Unit)? = null
-  context(_: MultishotScope)
+  private var k: (suspend context(MultishotScope<Region>) () -> Unit)? = null
+
+  context(_: MultishotScope<Region>)
   override suspend fun resume() {
     check(!isDone) { "Can't resume this fiber anymore" }
     val k = checkNotNull(k) { "This fiber is not yet set up" }
@@ -121,29 +120,29 @@ class CanResume<A> : Fibre<A> {
     k()
   }
 
-  fun next(k: suspend context(MultishotScope) () -> Unit) {
+  fun next(k: suspend context(MultishotScope<Region>) () -> Unit) {
     this.k = k
   }
 }
 
-class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit>) :
-  Handler<Unit> by prompt {
-  context(_: MultishotScope)
+class Scheduler2<IR, OR>(private val tasks: ArrayDeque<Task<OR>>, prompt: HandlerPrompt<Unit, IR, OR>) :
+  Handler<Unit, IR, OR> by prompt {
+  context(_: MultishotScope<IR>)
   suspend fun fork(): Boolean = useWithFinal { (k, final) ->
     tasks.addLast { final(true) }
     k(false)
   }
 
-  context(_: MultishotScope)
-  suspend inline fun forkFlipped(task: Task) {
+  context(_: MultishotScope<IR>)
+  suspend inline fun forkFlipped(task: () -> Unit) {
     if (!fork()) {
       task()
       discardWithFast(Result.success(Unit))
     }
   }
 
-  context(_: MultishotScope)
-  suspend inline fun fork(task: Task) {
+  context(_: MultishotScope<IR>)
+  suspend inline fun fork(task: () -> Unit) {
     // TODO this reveals an inefficiency in the SplitSeq code
     //  because here the frames up to the prompt are never used
     //  so we should never have to copy them, but seemingly we copy
@@ -156,7 +155,7 @@ class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit
     }
   }
 
-  fun fastFork(task: suspend context(MultishotScope) Scheduler2.() -> Unit) {
+  fun fastFork(task: suspend context(NewScope<OR>) Scheduler2<NewRegion, OR>.() -> Unit) {
     tasks.addLast {
       handle {
         task(Scheduler2(tasks, this))
@@ -166,12 +165,12 @@ class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit
 
   // Since we only run on one thread, we also need yield in the scheduler
   // to allow cooperative multitasking
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   suspend fun yield() = useOnce {
     tasks.addLast { it(Unit) }
   }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   suspend fun yieldAndRepush() = useWithFinal { (_, final) ->
     tasks.addLast { final(Unit) }
   }
@@ -180,16 +179,16 @@ class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit
 // we can't run the scheduler in pure since the continuation that contains
 // the call to pure might be discarded by one fork, while another one
 // is still alive.
-context(_: MultishotScope)
-suspend fun ArrayDeque<Task>.run() {
+context(_: MultishotScope<Region>)
+suspend fun <Region> ArrayDeque<Task<Region>>.run() {
   while (isNotEmpty()) {
     removeFirst()()
   }
 }
 
-context(_: MultishotScope)
-suspend fun scheduler2(block: suspend context(MultishotScope) Scheduler2.() -> Unit) {
-  val tasks = ArrayDeque<Task>()
+context(_: MultishotScope<Region>)
+suspend fun <Region> scheduler2(block: suspend context(NewScope<Region>) Scheduler2<NewRegion, Region>.() -> Unit) {
+  val tasks = ArrayDeque<Task<Region>>()
   handle {
     block(Scheduler2(tasks, this))
   }
@@ -197,9 +196,9 @@ suspend fun scheduler2(block: suspend context(MultishotScope) Scheduler2.() -> U
   tasks.run()
 }
 
-fun interface Suspendable {
-  context(_: MultishotScope)
+fun interface Suspendable<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun suspend()
 }
 
-typealias Task = suspend context(MultishotScope) () -> Unit
+typealias Task<Region> = suspend context(MultishotScope<Region>) () -> Unit

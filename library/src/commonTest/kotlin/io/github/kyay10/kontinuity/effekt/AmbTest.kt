@@ -3,14 +3,16 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Some
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.kotest.matchers.shouldBe
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
 import kotlin.test.Test
 
 class AmbTest {
-  context(amb: Amb, exc: Exc, _: MultishotScope)
-  suspend fun drunkFlip(): String {
+  context(amb: Amb<IR>, exc: Exc<IR>, _: MultishotScope<IR>)
+  suspend fun <IR> drunkFlip(): String {
     val heads = if (amb.flip()) amb.flip() else exc.raise("We dropped the coin.")
     return if (heads) "Heads" else "Tails"
   }
@@ -65,16 +67,16 @@ class AmbTest {
   }
 }
 
-fun interface Amb {
-  context(_: MultishotScope)
+fun interface Amb<in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun flip(): Boolean
 }
 
-context(amb: Amb, _: MultishotScope)
-suspend fun flip(): Boolean = amb.flip()
+context(amb: Amb<Region>, _: MultishotScope<Region>)
+suspend fun <Region> flip(): Boolean = amb.flip()
 
-class AmbList<E>(p: HandlerPrompt<List<E>>) : Handler<List<E>> by p, Amb {
-  context(_: MultishotScope)
+class AmbList<E, in IR, OR>(p: HandlerPrompt<List<E>, IR, OR>) : Handler<List<E>, IR, OR> by p, Amb<IR> {
+  context(_: MultishotScope<IR>)
   override suspend fun flip(): Boolean = use { resume ->
     val ts = resume(true)
     val fs = resume(false)
@@ -82,7 +84,8 @@ class AmbList<E>(p: HandlerPrompt<List<E>>) : Handler<List<E>> by p, Amb {
   }
 }
 
-context(_: MultishotScope)
-suspend fun <E> ambList(block: suspend context(MultishotScope) Amb.() -> E): List<E> = handle {
+// TODO sometimes triggers KT-81618. Update Kotlin version and see if it persists.
+context(_: MultishotScope<Region>)
+suspend fun <E, Region> ambList(block: suspend context(NewScope<Region>) Amb<NewRegion>.() -> E): List<E> = handle {
   listOf(block(AmbList(this)))
 }

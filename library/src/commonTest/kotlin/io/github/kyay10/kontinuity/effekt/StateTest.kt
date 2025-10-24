@@ -1,6 +1,8 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.MultishotScope
+import io.github.kyay10.kontinuity.NewRegion
+import io.github.kyay10.kontinuity.NewScope
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -14,16 +16,16 @@ class StateTest {
 
   @Test
   fun countDown8() = runTestCC {
-    context(_: MultishotScope)
-    suspend fun Amb.countDown(
-      s1: State<Int>,
-      s2: State<Int>,
-      s3: State<Int>,
-      s4: State<Int>,
-      s5: State<Int>,
-      s6: State<Int>,
-      s7: State<Int>,
-      s8: State<Int>
+    context(_: MultishotScope<IR>)
+    suspend fun <IR> Amb<IR>.countDown(
+      s1: State<Int, IR>,
+      s2: State<Int, IR>,
+      s3: State<Int, IR>,
+      s4: State<Int, IR>,
+      s5: State<Int, IR>,
+      s6: State<Int, IR>,
+      s7: State<Int, IR>,
+      s8: State<Int, IR>
     ): Boolean {
       while (s1.get() > 0) {
         s1.put(s1.get() - 1)
@@ -63,8 +65,8 @@ class StateTest {
 
   @Test
   fun countDown() = runTestCC {
-    context(_: MultishotScope)
-    suspend fun State<Int>.countDown(): List<Int> {
+    context(_: MultishotScope<IR>)
+    suspend fun <IR> State<Int, IR>.countDown(): List<Int> {
       val printed = mutableListOf(Int.MIN_VALUE)
       while (get() > 0) {
         printed.add(get())
@@ -80,8 +82,8 @@ class StateTest {
 
   @Test
   fun silentCountDown() = runTestCC(timeout = 10.minutes) {
-    context(_: MultishotScope)
-    suspend fun State<Int>.countDown() {
+    context(_: MultishotScope<IR>)
+    suspend fun <IR> State<Int, IR>.countDown() {
       while (get() > 0) {
         put(get() - 1)
       }
@@ -93,8 +95,8 @@ class StateTest {
 
   @Test
   fun ambientState1() = runTestCC {
-    context(_: MultishotScope)
-    suspend fun Amb.ex1(s: CrazyState) {
+    context(_: MultishotScope<IR>)
+    suspend fun <IR> Amb<IR>.ex1(s: CrazyState<IR>) {
       if (flip()) {
         s.put(1)
       }
@@ -140,75 +142,75 @@ class StateTest {
   }
 }
 
-interface CrazyState : State<Int> {
-  context(_: MultishotScope)
+interface CrazyState<in Region> : State<Int, Region> {
+  context(_: MultishotScope<Region>)
   suspend fun foo()
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   suspend fun bar()
 }
 
-class MyState<R>(prompt: StatefulPrompt<R, Data<Int>>) : CrazyState,
-  SpecialState<R, Int>(prompt) {
-  context(_: MultishotScope)
+class MyState<R, in IR, OR>(prompt: StatefulPrompt<R, Data<Int>, IR, OR>) : CrazyState<IR>,
+  SpecialState<R, Int, IR, OR>(prompt) {
+  context(_: MultishotScope<IR>)
   override suspend fun foo() {
     put(2)
     use { k ->
       k(Unit)
-      put(13)
+      value.state = 13
       k(Unit)
     }
   }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun bar() {
     put(2)
     use { k ->
-      put(get() + 1)
+      value.state++
       k(Unit)
-      put(get() + 1)
+      value.state++
       k(Unit)
     }
   }
 }
 
-context(_: MultishotScope)
-suspend fun <R> myState(init: Int, block: suspend context(MultishotScope) CrazyState.() -> R): R =
-  handleStateful<_, SpecialState.Data<Int>>(SpecialState.Data(init)) {
+context(_: MultishotScope<Region>)
+suspend fun <R, Region> myState(init: Int, block: suspend context(NewScope<Region>) CrazyState<NewRegion>.() -> R): R =
+  handleStateful<_, SpecialState.Data<Int>, _>(SpecialState.Data(init)) {
     block(MyState(this))
   }
 
-open class SpecialState<R, S>(prompt: StatefulPrompt<R, Data<S>>) : State<S>,
-  StatefulHandler<R, SpecialState.Data<S>> by prompt {
+open class SpecialState<R, S, in IR, OR>(prompt: StatefulPrompt<R, Data<S>, IR, OR>) : State<S, IR>,
+  StatefulHandler<R, SpecialState.Data<S>, IR, OR> by prompt {
   data class Data<S>(var state: S) : Stateful<Data<S>> {
     override fun fork() = copy()
   }
 
-  context(_: MultishotScope)
-  override suspend fun get(): S = (this as StatefulHandler<R, Data<S>>).get().state
+  context(_: MultishotScope<IR>)
+  override suspend fun get(): S = value.state
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun put(value: S) {
-    (this as StatefulHandler<R, Data<S>>).get().state = value
+    this.value.state = value
   }
 }
 
-context(_: MultishotScope)
-suspend fun <R, S> specialState(init: S, block: suspend context(MultishotScope) State<S>.() -> R): R =
-  handleStateful<_, SpecialState.Data<S>>(SpecialState.Data(init)) {
+context(_: MultishotScope<Region>)
+suspend fun <R, S, Region> specialState(init: S, block: suspend context(NewScope<Region>) State<S, NewRegion>.() -> R): R =
+  handleStateful<_, SpecialState.Data<S>, _>(SpecialState.Data(init)) {
     block(SpecialState(this))
   }
 
-class StateFun<R, S>(p: HandlerPrompt<suspend context(MultishotScope) (S) -> R>) : State<S>,
-  Handler<suspend context(MultishotScope) (S) -> R> by p {
-  context(_: MultishotScope)
+class StateFun<R, S, in IR, OR>(p: HandlerPrompt<suspend context(MultishotScope<OR>) (S) -> R, IR, OR>) : State<S, IR>,
+  Handler<suspend context(MultishotScope<OR>) (S) -> R, IR, OR> by p {
+  context(_: MultishotScope<IR>)
   override suspend fun get(): S = useOnce { k ->
     { s ->
       k(s)(s)
     }
   }
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<IR>)
   override suspend fun put(value: S) = useOnce { k ->
     {
       k(Unit)(value)
@@ -216,19 +218,19 @@ class StateFun<R, S>(p: HandlerPrompt<suspend context(MultishotScope) (S) -> R>)
   }
 }
 
-context(_: MultishotScope)
-suspend fun <R, S> stateFun(init: S, block: suspend context(MultishotScope) State<S>.() -> R): R = handle {
+context(_: MultishotScope<Region>)
+suspend fun <R, S, Region> stateFun(init: S, block: suspend context(NewScope<Region>) State<S, NewRegion>.() -> R): R = handle {
   val res = block(StateFun(this))
   suspendOneArg { res }
 }(init)
 
-private fun <S, R> suspendOneArg(block: suspend context(MultishotScope) (S) -> R): suspend context(MultishotScope) (S) -> R =
+private fun <S, R, Region> suspendOneArg(block: suspend context(MultishotScope<Region>) (S) -> R): suspend context(MultishotScope<Region>) (S) -> R =
   block
 
-interface State<S> {
-  context(_: MultishotScope)
+interface State<S, in Region> {
+  context(_: MultishotScope<Region>)
   suspend fun get(): S
 
-  context(_: MultishotScope)
+  context(_: MultishotScope<Region>)
   suspend fun put(value: S)
 }
