@@ -4,6 +4,7 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.jvm.JvmField
+import kotlin.jvm.JvmInline
 
 public expect class StackTraceElement
 public expect interface CoroutineStackFrame {
@@ -13,12 +14,15 @@ public expect interface CoroutineStackFrame {
 
 @PublishedApi
 internal expect val Continuation<*>.completion: Continuation<*>?
+
 @PublishedApi
 internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>): Continuation<T>
+
 @PublishedApi
 internal expect fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any?
 
-public sealed class SplitSeq<in Start>(@JvmField internal val realContext: CoroutineContext): Continuation<Start>, CoroutineStackFrame {
+public sealed class SplitSeq<in Start>(@JvmField @PublishedApi internal val realContext: CoroutineContext) :
+  Continuation<Start>, CoroutineStackFrame {
   final override fun resumeWith(result: Result<Start>) {
     if (result.exceptionOrNull() !== SuspendedException) {
       resumeWithImpl(result)
@@ -26,7 +30,8 @@ public sealed class SplitSeq<in Start>(@JvmField internal val realContext: Corou
   }
 }
 
-public sealed class SplitCont<in Start>(realContext: CoroutineContext) : CoroutineContext, SplitSeq<Start>(realContext) {
+public sealed class SplitCont<in Start>(realContext: CoroutineContext) : CoroutineContext,
+  SplitSeq<Start>(realContext) {
   final override val context: CoroutineContext get() = this
 
   final override fun <R> fold(initial: R, operation: (R, CoroutineContext.Element) -> R): R =
@@ -41,10 +46,6 @@ public sealed class SplitCont<in Start>(realContext: CoroutineContext) : Corouti
     realContext[key]
 }
 
-internal sealed interface HasCopied {
-  var copied: Boolean
-}
-
 internal tailrec fun <Start> SplitSeq<Start>.resumeWithImpl(result: Result<Start>): Unit = when (this) {
   is EmptyCont -> underlying.resumeWith(result)
 
@@ -52,49 +53,66 @@ internal tailrec fun <Start> SplitSeq<Start>.resumeWithImpl(result: Result<Start
 
   is FramesCont<Start, *> -> resumeCopiedAndCollectResult(result) { seq, res -> return seq.resumeWithImpl(res) }
 
-  is Prompt<Start> -> rest.resumeWithImpl(result)
-  is ReaderT<*, Start> -> rest.resumeWithImpl(result)
-  is UnderCont<*, Start> -> (captured prependTo rest).resumeWithImpl(result)
+  is Segmentable<Start, *> -> underflow().resumeWithImpl(result)
 }
 
 @PublishedApi
-internal fun <Start, P> FramesCont<Start, *>.splitAt(p: Prompt<P>): Pair<SingleUseSegment<Start, P>, FramesCont<in P, *>> =
-  SingleUseSegment(p, this) to p.rest
+internal fun <Start, P> FramesCont<Start, *>.splitAt(p: Prompt<P>): Pair<FramesCont<P, *>, Segment<Start, P>> {
+  val delimiter = p.cont!!
+  return delimiter.rest to Segment<Start, P>(delimiter).also { it.start = this }
+}
 
-internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>) : SplitCont<Start>(underlying.context) {
+@PublishedApi
+internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>) :
+  SplitCont<Start>(underlying.context) {
   override val callerFrame: CoroutineStackFrame? = underlying as? CoroutineStackFrame
   override fun getStackTraceElement(): StackTraceElement? = null
 }
 
 // frame :: frames ::: rest
 @PublishedApi
-internal class FramesCont<Start, Last>(
-  @JvmField var cont: Continuation<Start>,
+internal class FramesCont<in Start, Last>(
+  cont: Continuation<Start>,
   @Suppress("UNCHECKED_CAST")
   @JvmField val rest: SplitCont<Last> = cont.context as SplitCont<Last>,
-  override var copied: Boolean = false,
-) : SplitSeq<Start>(rest.realContext), HasCopied {
+  val copied: Boolean = false,
+) : SplitSeq<Start>(rest.realContext) {
+  @Suppress("UNCHECKED_CAST")
+  @PublishedApi
+  internal var cont = cont as Continuation<Any?>
   override val context: CoroutineContext get() = rest
+
+  val restSegmentable: Segmentable<Last, *>
+    get() = rest as? Segmentable<Last, *> ?: error("EmptyCont found when copying: $rest")
+
+  fun copy(rest: SplitCont<Last>): FramesCont<Start, Last> =
+    FramesCont(cont, rest, copied = true)
 
   @Suppress("UNCHECKED_CAST")
   inline fun resumeCopiedAndCollectResult(result: Result<Start>, resumer: (SplitSeq<Last>, Result<Last>) -> Unit) {
     // This loop unrolls recursion in current.resumeWith(param) to make saner and shorter stack traces on resume
-    val newFramesCont = FramesCont(cont, rest, true)
-    var current: Continuation<Any?> = cont as Continuation<Any?>
+    val rest = rest
+    val newFramesCont = copy(rest)
+    var current = cont
     var param: Result<Any?> = result
     while (true) {
-      val completion = (current.completion ?: error("Not a compiler generated continuation $current")) as Continuation<Any?>
-      if (completion is SplitSeq) {
+      var completion =
+        current.completion as? Continuation<Any?> ?: error("Not a compiler generated continuation $current")
+      while (completion is FramesCont<Any?, *>) {
+        completion = completion.cont
+      }
+      // TODO maybe error if completion is EmptyCont?
+      if (completion is SplitCont) {
         // top-level completion reached -- invoke and return
         val outcome = try {
-          val outcome = current.copy(completion).invokeSuspend(param)
+          val outcome = current.copy(rest).invokeSuspend(param)
           if (outcome === COROUTINE_SUSPENDED) return
           Result.success(outcome)
         } catch (exception: Throwable) {
           if (exception === SuspendedException) return
           Result.failure(exception)
         }
-        return resumer(completion, outcome as Result<Last>)
+        return resumer(rest, outcome as Result<Last>)
       }
       // Optimized by only setting it upon suspension.
       // This is safe only if no one accesses cont in between
@@ -126,12 +144,11 @@ internal class FramesCont<Start, Last>(
   @Suppress("UNCHECKED_CAST")
   inline fun resumeAndCollectResult(result: Result<Start>, resumer: (SplitSeq<Last>, Result<Last>) -> Unit) {
     // This loop unrolls recursion in current.resumeWith(param) to make saner and shorter stack traces on resume
-    var current: Continuation<Any?> = cont as Continuation<Any?>
+    var current = cont
     var param: Result<Any?> = result
     while (true) {
       // Use normal resumption when faced with a non-compiler-generated continuation
-      val completion = current.completion ?: return current.resumeWith(param)
-      completion as Continuation<Any?>
+      val completion = current.completion as? Continuation<Any?> ?: return current.resumeWith(param)
       val outcome: Result<Any?> =
         try {
           val outcome = current.invokeSuspend(param)
@@ -142,7 +159,7 @@ internal class FramesCont<Start, Last>(
           Result.failure(exception)
         }
       //releaseIntercepted() // this state machine instance is terminating
-      if (completion is SplitSeq<Any?>) {
+      if (completion is SplitSeq) {
         // top-level completion reached -- invoke and return
         return resumer(completion, outcome as Result<Last>)
       } else {
@@ -157,22 +174,76 @@ internal class FramesCont<Start, Last>(
   override fun getStackTraceElement(): StackTraceElement? = null
 }
 
-public class Prompt<Start> @PublishedApi internal constructor(
-  @PublishedApi override var rest: FramesCont<in Start, *>
-) : Segmentable<Start, Start>(rest.realContext)
+public class Prompt<Start> @PublishedApi internal constructor() {
+  @PublishedApi
+  internal var cont: PromptCont<Start>? = null
+}
 
-public typealias Reader<S> = ReaderT<S, *>
+public class PromptCont<Start> @PublishedApi internal constructor(
+  @JvmField @PublishedApi internal val prompt: Prompt<Start>,
+  context: CoroutineContext,
+) : Segmentable<Start, Start>(context) {
+  override fun copy() = PromptCont(prompt, realContext)
+  override fun invalidateSingle(): Boolean {
+    val prompt = prompt
+    if (prompt.cont === this) {
+      prompt.cont = null
+      return true
+    }
+    return false
+  }
+
+  override fun revalidateSingle(): Boolean {
+    val prompt = prompt
+    val promptsCont = prompt.cont
+    if (promptsCont !== this) {
+      promptsCont?.invalidate()
+      prompt.cont = this
+      return true
+    }
+    return false
+  }
+
+  @PublishedApi
+  override fun underflow(): FramesCont<Start, *> = rest.also { prompt.cont = null }
+}
+
+public class Reader<S> @PublishedApi internal constructor() {
+  @PublishedApi
+  internal var cont: ReaderT<S, *>? = null
+  public fun ask(): S = cont!!.ask()
+}
 
 public class ReaderT<S, Start> @PublishedApi internal constructor(
-  override val rest: FramesCont<in Start, *>,
+  @PublishedApi internal val reader: Reader<S>,
+  context: CoroutineContext,
   @PublishedApi @JvmField internal var state: S,
   @PublishedApi @JvmField internal val fork: S.() -> S,
-) : Segmentable<Start, Start>(rest.realContext) {
-  @PublishedApi
-  @JvmField
-  internal var forkOnFirstRead: Boolean = false
+  private var forkOnFirstRead: Boolean = false,
+) : Segmentable<Start, Start>(context) {
+  override fun copy() = ReaderT<_, Start>(reader, realContext, state, fork, forkOnFirstRead = true)
+  override fun invalidateSingle(): Boolean {
+    val reader = reader
+    return if (reader.cont === this) {
+      reader.cont = null
+      true
+    } else false
+  }
 
-  public fun ask(): S {
+  override fun revalidateSingle(): Boolean {
+    val reader = reader
+    val readersCont = reader.cont
+    if (readersCont !== this) {
+      readersCont?.invalidate()
+      reader.cont = this
+      return true
+    }
+    return false
+  }
+
+  override fun underflow() = rest.also { reader.cont = null }
+
+  internal fun ask(): S {
     if (forkOnFirstRead) {
       forkOnFirstRead = false
       state = fork(state)
@@ -182,161 +253,80 @@ public class ReaderT<S, Start> @PublishedApi internal constructor(
 }
 
 @PublishedApi
-internal class UnderCont<Start, RealStart>(
-  @JvmField val captured: SingleUseSegment<RealStart, Start>, override val rest: FramesCont<in Start, *>
-) : Segmentable<RealStart, Start>(rest.realContext), HasCopied {
-  override var copied: Boolean
-    get() = captured.copying
-    set(value) {
-      captured.copying = value
-    }
+internal class UnderCont<RealStart, Start>(
+  val captured: Segment<RealStart, Start>,
+  context: CoroutineContext,
+  val shouldCopy: Boolean = false
+) : Segmentable<RealStart, Start>(context) {
+  override fun copy() = UnderCont(captured, realContext, shouldCopy = true)
+  override fun invalidateSingle() = true
+  override fun revalidateSingle() = true
+  override fun underflow() = captured.copyIf(shouldCopy) prependTo rest
 }
 
-internal infix fun <Start, End> SingleUseSegment<Start, End>.prependTo(stack: FramesCont<in End, *>): SplitSeq<Start> {
-  repushValues()
-  delimiter.rest = stack
-  return cont
-}
+internal infix fun <Start, End> Segment<Start, End>.prependTo(stack: FramesCont<End, *>): FramesCont<Start, *> =
+  start.also {
+    delimiter.revalidate()
+    delimiter.rest = stack
+  }
 
-// Expects that cont eventually refers to box
+// Expects that delimiter loops back to itself
+@JvmInline
 @PublishedApi
-internal class SingleUseSegment<Start, End>(
-  @JvmField val delimiter: Prompt<End>,
-  @JvmField val cont: FramesCont<Start, *>,
-  @JvmField var values: Array<out Any?>? = null,
-  @JvmField var owned: List<HasCopied>? = null,
-  @JvmField var copying: Boolean = false
+internal value class Segment<Start, End>(
+  @JvmField val delimiter: PromptCont<End>,
 ) {
-  fun makeReusable(): SingleUseSegment<Start, End> {
-    prepareValues()
-    return SingleUseSegment(delimiter, cont, values, null, true)
-  }
-
-  fun makeCopy(): SingleUseSegment<Start, End> {
-    prepareValues()
-    return SingleUseSegment(delimiter, cont, null, null, true)
-  }
-
-  private fun prepareValues() {
-    if (values == null) {
-      cont.copied = true
-      val owned = mutableListOf<HasCopied>()
-      values = cont.rest.collectValues(delimiter, owned)
-      this.owned = owned
+  @Suppress("UNCHECKED_CAST")
+  var start
+    get() = delimiter.rest as FramesCont<Start, *>
+    set(value) {
+      delimiter.rest = value as FramesCont<End, *>
     }
-  }
 
-  private fun prepareValues2() {
-    if (values == null) values = ArrayList<Any?>(10).apply {
-      cont.copied = true
-      val owned = mutableListOf<HasCopied>()
-      cont.rest.collectValues(delimiter, this, owned)
-      this@SingleUseSegment.owned = owned
-    }.toTypedArray()
-  }
-
-  fun repushValues() {
-    val values = values ?: return
-    val copying = copying
-    cont.copied = copying
-    if (!copying) owned!!.forEach { it.copied = false }
-    cont.rest.repushValues(delimiter, values, copying, 0)
-  }
+  fun copyIf(shouldCopy: Boolean) = if (shouldCopy) delimiter.copy().apply {
+    delimiter.rest.copy<_, _, _, Any?>(delimiter, this, this)
+  }.let(::Segment) else this
 }
 
-private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
-  delimiter: Prompt<End>,
-  values: MutableList<in Any?>,
-  owned: MutableList<in HasCopied>,
-): Unit = when (this) {
-  is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
-  is Prompt<*> if this === delimiter -> {}
-  is FramesCont<*, *> -> {
-    if (!copied) owned.add(this)
-    copied = true
-    rest.collectValues(delimiter, values, owned)
+@Suppress("UNCHECKED_CAST")
+private tailrec fun <Start, End, P, SuperEnd> FramesCont<Start, End>.copy(
+  delimiter: PromptCont<P>,
+  newDelimiter: PromptCont<P>,
+  into: Segmentable<*, Start>,
+  rest: Segmentable<End, SuperEnd> = restSegmentable as Segmentable<End, SuperEnd>,
+) {
+  if (rest === delimiter) { // End == P
+    newDelimiter as PromptCont<End>
+    into.rest = copy(newDelimiter)
+    return
   }
-  is Prompt<*> -> {
-    val rest = rest
-    values.add(rest)
-    rest.collectValues(delimiter, values, owned)
-  }
-  is ReaderT<*, *> -> {
-    values.add(state)
-    values.add(forkOnFirstRead)
-    forkOnFirstRead = true
-    rest.collectValues(delimiter, values, owned)
-  }
-  is UnderCont<*, *> -> {
-    if (!copied) owned.add(this)
-    copied = true
-    rest.collectValues(delimiter, values, owned)
-  }
+  val cont = rest.copy()
+  into.rest = FramesCont(this.cont, cont, copied = true)
+  return rest.rest.copy<_, _, _, Any?>(delimiter, newDelimiter, into = cont)
 }
 
-private tailrec fun <Start, End> SplitSeq<Start>.collectValues(
-  delimiter: Prompt<End>,
-  owned: MutableList<in HasCopied>,
-  index: Int = 0,
-): Array<Any?> = when (this) {
-  is EmptyCont<*> -> error("Delimiter not found $delimiter in $this")
-  is Prompt<*> if this === delimiter -> arrayOfNulls(index)
-  is Prompt<*> -> {
-    val rest = rest
-    val arr = rest.collectValues(delimiter, owned, index + 1)
-    arr[index] = rest
-    arr
-  }
-  is ReaderT<*, *> -> {
-    val arr = rest.collectValues(delimiter, owned, index + 2)
-    arr[index] = state
-    arr[index + 1] = forkOnFirstRead
-    forkOnFirstRead = true
-    arr
-  }
-  is FramesCont<*, *> -> {
-    if (!copied) owned.add(this)
-    copied = true
-    rest.collectValues(delimiter, owned, index)
-  }
-  is UnderCont<*, *> -> {
-    if (!copied) owned.add(this)
-    copied = true
-    rest.collectValues(delimiter, owned, index)
-  }
+private tailrec fun <T> SplitCont<T>.revalidate(): Unit = when (this) {
+  is EmptyCont<T> -> error("EmptyCont found in segment")
+  is Segmentable<T, *> if revalidateSingle() -> rest.rest.revalidate()
+  is Segmentable<T, *> -> {}
 }
 
-private tailrec fun <Start, End> SplitSeq<Start>.repushValues(
-  delimiter: Prompt<End>,
-  values: Array<out Any?>,
-  copying: Boolean,
-  index: Int
-): Unit = when (this) {
-  is EmptyCont -> error("Delimiter not found $delimiter in $this")
-  is Prompt if this === delimiter -> {}
-  is Prompt -> {
-    @Suppress("UNCHECKED_CAST")
-    val rest = values[index] as FramesCont<Start, *>
-    this.rest = rest
-    rest.repushValues(delimiter, values, copying, index + 1)
-  }
-  is ReaderT<*, Start> -> {
-    @Suppress("UNCHECKED_CAST")
-    this as ReaderT<Any?, Start>
-    state = values[index]
-    forkOnFirstRead = copying || (values[index + 1] as Boolean)
-    rest.repushValues(delimiter, values, copying, index + 2)
-  }
-
-  is FramesCont<Start, *> -> rest.repushValues(delimiter, values, copying, index)
-  is UnderCont<*, Start> -> rest.repushValues(delimiter, values, copying, index)
+private tailrec fun <T> SplitCont<T>.invalidate(): Unit = when (this) {
+  is EmptyCont -> {}
+  is Segmentable<T, *> if invalidateSingle() -> rest.rest.invalidate()
+  is Segmentable<T, *> -> {}
 }
 
-public sealed class Segmentable<Start, in Rest>(context: CoroutineContext) : SplitCont<Start>(context) {
-  internal abstract val rest: FramesCont<in Rest, *>
+public sealed class Segmentable<Start, Rest>(context: CoroutineContext) : SplitCont<Start>(context) {
+  @PublishedApi
+  internal lateinit var rest: FramesCont<Rest, *>
   final override val callerFrame: CoroutineStackFrame get() = rest
   final override fun getStackTraceElement(): StackTraceElement? = null
+  internal abstract fun copy(): Segmentable<Start, Rest>
+  internal abstract fun invalidateSingle(): Boolean
+  internal abstract fun revalidateSingle(): Boolean
+  internal abstract fun underflow(): FramesCont<Start, *>
 }
 
 @PublishedApi
-internal fun <R> collectStack(continuation: Continuation<R>): FramesCont<R, *> = FramesCont<R, Nothing>(continuation)
+internal fun <R> collectStack(continuation: Continuation<R>): FramesCont<R, *> = FramesCont<_, Nothing>(continuation)
