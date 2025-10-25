@@ -19,7 +19,8 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
   private val shouldCopy: Boolean = false
 ) {
   @PublishedApi
-  internal fun composedWith(stack: FramesCont<R, *>): FramesCont<T, *> = init.copyIf(shouldCopy) prependTo stack
+  internal fun composedWith(stack: FramesCont<R, *>): FramesCont<T, *> =
+    init.copyIf(shouldCopy, stack.realContext) prependTo stack
 
   @ResetDsl
   public suspend inline fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack ->
