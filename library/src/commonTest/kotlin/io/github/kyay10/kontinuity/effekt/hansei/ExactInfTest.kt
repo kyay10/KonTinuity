@@ -159,7 +159,7 @@ class ExactInfTest {
       context(_: Probabilistic)
       suspend fun loop(n: Int): Boolean {
         return if (n == 1) flip(0.5) else {
-          if ((n % 500) == 2) yieldToTrampoline()
+          if ((n % 200) == 2) yieldToTrampoline()
           val r = variableElimination { loop(n - 1) }
           flip(0.5) != r
         }
