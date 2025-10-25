@@ -27,7 +27,7 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
   }
 
   @ResetDsl
-  public suspend inline fun locally(noinline value: suspend () -> T): R = suspendCoroutineToTrampoline { stack ->
+  public suspend inline infix fun locally(noinline value: suspend () -> T): R = suspendCoroutineToTrampoline { stack ->
     value.startCoroutineIntercepted(composedWith(stack))
   }
 

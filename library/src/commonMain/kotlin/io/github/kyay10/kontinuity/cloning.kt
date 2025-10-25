@@ -312,7 +312,7 @@ private tailrec fun <T> SplitCont<T>.revalidate(): Unit = when (this) {
 }
 
 private tailrec fun <T> SplitCont<T>.invalidate(): Unit = when (this) {
-  is EmptyCont -> {}
+  is EmptyCont -> error("Reentrant resumptions are not supported")
   is Segmentable<T, *> if invalidateSingle() -> rest.rest.invalidate()
   is Segmentable<T, *> -> {}
 }
