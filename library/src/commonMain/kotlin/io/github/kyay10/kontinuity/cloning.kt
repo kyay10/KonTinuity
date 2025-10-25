@@ -183,7 +183,7 @@ public class PromptCont<Start> @PublishedApi internal constructor(
   @JvmField @PublishedApi internal val prompt: Prompt<Start>,
   context: CoroutineContext,
 ) : Segmentable<Start, Start>(context) {
-  override fun copy() = PromptCont(prompt, realContext)
+  override fun copy(context: CoroutineContext) = PromptCont(prompt, context)
   override fun invalidateSingle(): Boolean {
     val prompt = prompt
     if (prompt.cont === this) {
@@ -221,7 +221,7 @@ public class ReaderT<S, Start> @PublishedApi internal constructor(
   @PublishedApi @JvmField internal val fork: S.() -> S,
   private var forkOnFirstRead: Boolean = false,
 ) : Segmentable<Start, Start>(context) {
-  override fun copy() = ReaderT<_, Start>(reader, realContext, state, fork, forkOnFirstRead = true)
+  override fun copy(context: CoroutineContext) = ReaderT<_, Start>(reader, context, state, fork, forkOnFirstRead = true)
   override fun invalidateSingle(): Boolean {
     val reader = reader
     return if (reader.cont === this) {
@@ -258,10 +258,10 @@ internal class UnderCont<RealStart, Start>(
   context: CoroutineContext,
   val shouldCopy: Boolean = false
 ) : Segmentable<RealStart, Start>(context) {
-  override fun copy() = UnderCont(captured, realContext, shouldCopy = true)
+  override fun copy(context: CoroutineContext) = UnderCont(captured, context, shouldCopy = true)
   override fun invalidateSingle() = true
   override fun revalidateSingle() = true
-  override fun underflow() = captured.copyIf(shouldCopy) prependTo rest
+  override fun underflow() = captured.copyIf(shouldCopy, realContext) prependTo rest
 }
 
 internal infix fun <Start, End> Segment<Start, End>.prependTo(stack: FramesCont<End, *>): FramesCont<Start, *> =
@@ -283,8 +283,8 @@ internal value class Segment<Start, End>(
       delimiter.rest = value as FramesCont<End, *>
     }
 
-  fun copyIf(shouldCopy: Boolean) = if (shouldCopy) delimiter.copy().apply {
-    delimiter.rest.copy<_, _, _, Any?>(delimiter, this, this)
+  fun copyIf(shouldCopy: Boolean, context: CoroutineContext) = if (shouldCopy) delimiter.copy(context).apply {
+    delimiter.rest.copy<_, _, _, Any?>(delimiter, this, this, context)
   }.let(::Segment) else this
 }
 
@@ -293,6 +293,7 @@ private tailrec fun <Start, End, P, SuperEnd> FramesCont<Start, End>.copy(
   delimiter: PromptCont<P>,
   newDelimiter: PromptCont<P>,
   into: Segmentable<*, Start>,
+  context: CoroutineContext,
   rest: Segmentable<End, SuperEnd> = restSegmentable as Segmentable<End, SuperEnd>,
 ) {
   if (rest === delimiter) { // End == P
@@ -300,9 +301,9 @@ private tailrec fun <Start, End, P, SuperEnd> FramesCont<Start, End>.copy(
     into.rest = copy(newDelimiter)
     return
   }
-  val cont = rest.copy()
+  val cont = rest.copy(context)
   into.rest = FramesCont(this.cont, cont, copied = true)
-  return rest.rest.copy<_, _, _, Any?>(delimiter, newDelimiter, into = cont)
+  return rest.rest.copy<_, _, _, Any?>(delimiter, newDelimiter, into = cont, context)
 }
 
 private tailrec fun <T> SplitCont<T>.revalidate(): Unit = when (this) {
@@ -322,7 +323,7 @@ public sealed class Segmentable<Start, Rest>(context: CoroutineContext) : SplitC
   internal lateinit var rest: FramesCont<Rest, *>
   final override val callerFrame: CoroutineStackFrame get() = rest
   final override fun getStackTraceElement(): StackTraceElement? = null
-  internal abstract fun copy(): Segmentable<Start, Rest>
+  internal abstract fun copy(context: CoroutineContext): Segmentable<Start, Rest>
   internal abstract fun invalidateSingle(): Boolean
   internal abstract fun revalidateSingle(): Boolean
   internal abstract fun underflow(): FramesCont<Start, *>
