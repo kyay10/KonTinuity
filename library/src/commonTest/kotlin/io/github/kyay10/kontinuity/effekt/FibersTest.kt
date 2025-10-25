@@ -160,10 +160,6 @@ class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit
   suspend fun yield() = useOnce {
     tasks.addLast { it(Unit) }
   }
-
-  suspend fun yieldAndRepush() = useWithFinal { (_, final) ->
-    tasks.addLast { final(Unit) }
-  }
 }
 
 // we can't run the scheduler in pure since the continuation that contains

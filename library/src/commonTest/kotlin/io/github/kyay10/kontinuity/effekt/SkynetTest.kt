@@ -112,9 +112,9 @@ class SkynetTest {
         }
       }
       while (data.returned < div) {
-        yieldAndRepush()
+        yield()
       }
-      yieldAndRepush()
+      yield()
       return data.sum
     }
 
