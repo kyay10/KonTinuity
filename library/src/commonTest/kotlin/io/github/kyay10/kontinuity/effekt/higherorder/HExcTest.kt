@@ -29,7 +29,7 @@ import kotlin.with
 
 class HExcTest {
   context(r: Raise<Unit>, state: State<Int>)
-  private suspend fun decr() {
+  private fun decr() {
     val x = state.get()
     if (x > 0) state.set(x - 1) else raise(Unit)
   }
@@ -298,9 +298,9 @@ suspend fun <E, A> hRecover(block: suspend HExc<E>.() -> A): Either<E, A> = hand
   block(object : HExc<E> {
     override fun raise(r: E) = discardWith(Result.success(Left(r)))
     override suspend fun <E, A> recover(block: suspend Raise<E>.() -> A, recover: suspend (E) -> A): A = use { resume ->
-      resume.locally {
+      resume locally {
         hRecover(block).getOrElse { error ->
-          discard { resume.locally { recover(error) } }
+          discard { resume locally { recover(error) } }
         }
       }
     }
