@@ -76,48 +76,46 @@ internal class FramesCont<in Start, Last> internal constructor(
       // This loop unrolls recursion in current.resumeWith(param) to make saner and shorter stack traces on resume
       var current = cont
       var param: Result<Any?> = result
-      if (copied) {
-        while (true) {
-          var completion =
-            current.completion as? Continuation<Any?> ?: error("Not a compiler generated continuation $current")
-          while (completion is FramesCont<Any?, *>) completion = completion.cont
-          if (completion is EmptyCont) error("EmptyCont found as parent for copied frames")
-          else if (completion is Segmentable<Any?, *>) {
+      if (copied) while (true) {
+        var completion =
+          current.completion as? Continuation<Any?> ?: error("Not a compiler generated continuation $current")
+        when (completion) {
+          is FramesCont<Any?, *> -> completion = completion.cont
+          is EmptyCont -> error("EmptyCont found as parent for copied frames")
+          is Segmentable<Any?, *> -> {
             val rest = rest as Segmentable<Last, *>
             // top-level completion reached -- invoke and return
             val outcome = current.copy(rest).invokeSuspend(param) { return }
             return rest.underflow().resumeWithImpl(outcome as Result<Last>)
           }
-          // Optimized by only setting it upon suspension.
-          // This is safe only if no one accesses cont in between
-          // That seems to be the case due to trampolining.
-          // Note to self: if any weird behavior happens, uncomment this line
-          //cont = completion
-          val outcome = current.copy(this).invokeSuspend(param) {
-            cont = completion
-            return
-          }
-          //releaseIntercepted() // this state machine instance is terminating
-          // unrolling recursion via loop
-          current = completion
-          param = outcome
         }
-      } else {
-        while (true) {
-          // Use normal resumption when faced with a non-compiler-generated continuation
-          val completion = current.completion as? Continuation<Any?> ?: return current.resumeWith(param)
-          val outcome = current.invokeSuspend(param) { return }
-          //releaseIntercepted() // this state machine instance is terminating
-          when (completion) {
-            is EmptyCont -> return completion.resumeWith(outcome)
-            is FramesCont<Any?, *> -> return completion.resumeWithImpl(outcome as Result<Last>)
-            is Segmentable<Any?, *> -> return completion.underflow().resumeWithImpl(outcome as Result<Last>)
+        // Optimized by only setting it upon suspension.
+        // This is safe only if no one accesses cont in between
+        // That seems to be the case due to trampolining.
+        // Note to self: if any weird behavior happens, uncomment this line
+        //cont = completion
+        val outcome = current.copy(this).invokeSuspend(param) {
+          cont = completion
+          return
+        }
+        //releaseIntercepted() // this state machine instance is terminating
+        // unrolling recursion via loop
+        current = completion
+        param = outcome
+      } else while (true) {
+        // Use normal resumption when faced with a non-compiler-generated continuation
+        val completion = current.completion as? Continuation<Any?> ?: return current.resumeWith(param)
+        val outcome = current.invokeSuspend(param) { return }
+        //releaseIntercepted() // this state machine instance is terminating
+        when (completion) {
+          is EmptyCont -> return completion.resumeWith(outcome)
+          is FramesCont<Any?, *> -> return completion.resumeWithImpl(outcome as Result<Last>)
+          is Segmentable<Any?, *> -> return completion.underflow().resumeWithImpl(outcome as Result<Last>)
 
-            else -> {
-              // unrolling recursion via loop
-              current = completion
-              param = outcome
-            }
+          else -> {
+            // unrolling recursion via loop
+            current = completion
+            param = outcome
           }
         }
       }
