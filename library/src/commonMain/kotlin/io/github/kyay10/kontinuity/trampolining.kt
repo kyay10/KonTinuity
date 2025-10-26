@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity
 
+import io.github.kyay10.kontinuity.FramesCont.Companion.resumeWithImpl
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlin.coroutines.AbstractCoroutineContextElement
@@ -11,39 +12,39 @@ import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmField
 
 @PublishedApi
-internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: SplitSeq<T>) {
-  seq.realContext.trampoline.nextStep = SequenceBodyStep(this, seq)
+internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: FramesCont<T, *>) {
+  seq.rest.realContext.trampoline.nextStep = SequenceBodyStep(this, seq)
 }
 
-private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: SplitSeq<T>) : Step {
+private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: FramesCont<T, *>) : Step {
   override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(seq) }
 }
 
 @PublishedApi
 internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
   receiver: R,
-  seq: SplitSeq<T>,
+  seq: FramesCont<T, *>,
 ) {
-  seq.realContext.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
+  seq.rest.realContext.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
 }
 
 private class SequenceBodyReceiverStep<T, R>(
   private val body: suspend R.() -> T,
   private val receiver: R,
-  override val seq: SplitSeq<T>
+  override val seq: FramesCont<T, *>,
 ) : Step {
   override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(receiver, seq) }
 }
 
 @PublishedApi
-internal fun <Start> SplitSeq<Start>.resumeWithIntercepted(result: Result<Start>) {
+internal fun <Start> FramesCont<Start, *>.resumeWithIntercepted(result: Result<Start>) {
   if (result.exceptionOrNull() !== SuspendedException) {
-    realContext.trampoline.nextStep = SequenceResumeStep(this, result)
+    rest.realContext.trampoline.nextStep = SequenceResumeStep(this, result)
   }
 }
 
 private class SequenceResumeStep<Start>(
-  override val seq: SplitSeq<Start>,
+  override val seq: FramesCont<Start, *>,
   private val result: Result<Start>
 ) : Step {
   override fun stepOrReturn() = result
@@ -63,7 +64,7 @@ private class TrampolineWithDelay(interceptor: ContinuationInterceptor?, delay: 
 
 internal interface Step {
   fun stepOrReturn(): Result<Any?>
-  val seq: SplitSeq<*>
+  val seq: FramesCont<*, *>
 }
 
 @Suppress("UNCHECKED_CAST")

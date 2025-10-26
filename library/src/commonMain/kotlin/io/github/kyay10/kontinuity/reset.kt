@@ -20,7 +20,11 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 ) {
   @PublishedApi
   internal fun composedWith(stack: FramesCont<R, *>): FramesCont<T, *> =
-    init.copyIf(shouldCopy, stack.realContext) prependTo stack
+    init.copyIf(shouldCopy, stack.rest.realContext) prependTo stack
+
+  @PublishedApi
+  internal fun makeUnderCont(stack: FramesCont<R, *>): UnderCont<@UnsafeVariance T, @UnsafeVariance R> =
+    UnderCont(init, stack.rest.realContext, shouldCopy).apply { rest = stack }
 
   @ResetDsl
   public suspend inline fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack ->
@@ -32,6 +36,11 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
     value.startCoroutineIntercepted(composedWith(stack))
   }
 
+  @ResetDsl
+  public suspend inline infix fun protect(noinline value: suspend () -> T): R = suspendCoroutineAndTrampoline { stack ->
+    value.startCoroutineUninterceptedOrReturn(makeUnderCont(stack))
+  }
+
   public suspend operator fun invoke(value: T): R = resumeWith(Result.success(value))
   public suspend fun resumeWithException(exception: Throwable): R = resumeWith(Result.failure(exception))
 }
@@ -41,7 +50,7 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R): R =
   suspendCoroutineAndTrampoline { stack ->
     val prompt = Prompt<R>()
-    body.startCoroutineUninterceptedOrReturn(prompt, PromptCont(prompt, stack.realContext).apply {
+    body.startCoroutineUninterceptedOrReturn(prompt, PromptCont(prompt, stack.rest.realContext).apply {
       rest = stack
       prompt.cont = this
     })
@@ -51,7 +60,7 @@ public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R)
 internal tailrec fun FramesCont<*, *>.handleTrampolining(
   result: Result<Any?>,
 ): Any? = if (COROUTINE_SUSPENDED === result.getOrNull() || SuspendedException === result.exceptionOrNull()) {
-  val trampoline = realContext.trampoline
+  val trampoline = rest.realContext.trampoline
   val step = trampoline.nextStep?.takeIf { it.seq === this && !this.copied } ?: return COROUTINE_SUSPENDED
   trampoline.nextStep = null
   handleTrampolining(step.stepOrReturn())
@@ -63,8 +72,8 @@ public suspend inline fun <T, R> runReader(
   noinline fork: T.() -> T = { this },
   noinline body: suspend Reader<T>.() -> R
 ): R = suspendCoroutineAndTrampoline { stack ->
-  val reader = Reader<T>()
-  body.startCoroutineUninterceptedOrReturn(reader, ReaderT<_, R>(reader, stack.realContext, value, fork).apply {
+  val reader = Reader(fork)
+  body.startCoroutineUninterceptedOrReturn(reader, ReaderT<_, R>(reader, stack.rest.realContext, value).apply {
     rest = stack
     reader.cont = this
   })
@@ -123,12 +132,11 @@ public suspend inline fun <T, R> shiftWithFinal(
 // Acts like shift0/control { it(body()) }
 @ResetDsl
 public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
-  noinline body: suspend (SubCont<T, P>) -> T
-): T = suspendCoroutineToTrampoline { stack ->
-  val (rest, init) = stack.splitAt(this)
-  val underCont = UnderCont(init, stack.realContext)
-  underCont.rest = rest
-  body.startCoroutineIntercepted(SubCont(init, true), underCont)
+  crossinline body: suspend (SubCont<T, P>) -> T
+): T = shiftWithFinal { (reusable, once) ->
+  once.protect {
+    body(reusable)
+  }
 }
 
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
@@ -152,6 +160,16 @@ internal expect open class NoTrace() : CancellationException
 
 @PublishedApi
 internal data object SuspendedException : NoTrace()
+
+internal inline fun <R> runCatching(block: () -> R, onSuspend: () -> Nothing): Result<R> =
+  try {
+    val outcome = block()
+    if (outcome === COROUTINE_SUSPENDED) onSuspend()
+    Result.success(outcome)
+  } catch (exception: Throwable) {
+    if (exception === SuspendedException) onSuspend()
+    Result.failure(exception)
+  }
 
 public suspend fun <R> runCC(body: suspend () -> R): R = withContext(currentCoroutineContext().makeTrampoline()) {
   suspendCancellableCoroutine {
