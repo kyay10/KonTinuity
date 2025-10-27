@@ -19,11 +19,11 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
   private val shouldCopy: Boolean = false
 ) {
   @PublishedApi
-  internal fun composedWith(stack: FramesCont<R, *>): FramesCont<T, *> =
+  internal fun composedWith(stack: Frames<R>): Frames<T> =
     init.copyIf(shouldCopy, stack.rest.realContext) prependTo stack
 
   @PublishedApi
-  internal fun makeUnderCont(stack: FramesCont<R, *>): UnderCont<@UnsafeVariance T, @UnsafeVariance R> =
+  internal fun makeUnderCont(stack: Frames<R>): UnderCont<@UnsafeVariance T, @UnsafeVariance R> =
     UnderCont(init, stack.rest.realContext, shouldCopy).apply { rest = stack }
 
   @ResetDsl
@@ -57,11 +57,11 @@ public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R)
   }
 
 @PublishedApi
-internal tailrec fun FramesCont<*, *>.handleTrampolining(
+internal tailrec fun Frames<*>.handleTrampolining(
   result: Result<Any?>,
 ): Any? = if (COROUTINE_SUSPENDED === result.getOrNull() || SuspendedException === result.exceptionOrNull()) {
   val trampoline = rest.realContext.trampoline
-  val step = trampoline.nextStep?.takeIf { it.seq === this && !this.copied } ?: return COROUTINE_SUSPENDED
+  val step = trampoline.nextStep?.takeIf { it.seq.frames === frames && frames !is FramesCont<*, *> } ?: return COROUTINE_SUSPENDED
   trampoline.nextStep = null
   handleTrampolining(step.stepOrReturn())
 } else result.getOrThrow()
@@ -132,11 +132,12 @@ public suspend inline fun <T, R> shiftWithFinal(
 // Acts like shift0/control { it(body()) }
 @ResetDsl
 public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
-  crossinline body: suspend (SubCont<T, P>) -> T
-): T = shiftWithFinal { (reusable, once) ->
-  once.protect {
-    body(reusable)
-  }
+  noinline body: suspend (SubCont<T, P>) -> T
+): T = suspendCoroutineAndTrampoline { stack ->
+  val (rest, init) = stack.splitAt(this)
+  body.startCoroutineUninterceptedOrReturn(SubCont(init, true), UnderCont(init, rest.rest.realContext).apply {
+    this.rest = rest
+  })
 }
 
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
@@ -179,7 +180,7 @@ public suspend fun <R> runCC(body: suspend () -> R): R = withContext(currentCoro
 
 @PublishedApi
 internal suspend inline fun <T> suspendCoroutineToTrampoline(
-  crossinline block: (FramesCont<T, *>) -> Unit
+  crossinline block: (Frames<T>) -> Unit
 ): T = suspendCoroutineUninterceptedOrReturn {
   block(collectStack(it))
   COROUTINE_SUSPENDED
@@ -187,7 +188,7 @@ internal suspend inline fun <T> suspendCoroutineToTrampoline(
 
 @PublishedApi
 internal suspend inline fun <T> suspendCoroutineAndTrampoline(
-  crossinline block: (FramesCont<T, *>) -> Any?
+  crossinline block: (Frames<T>) -> Any?
 ): T = suspendCoroutineUninterceptedOrReturn {
   val stack = collectStack(it)
   stack.handleTrampolining(runCatching { block(stack) })
