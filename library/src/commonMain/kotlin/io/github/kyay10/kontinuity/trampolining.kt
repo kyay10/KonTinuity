@@ -12,8 +12,8 @@ import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmField
 
 @PublishedApi
-internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: Frames<T>) {
-  seq.rest.realContext.trampoline.nextStep = SequenceBodyStep(this, seq)
+internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: Frames<T>, context: CoroutineContext) {
+  context.trampoline.nextStep = SequenceBodyStep(this, seq)
 }
 
 private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: Frames<T>) : Step {
@@ -24,8 +24,9 @@ private class SequenceBodyStep<T>(private val body: suspend () -> T, override va
 internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
   receiver: R,
   seq: Frames<T>,
+  context: CoroutineContext
 ) {
-  seq.rest.realContext.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
+  context.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
 }
 
 private class SequenceBodyReceiverStep<T, R>(
@@ -37,9 +38,9 @@ private class SequenceBodyReceiverStep<T, R>(
 }
 
 @PublishedApi
-internal fun <Start> Frames<Start>.resumeWithIntercepted(result: Result<Start>) {
+internal fun <Start> Frames<Start>.resumeWithIntercepted(result: Result<Start>, context: CoroutineContext) {
   if (result.exceptionOrNull() !== SuspendedException) {
-    rest.realContext.trampoline.nextStep = SequenceResumeStep(this, result)
+    context.trampoline.nextStep = SequenceResumeStep(this, result)
   }
 }
 
@@ -102,6 +103,7 @@ internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
   }
 }
 
+@PublishedApi
 internal val CoroutineContext.trampoline: Trampoline
   get() =
     this[ContinuationInterceptor] as? Trampoline ?: error("No trampoline in context: $this")
