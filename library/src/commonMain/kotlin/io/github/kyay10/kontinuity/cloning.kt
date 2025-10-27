@@ -40,9 +40,13 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
 
 // TODO use something other than Pair
 @PublishedApi
-internal fun <Start, P> Frames<Start>.splitAt(p: Prompt<P>): Pair<Frames<P>, Segment<Start, P>> {
+internal inline fun <Start, P, R> Frames<Start>.splitAt(
+  p: Prompt<P>,
+  thisRest: SplitCont<*>,
+  block: (Frames<P>, SplitCont<*>, Segment<Start, P>) -> R
+): R {
   val delimiter = p.cont!!
-  return delimiter.rest to Segment<Start, P>(delimiter).also { it.start = this }
+  return block(delimiter.rest, delimiter.restRest, Segment<Start, P>(delimiter).also { it.setStart(this, thisRest) })
 }
 
 @PublishedApi
@@ -56,7 +60,6 @@ internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Star
 @PublishedApi
 @JvmInline
 internal value class Frames<in Start>(val frames: Continuation<Start>) {
-  val rest: SplitCont<*> get() = if (frames is FramesCont<*, *>) frames.rest else frames.context as SplitCont<*>
 
   fun copy(rest: Segmentable<*, *>): Frames<Start> =
     Frames(FramesCont(frames, rest))
@@ -224,12 +227,12 @@ internal class UnderCont<RealStart, Start>(
   override fun copy(context: CoroutineContext) = UnderCont(captured, context, shouldCopy = true)
   override fun invalidateSingle() = true
   override fun revalidateSingle() = true
-  override fun underflow() = captured.copyIf(shouldCopy, realContext) prependTo rest
+  override fun underflow() = captured.copyIf(shouldCopy, realContext).prependTo(rest, restRest)
 }
 
-internal infix fun <Start, End> Segment<Start, End>.prependTo(stack: Frames<End>) = start.also {
+internal fun <Start, End> Segment<Start, End>.prependTo(stack: Frames<End>, stackRest: SplitCont<*>) = start.also {
   delimiter.revalidate()
-  delimiter.rest = stack
+  delimiter.setRest(stack, stackRest)
 }
 
 // Expects that delimiter loops back to itself
@@ -239,14 +242,17 @@ internal value class Segment<Start, End>(
   @JvmField val delimiter: PromptCont<End>,
 ) {
   @Suppress("UNCHECKED_CAST")
-  var start
+  val start
     get() = delimiter.rest as Frames<Start>
-    set(value) {
-      delimiter.rest = value as Frames<End>
-    }
+
+  fun setStart(start: Frames<Start>, startRest: SplitCont<*>) {
+    @Suppress("UNCHECKED_CAST")
+    delimiter as PromptCont<Start>
+    delimiter.setRest(start, startRest)
+  }
 
   fun copyIf(shouldCopy: Boolean, context: CoroutineContext) = if (shouldCopy) delimiter.copy(context).apply {
-    delimiter.rest.copy(delimiter, this, this, context, delimiter.restRest!! as Segmentable<*, *>)
+    delimiter.rest.copy(delimiter, this, this, context, delimiter.restRest as Segmentable<*, *>)
   }.let(::Segment) else this
 }
 
@@ -287,21 +293,20 @@ public sealed class Segmentable<in Start, Rest>(context: CoroutineContext) : Spl
 
   @PublishedApi
   @JvmField
-  internal var restRest: SplitCont<*>? = null
+  internal var _restRest: SplitCont<*>? = null
 
   @PublishedApi
-  internal inline var rest: Frames<Rest>
+  internal inline val rest: Frames<Rest>
     get() = Frames(_rest ?: error("Segmentable used before being linked into Frames"))
-    set(value) {
-      _rest = value.frames
-      restRest = value.rest
-    }
 
   @PublishedApi
   internal inline fun setRest(rest: Frames<Rest>, restRest: SplitCont<*>) {
     _rest = rest.frames
-    this.restRest = restRest
+    _restRest = restRest
   }
+
+  @PublishedApi
+  internal inline val restRest: SplitCont<*> get() = _restRest!!
 
   final override val callerFrame: CoroutineStackFrame? get() = rest.frames as? CoroutineStackFrame
   final override fun getStackTraceElement(): StackTraceElement? = null
@@ -316,4 +321,7 @@ public sealed class Segmentable<in Start, Rest>(context: CoroutineContext) : Spl
 }
 
 @PublishedApi
-internal fun <R> collectStack(continuation: Continuation<R>): Frames<R> = Frames(continuation)
+internal inline fun <T, R> collectStack(continuation: Continuation<T>, block: (Frames<T>, SplitCont<*>) -> R): R = block(
+  Frames(continuation),
+  if (continuation is FramesCont<*, *>) continuation.rest else continuation.context as SplitCont<*>
+)
