@@ -1,6 +1,5 @@
 package io.github.kyay10.kontinuity
 
-import io.github.kyay10.kontinuity.Frames.Companion.resumeWithImpl
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlin.coroutines.AbstractCoroutineContextElement
@@ -72,7 +71,7 @@ internal interface Step {
 private fun Step.step() {
   val result = stepOrReturn()
   if (result.getOrNull() !== COROUTINE_SUSPENDED && result.exceptionOrNull() !== SuspendedException) {
-    seq.resumeWithImpl(result as Result<Nothing>)
+    seq.resumeWith(result as Result<Nothing>)
   }
 }
 

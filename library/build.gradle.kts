@@ -8,6 +8,7 @@ import org.jetbrains.org.objectweb.asm.Opcodes.ACC_PUBLIC
 import org.jetbrains.org.objectweb.asm.Opcodes.ACC_SYNTHETIC
 import org.jetbrains.org.objectweb.asm.tree.ClassNode
 import kotlin.coroutines.Continuation
+import kotlin.coroutines.CoroutineContext
 
 
 plugins {
@@ -159,12 +160,23 @@ object MultishotTransform {
   private val lambdaClasses = setOf(
     "kotlin/coroutines/jvm/internal/SuspendLambda", "kotlin/coroutines/jvm/internal/RestrictedSuspendLambda"
   )
+  private val continuationImplName = "kotlin/coroutines/jvm/internal/ContinuationImpl"
   private val continuationClasses = setOf(
-    "kotlin/coroutines/jvm/internal/ContinuationImpl", "kotlin/coroutines/jvm/internal/BaseContinuationImpl"
+    continuationImplName, "kotlin/coroutines/jvm/internal/BaseContinuationImpl"
   ) + lambdaClasses
 
   private val copyDescriptor =
-    Type.getMethodDescriptor(Type.getType(Continuation::class.java), Type.getType(Continuation::class.java))
+    Type.getMethodDescriptor(
+      Type.getType(Continuation::class.java),
+      Type.getType(Continuation::class.java),
+      Type.getType(CoroutineContext::class.java)
+    )
+  val continuationImplConstructor =
+    Type.getMethodDescriptor(
+      Type.VOID_TYPE,
+      Type.getType(Continuation::class.java),
+      Type.getType(CoroutineContext::class.java)
+    )
 
   fun transform(bytes: ByteArray): ByteArray? {
     val classNode = ClassNode()
@@ -202,12 +214,14 @@ object MultishotTransform {
           Type.getMethodDescriptor(
             Type.VOID_TYPE,
             Type.getObjectType(classNode.name),
-            Type.getType(Continuation::class.java)
+            Type.getType(Continuation::class.java),
+            Type.getType(CoroutineContext::class.java)
           )
-        // add copy method
+        // add copy constructor
         visitMethod(ACC_PUBLIC or ACC_SYNTHETIC, "<init>", copyConstructorDescriptor, null, null).apply {
           visitParameter("template", 0)
           visitParameter("completion", 0)
+          visitParameter("context", 0)
           visitCode()
           // copy fields from this to created instance
           for (field in fields) {
@@ -236,11 +250,23 @@ object MultishotTransform {
           }
           // load completion
           visitVarInsn(Opcodes.ALOAD, 2)
-          // call super constructor
-          superCall.clone(null).accept(this)
+          if (classNode.superName == continuationImplName) {
+            // load context
+            visitVarInsn(Opcodes.ALOAD, 3)
+            visitMethodInsn(
+              Opcodes.INVOKESPECIAL,
+              continuationImplName,
+              "<init>",
+              continuationImplConstructor,
+              false
+            )
+          } else {
+            // call super constructor
+            superCall.clone(null).accept(this)
+          }
           visitInsn(Opcodes.RETURN)
-          // this and 2 arguments. Either for a field value (might be 2-long if double or long) or arity + completion
-          visitMaxs(3, 3)
+          // this and 3 arguments. Either for a field value (might be 2-long if double or long) or arity + completion
+          visitMaxs(3, 4)
           visitEnd()
         }
         // add copy method
@@ -253,6 +279,7 @@ object MultishotTransform {
           // Call copy constructor
           visitVarInsn(Opcodes.ALOAD, 0)
           visitVarInsn(Opcodes.ALOAD, 1)
+          visitVarInsn(Opcodes.ALOAD, 2)
           visitMethodInsn(
             Opcodes.INVOKESPECIAL,
             classNode.name,
@@ -261,7 +288,7 @@ object MultishotTransform {
             false
           )
           visitInsn(Opcodes.ARETURN)
-          visitMaxs(4, 2)
+          visitMaxs(5, 3)
           visitEnd()
         }
         super.visitEnd()

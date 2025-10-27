@@ -16,7 +16,7 @@ import kotlin.jvm.JvmName
 public annotation class ResetDsl
 
 public class SubCont<in T, out R> @PublishedApi internal constructor(
-  private val init: Segment<T, R>,
+  private val init: Segmentable.Segment<T, R>,
   private val shouldCopy: Boolean = false
 ) {
   @PublishedApi
@@ -29,7 +29,7 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
     stackRest: SplitCont<*>,
     context: CoroutineContext
   ): UnderCont<@UnsafeVariance T, @UnsafeVariance R> =
-    UnderCont(init, context, shouldCopy).apply { setRest(stack, stackRest) }
+    UnderCont(init, context, stack, stackRest, shouldCopy)
 
   @ResetDsl
   public suspend inline fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, stackRest ->
@@ -59,10 +59,7 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R): R =
   suspendCoroutineAndTrampoline { stack, stackRest, context ->
     val prompt = Prompt<R>()
-    body.startCoroutineUninterceptedOrReturn(prompt, PromptCont(prompt, context).apply {
-      setRest(stack, stackRest)
-      prompt.cont = this
-    })
+    body.startCoroutineUninterceptedOrReturn(prompt, Prompt.Cont(prompt, context, stack, stackRest))
   }
 
 @PublishedApi
@@ -82,10 +79,7 @@ public suspend inline fun <T, R> runReader(
   noinline body: suspend Reader<T>.() -> R
 ): R = suspendCoroutineAndTrampoline { stack, stackRest, context ->
   val reader = Reader(fork)
-  body.startCoroutineUninterceptedOrReturn(reader, ReaderT<_, R>(reader, context, value).apply {
-    setRest(stack, stackRest)
-    reader.cont = this
-  })
+  body.startCoroutineUninterceptedOrReturn(reader, Reader.Cont(reader, context, value, stack, stackRest))
 }
 
 @ResetDsl
@@ -147,9 +141,7 @@ public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
   noinline body: suspend (SubCont<T, P>) -> T
 ): T = suspendCoroutineAndTrampoline { stack, stackRest, context ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
-    body.startCoroutineUninterceptedOrReturn(SubCont(init, true), UnderCont(init, context).apply {
-      setRest(rest, restRest)
-    })
+    body.startCoroutineUninterceptedOrReturn(SubCont(init, true), UnderCont(init, context, rest, restRest))
   }
 }
 
