@@ -1,6 +1,6 @@
 package io.github.kyay10.kontinuity
 
-import io.github.kyay10.kontinuity.FramesCont.Companion.resumeWithImpl
+import io.github.kyay10.kontinuity.Frames.Companion.resumeWithImpl
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.jvm.JvmField
@@ -38,8 +38,9 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
     realContext[key]
 }
 
+// TODO use something other than Pair
 @PublishedApi
-internal fun <Start, P> FramesCont<Start, *>.splitAt(p: Prompt<P>): Pair<FramesCont<P, *>, Segment<Start, P>> {
+internal fun <Start, P> Frames<Start>.splitAt(p: Prompt<P>): Pair<Frames<P>, Segment<Start, P>> {
   val delimiter = p.cont!!
   return delimiter.rest to Segment<Start, P>(delimiter).also { it.start = this }
 }
@@ -52,56 +53,53 @@ internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Star
   override fun resumeWith(result: Result<Start>) = underlying.resumeWith(result)
 }
 
-// frame :: frames ::: rest
 @PublishedApi
-internal class FramesCont<in Start, Last> internal constructor(
-  cont: Continuation<Start>,
-  @Suppress("UNCHECKED_CAST")
-  @JvmField val rest: SplitCont<Last> = cont.context as SplitCont<Last>,
-  val copied: Boolean = false,
-) : Continuation<Start>, CoroutineStackFrame {
-  @Suppress("UNCHECKED_CAST")
-  @PublishedApi
-  internal var cont = cont as Continuation<Any?>
-  override val context: CoroutineContext get() = rest
+@JvmInline
+internal value class Frames<in Start>(val frames: Continuation<Start>) {
+  val rest: SplitCont<*> get() = if (frames is FramesCont<*, *>) frames.rest else frames.context as SplitCont<*>
 
-  fun copy(rest: SplitCont<Last>): FramesCont<Start, Last> = FramesCont(cont, rest, copied = true)
+  fun copy(rest: Segmentable<*, *>): Frames<Start> =
+    Frames(FramesCont(frames, rest))
 
   companion object {
     private inline fun <T> Continuation<T>.invokeSuspend(result: Result<T>, onSuspend: () -> Nothing): Result<Any?> =
       runCatching({ invokeSuspend(result) }, onSuspend)
 
     @Suppress("UNCHECKED_CAST")
-    tailrec fun <Start, Last> FramesCont<Start, Last>.resumeWithImpl(result: Result<Start>) {
+    tailrec fun <Start> Frames<Start>.resumeWithImpl(result: Result<Start>) {
+      val frames = frames
       // This loop unrolls recursion in current.resumeWith(param) to make saner and shorter stack traces on resume
-      var current = cont
+      var current = frames as Continuation<Any?>
       var param: Result<Any?> = result
-      if (copied) while (true) {
-        var completion =
-          current.completion as? Continuation<Any?> ?: error("Not a compiler generated continuation $current")
-        when (completion) {
-          is FramesCont<Any?, *> -> completion = completion.cont
-          is EmptyCont -> error("EmptyCont found as parent for copied frames")
-          is Segmentable<Any?, *> -> {
-            val rest = rest as Segmentable<Last, *>
-            // top-level completion reached -- invoke and return
-            val outcome = current.copy(rest).invokeSuspend(param) { return }
-            return rest.underflow().resumeWithImpl(outcome as Result<Last>)
+      if (frames is FramesCont<Any?, *>) {
+        current = frames.cont
+        while (true) {
+          var completion =
+            current.completion as? Continuation<Any?> ?: error("Not a compiler generated continuation $current")
+          when (completion) {
+            is FramesCont<Any?, *> -> completion = completion.cont
+            is EmptyCont -> error("EmptyCont found as parent for copied frames")
+            is Segmentable<Any?, *> -> {
+              val rest = frames.rest as Segmentable<Any?, *>
+              // top-level completion reached -- invoke and return
+              val outcome = current.copy(rest).invokeSuspend(param) { return }
+              return rest.underflow().resumeWithImpl(outcome)
+            }
           }
+          // Optimized by only setting it upon suspension.
+          // This is safe only if no one accesses cont in between
+          // That seems to be the case due to trampolining.
+          // Note to self: if any weird behavior happens, uncomment this line
+          //cont = completion
+          val outcome = current.copy(frames).invokeSuspend(param) {
+            frames.cont = completion
+            return
+          }
+          //releaseIntercepted() // this state machine instance is terminating
+          // unrolling recursion via loop
+          current = completion
+          param = outcome
         }
-        // Optimized by only setting it upon suspension.
-        // This is safe only if no one accesses cont in between
-        // That seems to be the case due to trampolining.
-        // Note to self: if any weird behavior happens, uncomment this line
-        //cont = completion
-        val outcome = current.copy(this).invokeSuspend(param) {
-          cont = completion
-          return
-        }
-        //releaseIntercepted() // this state machine instance is terminating
-        // unrolling recursion via loop
-        current = completion
-        param = outcome
       } else while (true) {
         // Use normal resumption when faced with a non-compiler-generated continuation
         val completion = current.completion as? Continuation<Any?> ?: return current.resumeWith(param)
@@ -109,8 +107,8 @@ internal class FramesCont<in Start, Last> internal constructor(
         //releaseIntercepted() // this state machine instance is terminating
         when (completion) {
           is EmptyCont -> return completion.resumeWith(outcome)
-          is FramesCont<Any?, *> -> return completion.resumeWithImpl(outcome as Result<Last>)
-          is Segmentable<Any?, *> -> return completion.underflow().resumeWithImpl(outcome as Result<Last>)
+          is FramesCont<Any?, *> -> return Frames(completion).resumeWithImpl(outcome)
+          is Segmentable<Any?, *> -> return completion.underflow().resumeWithImpl(outcome)
 
           else -> {
             // unrolling recursion via loop
@@ -121,11 +119,22 @@ internal class FramesCont<in Start, Last> internal constructor(
       }
     }
   }
+}
+
+@PublishedApi
+internal class FramesCont<in Start, Last> internal constructor(
+  cont: Continuation<Start>,
+  @JvmField val rest: Segmentable<Last, *>,
+) : Continuation<Start>, CoroutineStackFrame {
+  @Suppress("UNCHECKED_CAST")
+  @PublishedApi
+  internal var cont: Continuation<Any?> = if (cont is FramesCont<Start, *>) cont.cont else cont as Continuation<Any?>
+  override val context: CoroutineContext get() = rest
 
   override val callerFrame: CoroutineStackFrame? get() = cont as? CoroutineStackFrame
   override fun getStackTraceElement(): StackTraceElement? = null
   override fun resumeWith(result: Result<Start>) {
-    if (result.exceptionOrNull() !== SuspendedException) resumeWithImpl(result)
+    if (result.exceptionOrNull() !== SuspendedException) Frames(this).resumeWithImpl(result)
   }
 }
 
@@ -160,7 +169,7 @@ public class PromptCont<Start> @PublishedApi internal constructor(
   }
 
   @PublishedApi
-  override fun underflow(): FramesCont<Start, *> = rest.also { prompt.cont = null }
+  override fun underflow(): Frames<Start> = rest.also { prompt.cont = null }
 }
 
 public class Reader<S> @PublishedApi internal constructor(@PublishedApi @JvmField internal val fork: S.() -> S) {
@@ -218,7 +227,7 @@ internal class UnderCont<RealStart, Start>(
   override fun underflow() = captured.copyIf(shouldCopy, realContext) prependTo rest
 }
 
-internal infix fun <Start, End> Segment<Start, End>.prependTo(stack: FramesCont<End, *>) = start.also {
+internal infix fun <Start, End> Segment<Start, End>.prependTo(stack: Frames<End>) = start.also {
   delimiter.revalidate()
   delimiter.rest = stack
 }
@@ -231,18 +240,18 @@ internal value class Segment<Start, End>(
 ) {
   @Suppress("UNCHECKED_CAST")
   var start
-    get() = delimiter.rest as FramesCont<Start, *>
+    get() = delimiter.rest as Frames<Start>
     set(value) {
-      delimiter.rest = value as FramesCont<End, *>
+      delimiter.rest = value as Frames<End>
     }
 
   fun copyIf(shouldCopy: Boolean, context: CoroutineContext) = if (shouldCopy) delimiter.copy(context).apply {
-    delimiter.rest.copy<_, _, _, Any?>(delimiter, this, this, context)
+    delimiter.rest.copy<_, _, Any?, Any?>(delimiter, this, this, context)
   }.let(::Segment) else this
 }
 
 @Suppress("UNCHECKED_CAST")
-private tailrec fun <Start, End, P, SuperEnd> FramesCont<Start, End>.copy(
+private tailrec fun <Start, P, End, SuperEnd> Frames<Start>.copy(
   delimiter: PromptCont<P>,
   newDelimiter: PromptCont<P>,
   into: Segmentable<*, Start>,
@@ -257,7 +266,7 @@ private tailrec fun <Start, End, P, SuperEnd> FramesCont<Start, End>.copy(
   }
   val cont = rest.copy(context)
   into.rest = copy(cont)
-  return rest.rest.copy<_, _, _, Any?>(delimiter, newDelimiter, into = cont, context)
+  return rest.rest.copy<_, _, Any?, Any?>(delimiter, newDelimiter, into = cont, context)
 }
 
 private tailrec fun <T> SplitCont<T>.revalidate(): Unit = when (this) {
@@ -274,13 +283,17 @@ private tailrec fun <T> SplitCont<T>.invalidate(): Unit = when (this) {
 
 public sealed class Segmentable<in Start, Rest>(context: CoroutineContext) : SplitCont<Start>(context) {
   @PublishedApi
-  internal lateinit var rest: FramesCont<Rest, *>
-  final override val callerFrame: CoroutineStackFrame get() = rest
+  internal var _rest: Continuation<Rest>? = null
+  @PublishedApi
+  internal inline var rest: Frames<Rest>
+    get() = Frames(_rest ?: error("Segmentable used before being linked into Frames"))
+    set(value) { _rest = value.frames }
+  final override val callerFrame: CoroutineStackFrame? get() = rest.frames as? CoroutineStackFrame
   final override fun getStackTraceElement(): StackTraceElement? = null
   internal abstract fun copy(context: CoroutineContext): Segmentable<Start, Rest>
   internal abstract fun invalidateSingle(): Boolean
   internal abstract fun revalidateSingle(): Boolean
-  internal abstract fun underflow(): FramesCont<Start, *>
+  internal abstract fun underflow(): Frames<Start>
 
   final override fun resumeWith(result: Result<Start>) {
     if (result.exceptionOrNull() !== SuspendedException) underflow().resumeWithImpl(result)
@@ -288,4 +301,4 @@ public sealed class Segmentable<in Start, Rest>(context: CoroutineContext) : Spl
 }
 
 @PublishedApi
-internal fun <R> collectStack(continuation: Continuation<R>): FramesCont<R, *> = FramesCont<_, Nothing>(continuation)
+internal fun <R> collectStack(continuation: Continuation<R>): Frames<R> = Frames(continuation)
