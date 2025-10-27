@@ -246,7 +246,7 @@ internal value class Segment<Start, End>(
     }
 
   fun copyIf(shouldCopy: Boolean, context: CoroutineContext) = if (shouldCopy) delimiter.copy(context).apply {
-    delimiter.rest.copy<_, _, Any?, Any?>(delimiter, this, this, context)
+    delimiter.rest.copy(delimiter, this, this, context, delimiter.restRest!! as Segmentable<*, *>)
   }.let(::Segment) else this
 }
 
@@ -256,38 +256,53 @@ private tailrec fun <Start, P, End, SuperEnd> Frames<Start>.copy(
   newDelimiter: PromptCont<P>,
   into: Segmentable<*, Start>,
   context: CoroutineContext,
-  rest: Segmentable<End, SuperEnd> = (this.rest as? Segmentable<*, *>
-    ?: error("EmptyCont found when copying: ${this.rest}")) as Segmentable<End, SuperEnd>,
+  rest: Segmentable<End, SuperEnd>
 ) {
   if (rest === delimiter) { // End == P
     newDelimiter as PromptCont<End>
-    into.rest = copy(newDelimiter)
+    into.setRest(copy(newDelimiter), newDelimiter)
     return
   }
   val cont = rest.copy(context)
-  into.rest = copy(cont)
-  return rest.rest.copy<_, _, Any?, Any?>(delimiter, newDelimiter, into = cont, context)
+  into.setRest(copy(cont), cont)
+  return rest.rest.copy(delimiter, newDelimiter, into = cont, context, rest.restRest!! as Segmentable<*, *>)
 }
 
 private tailrec fun <T> SplitCont<T>.revalidate(): Unit = when (this) {
   is EmptyCont<T> -> error("EmptyCont found in segment")
-  is Segmentable<T, *> if revalidateSingle() -> rest.rest.revalidate()
+  is Segmentable<T, *> if revalidateSingle() -> restRest!!.revalidate()
   is Segmentable<T, *> -> {}
 }
 
 private tailrec fun <T> SplitCont<T>.invalidate(): Unit = when (this) {
   is EmptyCont -> error("Reentrant resumptions are not supported")
-  is Segmentable<T, *> if invalidateSingle() -> rest.rest.invalidate()
+  is Segmentable<T, *> if invalidateSingle() -> restRest!!.invalidate()
   is Segmentable<T, *> -> {}
 }
 
 public sealed class Segmentable<in Start, Rest>(context: CoroutineContext) : SplitCont<Start>(context) {
   @PublishedApi
+  @JvmField
   internal var _rest: Continuation<Rest>? = null
+
+  @PublishedApi
+  @JvmField
+  internal var restRest: SplitCont<*>? = null
+
   @PublishedApi
   internal inline var rest: Frames<Rest>
     get() = Frames(_rest ?: error("Segmentable used before being linked into Frames"))
-    set(value) { _rest = value.frames }
+    set(value) {
+      _rest = value.frames
+      restRest = value.rest
+    }
+
+  @PublishedApi
+  internal inline fun setRest(rest: Frames<Rest>, restRest: SplitCont<*>) {
+    _rest = rest.frames
+    this.restRest = restRest
+  }
+
   final override val callerFrame: CoroutineStackFrame? get() = rest.frames as? CoroutineStackFrame
   final override fun getStackTraceElement(): StackTraceElement? = null
   internal abstract fun copy(context: CoroutineContext): Segmentable<Start, Rest>
