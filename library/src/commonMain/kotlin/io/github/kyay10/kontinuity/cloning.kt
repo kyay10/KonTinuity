@@ -74,6 +74,27 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
   fun copy(rest: Segmentable<*, *>) = Frames(Copied(frames, rest))
   fun resumeWith(result: Result<Start>) = resumeWithImpl(result)
 
+
+  @PublishedApi
+  internal class Under<RealStart, Start>(
+    private val captured: Segmentable.Segment<RealStart, Start>,
+    private val frames: Frames<Start>,
+    private val rest: SplitCont<*>,
+  ) : Continuation<RealStart>, CoroutineStackFrame {
+    override val context: CoroutineContext get() = rest
+
+    override val callerFrame: CoroutineStackFrame? get() = frames.frames as? CoroutineStackFrame
+    override fun getStackTraceElement(): StackTraceElement? = null
+    override fun resumeWith(result: Result<RealStart>) {
+      if (result.exceptionOrNull() !== SuspendedException) underflow().resumeWith(result)
+    }
+
+    fun underflow() = captured.prependTo(frames, rest)
+
+    fun underflowCopied(context: CoroutineContext, newRest: SplitCont<*>) =
+      captured.copyIf(true, context).prependTo(frames, newRest)
+  }
+
   private class Copied<in Start, Last>(
     cont: Continuation<Start>,
     @JvmField val rest: Segmentable<Last, *>,
@@ -102,6 +123,8 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
           val framesRest = frames.rest as Segmentable<Any?, *>
           current = frames.cont
           while (true) {
+            if (current is Under<Any?, *>)
+              return current.underflowCopied(framesRest.realContext, framesRest).resumeWithImpl(param)
             var completion =
               current.completion as? Continuation<Any?> ?: error("Not a compiler generated continuation $current")
             when (completion) {
@@ -128,6 +151,8 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
             param = outcome
           }
         } else while (true) {
+          if (current is Under<Any?, *>)
+            return current.underflow().resumeWithImpl(param)
           // Use normal resumption when faced with a non-compiler-generated continuation
           val completion = current.completion as? Continuation<Any?> ?: return current.resumeWith(param)
           val outcome = current.invokeSuspend(param) { return }
@@ -259,29 +284,6 @@ public class Reader<S> @PublishedApi internal constructor(private val fork: S.()
       return state
     }
   }
-}
-
-@PublishedApi
-internal class UnderCont<RealStart, Start> private constructor(
-  private val captured: Segment<RealStart, Start>,
-  context: CoroutineContext,
-  private val shouldCopy: Boolean = false,
-  _rest: Continuation<Start>?,
-  _restRest: SplitCont<*>?,
-) : Segmentable<RealStart, Start>(context, _rest, _restRest) {
-  @PublishedApi
-  internal constructor(
-    captured: Segment<RealStart, Start>,
-    context: CoroutineContext,
-    rest: Frames<Start>,
-    restRest: SplitCont<*>,
-    shouldCopy: Boolean = false,
-  ) : this(captured, context, shouldCopy, rest.frames, restRest)
-
-  override fun copy(context: CoroutineContext) = UnderCont(captured, context, shouldCopy = true, null, null)
-  override fun invalidateSingle() = restRest
-  override fun revalidateSingle() = restRest
-  override fun underflow() = captured.copyIf(shouldCopy, realContext).prependTo(rest, restRest)
 }
 
 public sealed class Segmentable<in Start, Rest>(
