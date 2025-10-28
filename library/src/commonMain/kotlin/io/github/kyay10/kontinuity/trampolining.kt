@@ -6,48 +6,23 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmField
 
 @PublishedApi
-internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: Frames<T>, context: CoroutineContext) {
-  context.trampoline.nextStep = SequenceBodyStep(this, seq)
-}
-
-private class SequenceBodyStep<T>(private val body: suspend () -> T, override val seq: Frames<T>) : Step {
-  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(seq.frames) }
-}
-
-@PublishedApi
-internal fun <R, T> (suspend R.() -> T).startCoroutineIntercepted(
-  receiver: R,
-  seq: Frames<T>,
-  context: CoroutineContext
-) {
-  context.trampoline.nextStep = SequenceBodyReceiverStep(this, receiver, seq)
-}
-
-private class SequenceBodyReceiverStep<T, R>(
-  private val body: suspend R.() -> T,
-  private val receiver: R,
-  override val seq: Frames<T>,
-) : Step {
-  override fun stepOrReturn() = runCatching { body.startCoroutineUninterceptedOrReturn(receiver, seq.frames) }
-}
+internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: Frames<T>, context: CoroutineContext): Unit =
+  with(context.trampoline) {
+    nextFrames = seq.frames
+    nextBody = this@startCoroutineIntercepted
+  }
 
 @PublishedApi
 internal fun <Start> Frames<Start>.resumeWithIntercepted(result: Result<Start>, context: CoroutineContext) {
-  if (result.exceptionOrNull() !== SuspendedException) {
-    context.trampoline.nextStep = SequenceResumeStep(this, result)
+  if (result.exceptionOrNull() !== SuspendedException) with(context.trampoline) {
+    nextFrames = this@resumeWithIntercepted.frames
+    nextBody = null
+    nextResult = result
   }
-}
-
-private class SequenceResumeStep<Start>(
-  override val seq: Frames<Start>,
-  private val result: Result<Start>
-) : Step {
-  override fun stepOrReturn() = result
 }
 
 @OptIn(InternalCoroutinesApi::class)
@@ -62,24 +37,17 @@ internal fun CoroutineContext.makeTrampoline(): CoroutineContext {
 private class TrampolineWithDelay(interceptor: ContinuationInterceptor?, delay: Delay) :
   Trampoline(interceptor), Delay by delay
 
-internal interface Step {
-  fun stepOrReturn(): Result<Any?>
-  val seq: Frames<*>
-}
-
-@Suppress("UNCHECKED_CAST")
-private fun Step.step() {
-  val result = stepOrReturn()
-  if (result.getOrNull() !== COROUTINE_SUSPENDED && result.exceptionOrNull() !== SuspendedException) {
-    seq.resumeWith(result as Result<Nothing>)
-  }
-}
-
 internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
   AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
 
   @JvmField
-  var nextStep: Step? = null
+  var nextFrames: Continuation<*>? = null
+
+  @JvmField
+  var nextBody: (suspend () -> Any?)? = null
+
+  @JvmField
+  var nextResult: Result<Any?> = Result.success(null)
 
   override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> =
     TrampolineContinuation(continuation).let {
@@ -96,7 +64,12 @@ internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
     override fun resumeWith(result: Result<T>) {
       cont.resumeWith(result)
       while (true) {
-        (nextStep ?: return).also { nextStep = null }.step()
+        val nextFrames = (nextFrames ?: return) as Continuation<Any?>
+        this@Trampoline.nextFrames = null
+        val nextBody = this@Trampoline.nextBody
+        val result =
+          if (nextBody != null) runCatching({ nextBody.startCoroutineUninterceptedOrReturn(nextFrames) }) { continue } else nextResult
+        Frames(nextFrames).resumeWith(result)
       }
     }
   }
