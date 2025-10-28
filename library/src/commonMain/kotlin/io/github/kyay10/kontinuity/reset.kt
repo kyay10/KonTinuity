@@ -27,9 +27,8 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
   internal fun makeUnderCont(
     stack: Frames<R>,
     stackRest: SplitCont<*>,
-    context: CoroutineContext
-  ): UnderCont<@UnsafeVariance T, @UnsafeVariance R> =
-    UnderCont(init, context, stack, stackRest, shouldCopy)
+  ): Frames.Under<@UnsafeVariance T, @UnsafeVariance R> =
+    Frames.Under(init, stack, stackRest)
 
   @ResetDsl
   public suspend inline fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, stackRest ->
@@ -46,8 +45,9 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 
   @ResetDsl
   public suspend inline infix fun protect(noinline value: suspend () -> T): R =
-    suspendCoroutineAndTrampoline { stack, stackRest, context ->
-      value.startCoroutineUninterceptedOrReturn(makeUnderCont(stack, stackRest, context))
+    suspendCoroutineToTrampoline { stack, stackRest ->
+      val context = stackRest.realContext
+      value.startCoroutineIntercepted(Frames(makeUnderCont(stack, stackRest)), context)
     }
 
   public suspend operator fun invoke(value: T): R = resumeWith(Result.success(value))
@@ -135,13 +135,14 @@ public suspend inline fun <T, R> shiftWithFinal(
   noinline body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
 ): T = p.shiftWithFinal(body)
 
+// TODO maybe use suspendCoroutineToTrampoline here?
 // Acts like shift0/control { it(body()) }
 @ResetDsl
 public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
   noinline body: suspend (SubCont<T, P>) -> T
-): T = suspendCoroutineAndTrampoline { stack, stackRest, context ->
+): T = suspendCoroutineAndTrampoline { stack, stackRest, _ ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
-    body.startCoroutineUninterceptedOrReturn(SubCont(init, true), UnderCont(init, context, rest, restRest))
+    body.startCoroutineUninterceptedOrReturn(SubCont(init, true), Frames.Under(init, rest, restRest))
   }
 }
 
