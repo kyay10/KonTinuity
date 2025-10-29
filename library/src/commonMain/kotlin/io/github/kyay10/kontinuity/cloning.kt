@@ -6,6 +6,8 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmInline
 
+private const val RUN_INVALIDATIONS = false
+
 public expect class StackTraceElement
 public expect interface CoroutineStackFrame {
   public val callerFrame: CoroutineStackFrame?
@@ -16,8 +18,10 @@ internal expect val Continuation<*>.completion: Continuation<*>?
 internal expect fun <T> Continuation<T>.copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T>
 internal expect fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any?
 
+public sealed class SplitSeq<in Start> : Continuation<Start>, CoroutineStackFrame
+
 public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val realContext: CoroutineContext) :
-  CoroutineContext, Continuation<Start>, CoroutineStackFrame {
+  CoroutineContext, SplitSeq<Start>() {
   final override val context: CoroutineContext get() = this
 
   protected abstract fun invalidateSingle(): SplitCont<*>?
@@ -80,7 +84,7 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
     private val captured: Segmentable.Segment<RealStart, Start>,
     private val frames: Frames<Start>,
     private val rest: SplitCont<*>,
-  ) : Continuation<RealStart>, CoroutineStackFrame {
+  ) : SplitSeq<RealStart>() {
     override val context: CoroutineContext get() = rest
 
     override val callerFrame: CoroutineStackFrame? get() = frames.frames as? CoroutineStackFrame
@@ -98,7 +102,7 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
   private class Copied<in Start, Last>(
     cont: Continuation<Start>,
     @JvmField val rest: Segmentable<Last, *>,
-  ) : Continuation<Start>, CoroutineStackFrame {
+  ) : SplitSeq<Start>() {
     @Suppress("UNCHECKED_CAST")
     private var cont: Continuation<Any?> = if (cont is Copied<Start, *>) cont.cont else cont as Continuation<Any?>
     override val context: CoroutineContext get() = rest
@@ -127,7 +131,7 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
               return current.underflowCopied(framesRest.realContext, framesRest).resumeWithImpl(param)
             var completion =
               current.completion as? Continuation<Any?> ?: error("Not a compiler generated continuation $current")
-            when (completion) {
+            if (completion is SplitSeq<Any?>) when (completion) {
               is Copied<Any?, *> -> completion = completion.cont
               is EmptyCont -> error("EmptyCont found as parent for copied frames")
               is Segmentable<Any?, *> -> {
@@ -135,6 +139,8 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
                 val outcome = current.copy(framesRest, framesRest).invokeSuspend(param) { return }
                 return framesRest.underflow().resumeWithImpl(outcome)
               }
+
+              else -> {}
             }
             // Optimized by only setting it upon suspension.
             // This is safe only if no one accesses cont in between
@@ -157,10 +163,11 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
           val completion = current.completion as? Continuation<Any?> ?: return current.resumeWith(param)
           val outcome = current.invokeSuspend(param) { return }
           //releaseIntercepted() // this state machine instance is terminating
-          when (completion) {
+          if (completion is SplitSeq<Any?>) when (completion) {
             is EmptyCont -> return completion.resumeWith(outcome)
             is Copied<Any?, *> -> return Frames(completion).resumeWithImpl(outcome)
             is Segmentable<Any?, *> -> return completion.underflow().resumeWithImpl(outcome)
+            else -> {}
           }
           // unrolling recursion via loop
           current = completion
@@ -189,17 +196,22 @@ public class Prompt<Start> @PublishedApi internal constructor() {
       context: CoroutineContext,
       rest: Frames<Start>,
       restRest: SplitCont<*>
-    ) : this(prompt, context, _rest = rest.frames, _restRest = restRest)
-
-    init {
+    ) : this(prompt, context, _rest = rest.frames, _restRest = restRest) {
       // I believe this is safe to do. Reason being:
       // Constructor is called when creating a new prompt, and when copying
       // when creating new prompt, obviously there's no other to invalidate
-      // when copying, we're going thru the entire old continuation anyway, so we're automatically invalidating it
       prompt.cont = this
     }
 
-    override fun copy(context: CoroutineContext) = Cont(prompt, context, null, null)
+    override fun copy(context: CoroutineContext): Cont<Start> {
+      // when copying, we're going thru the entire old continuation anyway, so we're automatically invalidating it
+      val prompt = prompt
+      if (RUN_INVALIDATIONS) prompt.cont?.invalidate()
+      val cont = Cont(prompt, context, null, null)
+      prompt.cont = cont
+      return cont
+    }
+
     override fun invalidateSingle(): SplitCont<*>? {
       val prompt = prompt
       if (prompt.cont === this) {
@@ -213,7 +225,7 @@ public class Prompt<Start> @PublishedApi internal constructor() {
       val prompt = prompt
       val promptsCont = prompt.cont
       if (promptsCont !== this) {
-        promptsCont?.invalidate()
+        if (RUN_INVALIDATIONS) promptsCont?.invalidate()
         prompt.cont = this
         return this@Cont.restRest
       }
@@ -244,15 +256,18 @@ public class Reader<S> @PublishedApi internal constructor(private val fork: S.()
       state: S,
       rest: Frames<Start>,
       restRest: SplitCont<*>
-    ) : this(reader, context, state, forkOnFirstRead = false, rest.frames, restRest)
-
-    init {
+    ) : this(reader, context, state, forkOnFirstRead = false, rest.frames, restRest) {
       // See note in Cont `init`
       reader.cont = this
     }
 
-    override fun copy(context: CoroutineContext) =
-      Cont<_, Start>(reader, context, state, forkOnFirstRead = true, null, null)
+    override fun copy(context: CoroutineContext): Cont<S, Start> {
+      val reader = reader
+      if (RUN_INVALIDATIONS) reader.cont?.invalidate()
+      val cont = Cont<_, Start>(reader, context, state, forkOnFirstRead = true, null, null)
+      reader.cont = cont
+      return cont
+    }
 
     override fun invalidateSingle(): SplitCont<*>? {
       val reader = reader
@@ -267,7 +282,7 @@ public class Reader<S> @PublishedApi internal constructor(private val fork: S.()
       val reader = reader
       val readersCont = reader.cont
       if (readersCont !== this) {
-        readersCont?.invalidate()
+        if (RUN_INVALIDATIONS) readersCont?.invalidate()
         reader.cont = this
         return restRest
       }
