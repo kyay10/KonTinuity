@@ -6,14 +6,15 @@ import arrow.core.Some
 import kotlin.contracts.contract
 
 fun interface Exc {
-  suspend fun raise(msg: String): Nothing
+  suspend fun raise(msg: String): Nothing = raise()
+  suspend fun raise(): Nothing
 }
 
 context(exc: Exc)
-suspend inline fun raise(msg: String): Nothing = exc.raise(msg)
+suspend fun raise(msg: String): Nothing = exc.raise(msg)
 
 context(exc: Exc)
-suspend inline fun raise(): Nothing = raise("")
+suspend fun raise(): Nothing = exc.raise()
 
 context(_: Exc) suspend fun ensure(condition: Boolean) {
   contract {
@@ -23,7 +24,7 @@ context(_: Exc) suspend fun ensure(condition: Boolean) {
 }
 
 class Maybe<R>(p: HandlerPrompt<Option<R>>) : Exc, Handler<Option<R>> by p {
-  override suspend fun raise(msg: String): Nothing = discard { None }
+  override suspend fun raise(): Nothing = discard { None }
 }
 
 suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle {
