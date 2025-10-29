@@ -8,6 +8,7 @@ import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.measureTimedValue
 
 
 typealias LazyList<T> = LazyCons<T>?
@@ -20,7 +21,8 @@ data class LazyCons<out T>(val head: suspend () -> T, val tail: suspend () -> La
 context(_: Amb, _: Exc)
 private suspend fun <T> Stream<T>?.perm(): Stream<T>? {
   this ?: return null
-  suspend fun permuteRest() = tail()?.perm()
+  val next = next
+  suspend fun permuteRest() = next?.let { it() }?.perm()
   return insertStream(value, ::permuteRest)
 }
 
@@ -111,12 +113,15 @@ class SharingTest {
   @Test
   fun streamSortingTest() = runTestCC(timeout = 10.minutes) {
     val numbers = (1..2).toList()
-    val list = numbers.toStream()
-    bagOfN {
-      sharing {
-        list.sort().toPersistentList()
+    val (result, time) = measureTimedValue {
+      bagOfN {
+        sharing {
+          numbers.toStream().sort().toPersistentList()
+        }
       }
-    } shouldBe listOf(numbers)
+    }
+    println(time)
+    result shouldBe listOf(numbers)
   }
 }
 
@@ -178,7 +183,7 @@ fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
 } else this
 
 suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R =
-  runReader(null as MutableList<Field<*>>?, { mutableListOf() }) {
+  runReader(null as MutableList<Field<*>>?, { ArrayList(20) }) {
     block(object : Sharing {
       override fun <A> share(block: suspend () -> A): suspend () -> A = memo { block().shareArgs() }
     }).also {

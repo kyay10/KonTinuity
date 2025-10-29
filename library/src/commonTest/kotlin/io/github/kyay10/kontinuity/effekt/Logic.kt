@@ -222,6 +222,6 @@ suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = 
       false
     }
   }, object : Exc {
-    override suspend fun raise(msg: String): Nothing = discardWithFast(Result.success(Unit))
+    override suspend fun raise(): Nothing = discardWithFast(Result.success(Unit))
   })
 }

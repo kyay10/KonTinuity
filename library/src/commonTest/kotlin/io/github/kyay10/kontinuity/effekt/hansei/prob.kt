@@ -11,7 +11,7 @@ import kotlin.random.Random
 
 interface Probabilistic : Exc {
   suspend fun <A> Dist<A>.dist(): A
-  override suspend fun raise(msg: String): Nothing = emptyList<Probable<Nothing>>().dist()
+  override suspend fun raise(): Nothing = emptyList<Probable<Nothing>>().dist()
 }
 
 interface Memory {
@@ -39,7 +39,7 @@ internal suspend inline fun <A> probabilistic(crossinline block: suspend context
     }
 
     // Slightly faster
-    override suspend fun raise(msg: String): Nothing = discardWithFast(Result.success(emptyList()))
+    override suspend fun raise(): Nothing = discardWithFast(Result.success(emptyList()))
   })
   listOf(Probable(1.0, Value.Leaf(result)))
 }
