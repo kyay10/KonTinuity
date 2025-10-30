@@ -41,7 +41,7 @@ kotlin {
       associateWith(this@jvm.compilations.getByName("test"))
     }
   }
-  jvmToolchain(21)
+  jvmToolchain(25)
   js(IR) {
     browser()
     nodejs {
@@ -121,6 +121,7 @@ kotlin {
 }
 
 tasks.withType<Test> {
+  useJUnitPlatform()
   jvmArgs = listOf(
     "-XX:+HeapDumpOnOutOfMemoryError",
     "-Xmx4096m",
