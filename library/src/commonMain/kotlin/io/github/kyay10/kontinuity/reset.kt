@@ -23,7 +23,7 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 ) {
   @PublishedApi
   internal fun composedWith(stack: Frames<R>, stackRest: SplitCont<*>, context: CoroutineContext): Frames<T> =
-    init.copyIf(shouldCopy, context).prependTo(stack, stackRest)
+    init.prependTo(shouldCopy, stack, stackRest)
 
   @PublishedApi
   internal fun makeUnderCont(
@@ -60,8 +60,8 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 @ResetDsl
 public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R): R =
   suspendCoroutineAndTrampoline { stack, stackRest, context ->
-    val prompt = Prompt<R>()
-    body.startCoroutineUninterceptedOrReturn(prompt, Prompt.Cont(prompt, context, stack, stackRest))
+    val prompt = Prompt(context, stack.frames, stackRest)
+    body.startCoroutineUninterceptedOrReturn(prompt, prompt)
   }
 
 @PublishedApi
@@ -84,8 +84,8 @@ public suspend inline fun <T, R> runReader(
   noinline fork: T.() -> T = { this },
   noinline body: suspend Reader<T>.() -> R
 ): R = suspendCoroutineAndTrampoline { stack, stackRest, context ->
-  val reader = Reader(fork)
-  body.startCoroutineUninterceptedOrReturn(reader, Reader.Cont(reader, context, value, stack, stackRest))
+  val reader = ReaderT(context, fork, value, stack.frames, stackRest)
+  body.startCoroutineUninterceptedOrReturn(reader, reader)
 }
 
 @ResetDsl
@@ -98,6 +98,7 @@ public suspend inline fun <T, R> Prompt<R>.shift(
   crossinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
+    init.collectValues()
     val subCont = SubCont(init, true)
     suspend { body(subCont) }.startCoroutineIntercepted(rest, restRest.realContext)
   }
@@ -132,6 +133,7 @@ public suspend inline fun <T, R> Prompt<R>.shiftWithFinal(
   crossinline body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
+    init.collectValues()
     val subCont = SubCont(init, true) to SubCont(init)
     suspend { body(subCont) }.startCoroutineIntercepted(rest, restRest.realContext)
   }
@@ -151,26 +153,24 @@ public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
   noinline body: suspend (SubCont<T, P>) -> T
 ): T = suspendCoroutineAndTrampoline { stack, stackRest, _ ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
+    init.collectValues()
     body.startCoroutineUninterceptedOrReturn(SubCont(init, true), Frames.Under(init, rest, restRest))
   }
 }
 
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
-  val cont = cont!!
-  cont.underflow().resumeWithIntercepted(value, cont.realContext)
+  underflow().resumeWithIntercepted(value, realContext)
   throw SuspendedException
 }
 
 public suspend inline fun <R> Prompt<R>.abortWithFast(value: Result<R>): Nothing =
   suspendCoroutineUninterceptedOrReturn {
-    val cont = cont!!
-    cont.underflow().resumeWithIntercepted(value, cont.realContext)
+    underflow().resumeWithIntercepted(value, realContext)
     COROUTINE_SUSPENDED
   }
 
 public fun <R> Prompt<R>.abortS(value: suspend () -> R): Nothing {
-  val cont = cont!!
-  value.startCoroutineIntercepted(cont.underflow(), cont.realContext)
+  value.startCoroutineIntercepted(underflow(), realContext)
   throw SuspendedException
 }
 
