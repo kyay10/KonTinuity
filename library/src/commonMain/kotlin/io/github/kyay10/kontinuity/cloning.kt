@@ -7,7 +7,7 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.jvm.JvmField
 import kotlin.jvm.JvmInline
 
-private const val RUN_INVALIDATIONS = false
+private const val RUN_INVALIDATIONS = true
 private const val SMALL_DATA_BUFFER_SIZE = 6
 
 public expect class StackTraceElement
@@ -50,7 +50,7 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
         if (restRest !is Segment<*, *>) return invalidate(restRest)
       }
 
-    fun SplitCont<*>.invalidate2(index: Int = 0): Array<Any?> = when(this) {
+    fun SplitCont<*>.invalidate2(index: Int = 0): Array<Any?> = when (this) {
       is Prompt<*> -> {
         val restRest = this.restRest
         val arr = restRest.invalidate2(index + 2)
@@ -60,6 +60,7 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
         _restRest = null
         arr
       }
+
       is ReaderT<*, *> -> {
         val restRest = this.restRest
         val arr = restRest.invalidate2(index + 3)
@@ -70,6 +71,7 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
         _restRest = null
         arr
       }
+
       is Segment<*, *> -> arrayOfNulls(index)
       else -> error("Unknown Segmentable type: $this")
     }
@@ -89,6 +91,7 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
             current._restRest = null
             current = restRest
           }
+
           is ReaderT<*, *> -> {
             val restRest = current.restRest
             buffer[size++] = current.rest.frames
@@ -98,6 +101,7 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
             current._restRest = null
             current = restRest
           }
+
           else -> TODO()
         }
         if (current is Segment<*, *>) return buffer
@@ -110,10 +114,12 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
             size += 2
             current.restRest
           }
+
           is ReaderT<*, *> -> {
             size += 3
             current.restRest
           }
+
           else -> TODO()
         }
       } while (current !is Segment<*, *>)
@@ -131,6 +137,7 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
             current._restRest = null
             current = restRest
           }
+
           is ReaderT<*, *> -> {
             val restRest = current.restRest
             arr[index++] = current.rest.frames
@@ -140,6 +147,7 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
             current._restRest = null
             current = restRest
           }
+
           else -> TODO()
         }
       }
@@ -148,7 +156,7 @@ public sealed class SplitCont<in Start>(@JvmField @PublishedApi internal val rea
 
     internal tailrec fun Segmentable<*, *>.invalidateAndCollectValues() {
       val restRest = _restRest ?: return
-      return if (restRest is Segmentable.Segment<*, *>) {
+      return if (restRest is Segment<*, *>) {
         restRest.collectValues()
       } else restRest.asSegmentableOrError().invalidateAndCollectValues()
     }
@@ -163,9 +171,9 @@ internal inline fun <Start> SplitCont<Start>.asSegmentableOrError(): Segmentable
 internal inline fun <Start, P, R> Frames<Start>.splitAt(
   p: Prompt<P>,
   thisRest: SplitCont<*>,
-  block: (Frames<P>, SplitCont<*>, Segmentable.Segment<Start, P>) -> R
+  block: (Frames<P>, SplitCont<*>, Segment<Start, P>) -> R
 ): R {
-  return block(p.rest, p.restRest, Segmentable.Segment(p, this, thisRest.asSegmentableOrError()))
+  return block(p.rest, p.restRest, Segment(p, this, thisRest.asSegmentableOrError()))
 }
 
 internal data class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>) :
@@ -188,7 +196,7 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
 
   @PublishedApi
   internal class Under<RealStart, Start>(
-    private val captured: Segmentable.Segment<RealStart, Start>,
+    private val captured: Segment<RealStart, Start>,
     private val frames: Frames<Start>,
     private val rest: SplitCont<*>,
   ) : SplitSeq<RealStart>() {
@@ -304,9 +312,10 @@ public class Prompt<Start> @PublishedApi internal constructor(
     if (RUN_INVALIDATIONS) {
       val currentRest = _restRest
       if (currentRest !== rest) {
-        if (currentRest is Segmentable.Segment<*, *>) {
-          currentRest.collectValues()
-        } else currentRest?.asSegmentableOrError()?.invalidateAndCollectValues()
+        if (currentRest != null)
+          if (currentRest is Segment<*, *>) {
+            currentRest.collectValues()
+          } else currentRest.asSegmentableOrError().invalidateAndCollectValues()
         _restRest = rest
       }
     } else {
@@ -361,7 +370,8 @@ public class ReaderT<Start, S> @PublishedApi internal constructor(
     if (RUN_INVALIDATIONS) {
       val currentRest = _restRest
       if (currentRest !== rest) {
-        currentRest?.asSegmentableOrError()?.invalidateAndCollectValues()
+        if (currentRest != null)
+          currentRest.asSegmentableOrError().invalidateAndCollectValues()
         _restRest = rest
       }
     } else {
@@ -388,11 +398,6 @@ public sealed class Segmentable<in Start, Rest>(
   internal inline val rest: Frames<Rest>
     get() = Frames(_rest ?: error("Segmentable used before being linked into Frames"))
 
-  internal inline fun setRest(rest: Frames<Rest>, restRest: SplitCont<*>) {
-    _rest = rest.frames
-    _restRest = restRest
-  }
-
   @PublishedApi
   internal inline val restRest: SplitCont<*> get() = _restRest!!
 
@@ -414,7 +419,8 @@ public sealed class Segmentable<in Start, Rest>(
     init {
       @Suppress("UNCHECKED_CAST")
       this.delimiter as Prompt<Start>
-      this.delimiter.setRest(start, this)
+      delimiter._rest = start.frames
+      delimiter._restRest = this
     }
 
     override fun MutableList<in Any?>.invalidateSingle() {
@@ -444,7 +450,8 @@ public sealed class Segmentable<in Start, Rest>(
       (if (shouldCopy) start.copy(startRest.asSegmentableOrError()) else start).also {
         if (values == null && shouldCopy) collectValues()
         values?.revalidate(!shouldCopy, startRest)
-        delimiter.setRest(stack, stackRest)
+        delimiter._rest = stack.frames
+        delimiter._restRest = stackRest
       }
 
     private tailrec fun Array<Any?>.revalidate(isFinal: Boolean, cont: Segmentable<*, *>, index: Int = 0): Unit =
@@ -455,7 +462,8 @@ public sealed class Segmentable<in Start, Rest>(
       }
 
     fun collectValues() {
-      if (values != null) return
+      if (values != null)
+        error("values have already been collected, but $this was invalidated anyway")
       /*values = ArrayList<Any?>(10).apply {
         invalidate(startRest)
       }.toTypedArray()*/

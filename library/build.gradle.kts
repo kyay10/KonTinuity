@@ -1,5 +1,6 @@
 @file:OptIn(ExperimentalWasmDsl::class)
 
+import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
@@ -142,7 +143,10 @@ publishing {
 }
 benchmark {
   targets {
-    register("jvmBenchmark")
+    register("jvmBenchmark") {
+      this as JvmBenchmarkTarget
+      jmhVersion = "1.37"
+    }
   }
 }
 // Plugin
