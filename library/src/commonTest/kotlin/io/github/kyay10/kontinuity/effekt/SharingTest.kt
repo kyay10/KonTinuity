@@ -100,12 +100,15 @@ class SharingTest {
   @Test
   fun sortingTest() = runTestCC(timeout = 10.minutes) {
     val numbers = (1..2).toList()
-    val list = numbers.toLazyList()
-    bagOfN {
-      sharing {
-        list.sort().toPersistentList()
+    val (result, time) = measureTimedValue {
+      bagOfN {
+        sharing {
+          numbers.toLazyList().sort().toPersistentList()
+        }
       }
-    } shouldBe listOf(numbers)
+    }
+    println(time)
+    result shouldBe listOf(numbers)
   }
 
   @Test
