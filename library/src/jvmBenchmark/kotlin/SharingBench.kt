@@ -7,7 +7,7 @@ import kotlinx.benchmark.State
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(BenchmarkTimeUnit.MILLISECONDS)
 @Warmup(iterations = 10, time = 10, timeUnit = BenchmarkTimeUnit.SECONDS)
-@Measurement(iterations = 20, time = 10, timeUnit = BenchmarkTimeUnit.SECONDS)
+@Measurement(iterations = 10, time = 10, timeUnit = BenchmarkTimeUnit.SECONDS)
 @State(Scope.Benchmark)
 open class SharingBench {
   @Param("15")
