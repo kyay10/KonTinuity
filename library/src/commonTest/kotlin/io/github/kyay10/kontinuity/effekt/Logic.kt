@@ -6,12 +6,13 @@ import arrow.core.Some
 import arrow.core.toOption
 import io.github.kyay10.kontinuity.runReader
 
-data class Stream<out A>(val value: A, val next: (suspend () -> Stream<A>?)?): Shareable<Stream<A>> {
+data class Stream<out A>(val value: A, val next: Producer<Stream<A>?>?) : Shareable<Stream<A>> {
   context(_: Amb, _: Exc)
   suspend fun reflect(): A {
     forEach { isLast, a -> if (isLast || flip()) return a }
     raise()
   }
+
   suspend fun tail(): Stream<A>? = next?.invoke()
 
   context(_: Sharing)
@@ -44,15 +45,15 @@ suspend fun <A> interleave(
   val branch = split(first) ?: return second()
   return if (flip()) branch.value
   else if (branch.next == null) second()
-  else interleaveImpl({ split(second) }, branch.next)
+  else interleaveImpl(Producer { split(second) }, branch.next)
 }
 
 // could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some block
 // likely no because interleave delimits its arguments
 context(_: Amb, _: Exc)
 private tailrec suspend fun <A> interleaveImpl(
-  first: suspend () -> Stream<A>?,
-  second: suspend () -> Stream<A>?
+  first: Producer<Stream<A>?>,
+  second: Producer<Stream<A>?>
 ): A {
   val (value, next) = first() ?: return second().reflect()
   return if (flip()) value
@@ -72,7 +73,7 @@ suspend fun <A, B> fairBind(
 
 context(_: Logic, _: Amb, _: Exc)
 private suspend fun <A, B> fairBindImpl(
-  first: suspend () -> Stream<A>?,
+  first: Producer<Stream<A>?>,
   second: suspend context(Amb, Exc) (A) -> B
 ): B {
   val (value, next) = first() ?: raise()
@@ -134,7 +135,7 @@ suspend inline fun succeeds(crossinline block: suspend context(Amb, Exc) () -> U
 }
 
 suspend fun <A> bagOfN(count: Int = -1, block: suspend context(Amb, Exc) () -> A): List<A> =
-  handleStateful(if(count == -1) ArrayDeque<A>() else ArrayDeque(count), ::ArrayDeque) {
+  handleStateful(if (count == -1) ArrayDeque<A>() else ArrayDeque(count), ::ArrayDeque) {
     effectfulLogic {
       val res = block()
       val list = get()
@@ -177,7 +178,7 @@ object LogicDeep : Logic {
         val result = branch()
         val isLast = ask().isEmpty()
         useOnce {
-          Stream(result, if (isLast) null else ({ it(Unit) }))
+          Stream(result, if (isLast) null else Producer { it(Unit) })
         }
       }
       null
@@ -189,17 +190,17 @@ object LogicTree : Logic {
   override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A) = handle<Stream<A>?> {
     Stream(block({
       useWithFinal { (resumeCopy, resumeFinal) ->
-        composeTrees(resumeCopy(true)) { resumeFinal(false) }
+        composeTrees(resumeCopy(true), Producer { resumeFinal(false) })
       }
     }) {
       discardWithFast(Result.success(null))
     }, null)
   }
 
-  private suspend fun <A> composeTrees(stream: Stream<A>?, next: suspend () -> Stream<A>?): Stream<A>? {
+  private suspend fun <A> composeTrees(stream: Stream<A>?, next: Producer<Stream<A>?>): Stream<A>? {
     val (value, nextPrime) = stream ?: return next()
     nextPrime ?: return Stream(value, next)
-    return Stream(value) { composeTrees(nextPrime(), next) }
+    return Stream(value, Producer { composeTrees(nextPrime(), next) })
   }
 }
 
@@ -208,7 +209,7 @@ object LogicSimple : Logic {
     effectfulLogic {
       val res = block()
       useOnce {
-        Stream(res) { it(Unit) }
+        Stream(res, Producer { it(Unit) })
       }
     }
     null

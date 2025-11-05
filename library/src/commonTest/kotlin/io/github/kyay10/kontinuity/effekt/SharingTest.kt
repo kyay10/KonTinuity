@@ -13,7 +13,7 @@ import kotlin.time.measureTimedValue
 
 typealias LazyList<T> = LazyCons<T>?
 
-data class LazyCons<out T>(val head: suspend () -> T, val tail: suspend () -> LazyList<T>) : Shareable<LazyCons<T>> {
+data class LazyCons<out T>(val head: Producer<T>, val tail: Producer<LazyList<T>>) : Shareable<LazyCons<T>> {
   context(_: Sharing)
   override fun shareArgs() = LazyCons(share(head), share(tail))
 }
@@ -22,17 +22,15 @@ context(_: Amb, _: Exc)
 private suspend fun <T> Stream<T>?.perm(): Stream<T>? {
   this ?: return null
   val next = next
-  suspend fun permuteRest() = next?.let { it() }?.perm()
-  return insertStream(value, ::permuteRest)
+  return insertStream(value, Producer { next?.invoke()?.perm() })
 }
 
 context(amb: Amb, exc: Exc)
-private suspend fun <T> insertStream(x: T, mxs: (suspend () -> Stream<T>?)?): Stream<T> = when {
+private suspend fun <T> insertStream(x: T, mxs: Producer<Stream<T>?>?): Stream<T> = when {
   mxs == null || flip() -> Stream(x, mxs)
   else -> {
     val (y, mys) = mxs() ?: raise()
-    suspend fun insertRest() = insertStream(x, mys)
-    Stream(y, ::insertRest)
+    Stream(y, Producer { insertStream(x, mys) })
   }
 }
 
@@ -44,7 +42,7 @@ private tailrec suspend fun <T : Comparable<T>> Stream<T>?.isSorted(): Boolean {
 
 context(_: Sharing, _: Amb, _: Exc)
 suspend fun <T : Comparable<T>> Stream<T>?.sort(): Stream<T>? {
-  val permutation = share { perm() }
+  val permutation = share(Producer { perm() })
   ensure(permutation().isSorted())
   return permutation()
 }
@@ -55,7 +53,7 @@ suspend fun <T> Stream<T>?.toPersistentList(): PersistentList<T> {
 }
 
 fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
-  Stream(i, acc?.let { { acc } })
+  Stream(i, acc?.let(Producer.Companion::of))
 }
 
 class SharingTest {
@@ -64,28 +62,28 @@ class SharingTest {
     val (my, mys) = tail() ?: return true
     val x = head()
     val y = my()
-    return if (x <= y) LazyCons({ y }, mys).isSorted() else false
+    return if (x <= y) LazyCons(Producer.of(y), mys).isSorted() else false
   }
 
   context(_: Amb, _: Exc)
   private suspend fun <T> LazyList<T>.perm(): LazyList<T> {
     this ?: return null
-    return insert(head) { tail().perm() }
+    return insert(head, Producer { tail().perm() })
   }
 
   context(_: Sharing, _: Amb, _: Exc)
   private suspend fun <T : Comparable<T>> LazyList<T>.sort(): LazyList<T> {
-    val permutation = share { perm() }
+    val permutation = share(Producer { perm() })
     ensure(permutation().isSorted())
     return permutation()
   }
 
   context(_: Amb, _: Exc)
-  private suspend fun <T> insert(mx: suspend () -> T, mxs: suspend () -> LazyList<T>): LazyList<T> = when {
+  private suspend fun <T> insert(mx: Producer<T>, mxs: Producer<LazyList<T>>): LazyList<T> = when {
     flip() -> LazyCons(mx, mxs)
     else -> {
       val (my, mys) = mxs() ?: raise()
-      LazyCons(my) { insert(mx, mys) }
+      LazyCons(my, Producer { insert(mx, mys) })
     }
   }
 
@@ -96,7 +94,7 @@ class SharingTest {
   }
 
   private fun <T> List<T>.toLazyList(): LazyList<T> = fold(null) { acc, i ->
-    LazyCons({ i }) { acc }
+    LazyCons(Producer.of(i), Producer.of(acc))
   }
 
   @Test
@@ -126,21 +124,16 @@ class SharingTest {
 }
 
 context(r: Reader<out MutableList<in Field<*>>?>)
-private inline fun <A> memo(crossinline block: suspend () -> A): suspend () -> A {
+private inline fun <A> memo(crossinline block: suspend () -> A): Producer<A> {
   val key = Field<A>()
-  return object : Invokable<A> {
-    override suspend fun invoke(): A = key.getOrElse {
+  return Producer {
+    key.getOrElse {
       block().also {
         key.set(it)
         r.ask()?.add(key)
       }
     }
-  }.invoker()
-}
-
-fun <A> Invokable<A>.invoker(): suspend () -> A = this::invoke
-fun interface Invokable<A> {
-  suspend fun invoke(): A
+  }
 }
 
 private class Field<T> {
@@ -163,12 +156,24 @@ private class Field<T> {
   }
 }
 
+abstract class Producer<out A> {
+  abstract suspend operator fun invoke(): A
+
+  companion object {
+    inline operator fun <A> invoke(crossinline block: suspend () -> A): Producer<A> = object : Producer<A>() {
+      override suspend fun invoke(): A = block()
+    }
+
+    fun <A> of(a: A): Producer<A> = Producer { a }
+  }
+}
+
 interface Sharing {
-  fun <A> share(block: suspend () -> A): suspend () -> A
+  fun <A> share(block: Producer<A>): Producer<A>
 }
 
 context(s: Sharing)
-fun <A> share(block: suspend () -> A): suspend () -> A = s.share(block)
+fun <A> share(block: Producer<A>): Producer<A> = s.share(block)
 
 interface Shareable<out A : Shareable<A>> {
   context(_: Sharing)
@@ -185,7 +190,7 @@ fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
 suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R =
   runReader(null as MutableList<Field<*>>?, { ArrayList(20) }) {
     block(object : Sharing {
-      override fun <A> share(block: suspend () -> A): suspend () -> A = memo { block().shareArgs() }
+      override fun <A> share(block: Producer<A>): Producer<A> = memo { block().shareArgs() }
     }).also {
       ask()?.forEach { it.clear() }
     }
