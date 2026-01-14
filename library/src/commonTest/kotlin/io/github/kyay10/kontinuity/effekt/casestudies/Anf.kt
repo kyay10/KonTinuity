@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.core.Either
-import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
@@ -71,7 +70,7 @@ suspend fun <R> freshVars(block: suspend context(Fresh) () -> R): R {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
     block {
-      "x${++get().i}"
+      "x${++value.i}"
     }
   }
 }

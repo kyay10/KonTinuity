@@ -50,20 +50,20 @@ class ProbHandler<R>(prompt: StatefulPrompt<List<Weighted<R>>, Data>) : Prob,
   }
 
   override suspend fun flip(): Boolean = use { k ->
-    val previous = get().p
-    k(false).also { get().p = previous } + k(true)
+    val previous = value.p
+    k(false).also { value.p = previous } + k(true)
   }
 
   override suspend fun fail(): Nothing = discard { emptyList() }
 
   override suspend fun factor(p: Double) {
-    get().p = p * get().p
+    value.p = p * value.p
   }
 }
 
 suspend fun <R> probabilistic(body: suspend ProbHandler<R>.() -> R): List<Weighted<R>> =
   handleStateful(ProbHandler.Data()) {
-    listOf(Weighted(body(ProbHandler(this)), get().p))
+    listOf(Weighted(body(ProbHandler(this)), value.p))
   }
 
 data class Weighted<T>(val value: T, val weight: Double)

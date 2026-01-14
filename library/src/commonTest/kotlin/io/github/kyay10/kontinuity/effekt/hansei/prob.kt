@@ -49,11 +49,7 @@ internal suspend inline fun <A> memory(crossinline block: suspend context(Memory
   block(object : Memory {
     override fun <A> letLazy(block: suspend () -> A): suspend () -> A {
       val loc = field<A>()
-      return {
-        loc.getOrNone().getOrElse {
-          block().also { loc.set(it) }
-        }
-      }
+      return { loc.getOrPut { block() } }
     }
 
     override fun <A, B> memo(block: suspend (A) -> B): suspend (A) -> B {

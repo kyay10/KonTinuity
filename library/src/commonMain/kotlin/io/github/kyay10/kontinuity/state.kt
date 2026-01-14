@@ -1,15 +1,21 @@
 package io.github.kyay10.kontinuity
 
+import kotlin.jvm.JvmInline
+
 public data class StateValue<T>(public var value: T)
 
-public typealias State<T> = Reader<StateValue<T>>
-
-public fun <T> State<T>.set(value: T) {
-  ask().value = value
+@JvmInline
+public value class State<T>(private val underlying: Reader<StateValue<T>>) {
+  public var value: T
+    get() = underlying.value.value
+    set(value) {
+      underlying.value.value = value
+    }
 }
 
-public fun <T> State<T>.get(): T = ask().value
+public inline fun <T> State<T>.modify(f: (T) -> T) {
+  value = f(value)
+}
 
-public inline fun <T> State<T>.modify(f: (T) -> T): Unit = set(f(get()))
-
-public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R = runReader(StateValue(value), { copy() }, body)
+public suspend inline fun <T, R> runState(value: T, crossinline body: suspend State<T>.() -> R): R =
+  runReader(StateValue(value), { copy() }) { body(State(this)) }

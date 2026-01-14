@@ -7,11 +7,8 @@ public interface Handler<E> {
 }
 
 public interface StatefulHandler<E, S> : Handler<E> {
-  public val reader: Reader<S>
+  public val value: S
 }
-
-public fun <E, S> StatefulHandler<E, S>.get(): S = reader.ask()
-public val <E, S> StatefulHandler<E, S>.value: S get() = get()
 
 public suspend inline fun <A, E> Handler<E>.use(crossinline body: suspend (SubCont<A, E>) -> E): A =
   prompt.shift(body)
@@ -47,5 +44,7 @@ public suspend inline fun <E, S> handleStateful(
 public class HandlerPrompt<E> @PublishedApi internal constructor(override val prompt: Prompt<E>) : Handler<E>
 
 public class StatefulPrompt<E, S> @PublishedApi internal constructor(
-  prompt: HandlerPrompt<E>, override val reader: Reader<S>
-) : StatefulHandler<E, S>, Handler<E> by prompt
+  prompt: HandlerPrompt<E>, private val reader: Reader<S>
+) : StatefulHandler<E, S>, Handler<E> by prompt {
+  override val value: S get() = reader.value
+}

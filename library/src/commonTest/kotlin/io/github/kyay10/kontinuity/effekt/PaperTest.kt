@@ -3,6 +3,7 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import arrow.core.getOrElse
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
 import io.kotest.matchers.shouldBe
@@ -51,9 +52,9 @@ class PaperTest {
     runCC {
       val res = collect {
         region {
-          val x = field(0)
-          if (flip()) x.set(2)
-          x.get()
+          var x by field(0)
+          if (flip()) x = 2
+          x
         }
       }
       res shouldBe listOf(2, 0)
@@ -61,9 +62,9 @@ class PaperTest {
     runCC {
       val res = region {
         collect {
-          val x = field(0)
-          if (flip()) x.set(2)
-          x.get()
+          var x by field(0)
+          if (flip()) x = 2
+          x
         }
       }
       res shouldBe listOf(2, 2)
@@ -164,22 +165,16 @@ class Poll(
   val state: StateScope,
   val fiber: Fiber,
 ) : Async {
-  private class PromiseImpl<T>(val fiber: Fiber, val field: StateScope.Field<Option<T>>) : Async.Promise<T> {
-    override tailrec suspend fun await(): T = when (val v = field.get()) {
-      is None -> {
-        fiber.suspend()
-        await()
-      }
-
-      is Some -> v.value
+  private class PromiseImpl<T>(val fiber: Fiber, val field: StateScope.OptionalField<T>) : Async.Promise<T> {
+    override tailrec suspend fun await(): T = field.getOrPut {
+      fiber.suspend()
+      return await()
     }
   }
 
   override suspend fun <T> async(body: suspend () -> T): Async.Promise<T> {
-    val p = state.field<Option<T>>(None)
-    fiber.forked {
-      p.set(Some(body()))
-    }
+    val p = state.field<T>()
+    fiber.forked { p.value = body() }
     return PromiseImpl(fiber, p)
   }
 }
@@ -193,13 +188,13 @@ suspend fun <R> firstResult(block: suspend context(Amb, Exc) () -> R): Option<R>
 class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Unit, Queue> by prompt {
   override suspend fun exit(): Nothing = discard {}
   override suspend fun fork(): Boolean = use { resume ->
-    get().add(0) { resume(false) }
-    get().add(0) { resume(true) }
+    value.add(0) { resume(false) }
+    value.add(0) { resume(true) }
     run()
   }
 
   override suspend fun suspend() = use { resume ->
-    get().add { resume(Unit) }
+    value.add { resume(Unit) }
     run()
   }
 }
@@ -209,7 +204,7 @@ suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(mutableL
 }
 
 private suspend fun StatefulHandler<Unit, Queue>.run() {
-  val q = get()
+  val q = value
   if (q.isNotEmpty()) {
     q.removeFirst()()
   }

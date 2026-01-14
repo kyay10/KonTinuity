@@ -8,7 +8,7 @@ import kotlin.time.Duration.Companion.minutes
 class StateTest {
   @Test
   fun simpleRead() = runTestCC {
-    stateFun(42) { get() } shouldBe 42
+    stateFun(42) { getValue() } shouldBe 42
   }
 
   @Test
@@ -23,15 +23,15 @@ class StateTest {
       s7: State<Int>,
       s8: State<Int>
     ): Boolean {
-      while (s1.get() > 0) {
-        s1.put(s1.get() - 1)
-        s2.put(s2.get() - 1)
-        s3.put(s3.get() - 1)
-        s4.put(s4.get() - 1)
-        s5.put(s5.get() - 1)
-        s6.put(s6.get() - 1)
-        s7.put(s7.get() - 1)
-        s8.put(s8.get() - 1)
+      while (s1.getValue() > 0) {
+        s1.put(s1.getValue() - 1)
+        s2.put(s2.getValue() - 1)
+        s3.put(s3.getValue() - 1)
+        s4.put(s4.getValue() - 1)
+        s5.put(s5.getValue() - 1)
+        s6.put(s6.getValue() - 1)
+        s7.put(s7.getValue() - 1)
+        s8.put(s8.getValue() - 1)
       }
       return flip()
     }
@@ -63,11 +63,11 @@ class StateTest {
   fun countDown() = runTestCC {
     suspend fun State<Int>.countDown(): List<Int> {
       val printed = mutableListOf(Int.MIN_VALUE)
-      while (get() > 0) {
-        printed.add(get())
-        put(get() - 1)
+      while (getValue() > 0) {
+        printed.add(getValue())
+        put(getValue() - 1)
       }
-      printed.add(get())
+      printed.add(getValue())
       return printed
     }
     stateFun(10) {
@@ -78,8 +78,8 @@ class StateTest {
   @Test
   fun silentCountDown() = runTestCC(timeout = 10.minutes) {
     suspend fun State<Int>.countDown() {
-      while (get() > 0) {
-        put(get() - 1)
+      while (getValue() > 0) {
+        put(getValue() - 1)
       }
     }
     stateFun(10_000) {
@@ -97,13 +97,13 @@ class StateTest {
     ambList {
       myState(0) {
         ex1(this)
-        get()
+        getValue()
       }
     } shouldBe listOf(1, 0)
     myState(0) {
       ambList {
         ex1(this@myState)
-        get()
+        getValue()
       }
     } shouldBe listOf(1, 1)
   }
@@ -112,12 +112,12 @@ class StateTest {
   fun ambientState2() = runTestCC {
     var isFirst = true
     myState(0) {
-      get() shouldBe 0
+      getValue() shouldBe 0
       foo()
-      get() shouldBe if (isFirst) 2 else 13
+      getValue() shouldBe if (isFirst) 2 else 13
       isFirst = false
       put(42)
-      get() shouldBe 42
+      getValue() shouldBe 42
     }
   }
 
@@ -125,11 +125,11 @@ class StateTest {
   fun ambientState3() = runTestCC {
     var first = true
     myState(0) {
-      get() shouldBe 0
+      getValue() shouldBe 0
       bar()
-      get() shouldBe if (first) 3 else 43
+      getValue() shouldBe if (first) 3 else 43
       put(42)
-      get() shouldBe 42
+      getValue() shouldBe 42
       first = false
     }
   }
@@ -154,9 +154,9 @@ class MyState<R>(prompt: StatefulPrompt<R, Data<Int>>) : CrazyState,
   override suspend fun bar() {
     put(2)
     use { k ->
-      put(get() + 1)
+      put(getValue() + 1)
       k(Unit)
-      put(get() + 1)
+      put(getValue() + 1)
       k(Unit)
     }
   }
@@ -173,9 +173,9 @@ open class SpecialState<R, S>(prompt: StatefulPrompt<R, Data<S>>) : State<S>,
     override fun fork() = copy()
   }
 
-  override suspend fun get(): S = (this as StatefulHandler<R, Data<S>>).get().state
+  override suspend fun getValue(): S = (this as StatefulHandler<R, Data<S>>).value.state
   override suspend fun put(value: S) {
-    (this as StatefulHandler<R, Data<S>>).get().state = value
+    (this as StatefulHandler<R, Data<S>>).value.state = value
   }
 }
 
@@ -185,7 +185,7 @@ suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
   }
 
 class StateFun<R, S>(p: HandlerPrompt<suspend (S) -> R>) : State<S>, Handler<suspend (S) -> R> by p {
-  override suspend fun get(): S = useOnce { k ->
+  override suspend fun getValue(): S = useOnce { k ->
     { s ->
       k(s)(s)
     }
@@ -206,6 +206,6 @@ suspend fun <R, S> stateFun(init: S, block: suspend State<S>.() -> R): R = handl
 private fun <S, R> suspendOneArg(block: suspend (S) -> R): suspend (S) -> R = block
 
 interface State<S> {
-  suspend fun get(): S
+  suspend fun getValue(): S
   suspend fun put(value: S)
 }

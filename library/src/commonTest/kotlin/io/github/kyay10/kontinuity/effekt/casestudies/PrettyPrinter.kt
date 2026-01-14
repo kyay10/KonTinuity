@@ -5,16 +5,14 @@ import arrow.core.Either.Right
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.getOrElse
-import arrow.core.raise.SingletonRaise
+import arrow.core.raise.Raise
 import arrow.core.recover
 import arrow.core.some
-import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
-import io.github.kyay10.kontinuity.given
 import io.github.kyay10.kontinuity.Raise
-import io.github.kyay10.kontinuity.raise
+import io.github.kyay10.kontinuity.ensure
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -237,7 +235,7 @@ context(_: Flow)
 suspend inline fun <R> fix(
   direction: Direction, doc: suspend context(Flow) () -> R
 ): R = with(Flow { direction }) {
-  doc(given<Flow>())
+  doc(contextOf<Flow>())
 }
 
 context(_: Flow)
@@ -306,8 +304,8 @@ suspend fun example3() = group {
   text("lines")
 }
 
-suspend fun <R> searchLayout(p: suspend context(SingletonRaise<Unit>, LayoutChoice) () -> R): Option<R> = handle {
-  p(SingletonRaise(Raise { None })) {
+suspend fun <R> searchLayout(p: suspend context(Raise<Unit>, LayoutChoice) () -> R): Option<R> = handle {
+  p(Raise { None }) {
     use { k ->
       k(Direction.Horizontal).recover { k(Direction.Vertical).bind() }
     }
@@ -318,13 +316,13 @@ suspend fun writer(p: suspend context(Emit) () -> Unit): String {
   data class Data(var content: String)
   return handleStateful(Data(""), Data::copy) {
     p { text ->
-      get().content += text
+      value.content += text
     }
-    get().content
+    value.content
   }
 }
 
-context(emit: Emit, layoutChoice: LayoutChoice, _: SingletonRaise<*>)
+context(emit: Emit, layoutChoice: LayoutChoice, _: Raise<Unit>)
 suspend fun printer(
   width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit
 ) {
@@ -332,17 +330,14 @@ suspend fun printer(
   handleStateful(PrinterData(0), PrinterData::copy) {
     block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(layoutChoice::choice), object : Emit {
       override suspend fun emitText(text: String) {
-        get().pos += text.length
-        if (get().pos > width) {
-          raise()
-        } else {
-          emit.emitText(text)
-        }
+        value.pos += text.length
+        ensure(value.pos <= width)
+        emit.emitText(text)
       }
 
       override suspend fun emitNewline() {
         emit.emitNewline()
-        get().pos = 0
+        value.pos = 0
       }
     })
   }
@@ -353,7 +348,18 @@ suspend fun pretty(
 ): String = searchLayout {
   writer {
     printer(width, 2) {
-      block(given<Indent>(), given<DefaultIndent>(), given<Flow>(), given<Emit>(), given<LayoutChoice>())
+      contextOf<Indent>()
+      contextOf<DefaultIndent>()
+      contextOf<Flow>()
+      contextOf<Emit>()
+      contextOf<LayoutChoice>()
+      block(
+        contextOf<Indent>(),
+        contextOf<DefaultIndent>(),
+        contextOf<Flow>(),
+        contextOf<Emit>(),
+        contextOf<LayoutChoice>()
+      )
     }
   }
 }.getOrElse { "Cannot print document, since it would overflow." }

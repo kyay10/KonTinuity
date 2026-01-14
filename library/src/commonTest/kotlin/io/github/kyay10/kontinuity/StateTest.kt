@@ -22,7 +22,7 @@ class StateTest {
         incrementCounter()
         doubleCounter()
         doubleCounter()
-        get()
+        value
       }
     }
     result shouldBe CounterState(4)
@@ -46,7 +46,7 @@ class StateTest {
         incrementCounter()
         doubleCounter()
         doubleCounter()
-        get()
+        value
       }
     }
     result shouldBe listOf(CounterState(0), CounterState(1), CounterState(2), CounterState(4))

@@ -138,13 +138,13 @@ suspend fun <A> bagOfN(count: Int = -1, block: suspend context(Amb, Exc) () -> A
   handleStateful(if (count == -1) ArrayDeque<A>() else ArrayDeque(count), ::ArrayDeque) {
     effectfulLogic {
       val res = block()
-      val list = get()
+      val list = value
       list.add(res)
       if (list.size == count) {
         discardWithFast(Result.success(list))
       }
     }
-    get()
+    value
   }
 
 object LogicDeep : Logic {
@@ -157,16 +157,16 @@ object LogicDeep : Logic {
 
   override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>? = handle split@{
     runReader(ArrayDeque<suspend () -> A>(), ::ArrayDeque) {
-      ask().addFirst {
+      value.addFirst {
         handle ambExc@{
           block({
             useWithFinal { (resumeCopy, resumeFinal) ->
-              ask().addFirst { resumeFinal(false) }
+              value.addFirst { resumeFinal(false) }
               resumeCopy(true)
             }
           }, {
             discard {
-              val branches = ask()
+              val branches = value
               if (branches.isEmpty()) this@split.discardWithFast(Result.success(null))
               else branches.removeFirst().invoke()
             }
@@ -174,9 +174,9 @@ object LogicDeep : Logic {
         }
       }
       while (true) {
-        val branch = ask().removeFirstOrNull() ?: break
+        val branch = value.removeFirstOrNull() ?: break
         val result = branch()
-        val isLast = ask().isEmpty()
+        val isLast = value.isEmpty()
         useOnce {
           Stream(result, if (isLast) null else Producer { it(Unit) })
         }

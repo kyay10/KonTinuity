@@ -1,6 +1,5 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
-import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
 import io.github.kyay10.kontinuity.runTestCC
@@ -76,7 +75,7 @@ suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence {
   return handleStateful(Data(0), Data::copy) {
     s { who ->
       use { resume ->
-        val x = Person("x${get().i++}")
+        val x = Person("x${value.i++}")
         ForAll(x, Implies(Is(x, who), resume(x)))
       }
     }

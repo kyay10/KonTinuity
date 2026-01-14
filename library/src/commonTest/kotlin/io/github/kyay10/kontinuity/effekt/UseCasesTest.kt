@@ -52,8 +52,8 @@ context(_: Exc)
 suspend fun <R> stringReader(input: String, block: suspend Receive<Char>.() -> R): R =
   handleStateful(StringReaderData()) {
     block {
-      if (get().pos >= input.length) raise("Unexpected EOS")
-      input[get().pos++]
+      if (value.pos >= input.length) raise("Unexpected EOS")
+      input[value.pos++]
     }
   }
 

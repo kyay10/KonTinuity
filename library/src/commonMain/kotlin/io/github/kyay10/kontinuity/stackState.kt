@@ -3,7 +3,7 @@ package io.github.kyay10.kontinuity
 public typealias StackState<T> = State<List<T>>
 
 public operator fun <T> StackState<T>.plusAssign(value: T): Unit = modify { it + value }
-public fun <T> StackState<T>.getLast(): T = ask().value.last()
+public fun <T> StackState<T>.getLast(): T = value.last()
 
 public inline fun <T> StackState<T>.modifyLast(f: (T) -> T): Unit = plusAssign(f(getLast()))
 

@@ -30,10 +30,9 @@ import kotlin.with
 class HExcTest {
   context(r: Raise<Unit>, state: State<Int>)
   private fun decr() {
-    val x = state.get()
-    if (x > 0) state.set(x - 1) else raise(Unit)
+    ensure(state.value > 0)
+    state.value--
   }
-
   context(r: Raise<Unit>, recover: Recover, state: State<Int>)
   private suspend fun tripleDecr() {
     decr()
@@ -85,7 +84,7 @@ class HExcTest {
       runHExc<Unit, _> {
         bagOfN {
           recover({
-            if (flip()) raise(Unit)
+            ensure(!flip())
             true
           }) { false }
         }
@@ -93,7 +92,7 @@ class HExcTest {
       runHExcTransactional<Unit, _> {
         bagOfN {
           recover({
-            if (flip()) raise(Unit)
+            ensure(!flip())
             true
           }) { false }
         }
@@ -101,7 +100,7 @@ class HExcTest {
       subJump {
         bagOfN {
           recover.recover({
-            if (flip()) raise(Unit)
+            ensure(!flip())
             true
           }) { false }
         }
@@ -144,11 +143,13 @@ class HExcTest {
   }
 
   suspend fun Amb.action1(err: HExc<Unit>) = err.recover({
-    if (flip()) true else raise(Unit)
+    ensure(flip())
+    true
   }) { false }
 
   suspend fun Amb.action2(err: HExc<Unit>) = err.recover({
-    if (flip()) raise(Unit) else true
+    ensure(!flip())
+    true
   }) { false }
 
   @Test
@@ -309,5 +310,5 @@ suspend fun <E, A> hRecover(block: suspend HExc<E>.() -> A): Either<E, A> = hand
 
 suspend fun <T, R> runStatePair(value: T, body: suspend State<T>.() -> R): Pair<T, R> = runState(value) {
   val res = body()
-  get() to res
+  this.value to res
 }

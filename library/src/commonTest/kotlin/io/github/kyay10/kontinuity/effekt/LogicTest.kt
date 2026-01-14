@@ -18,26 +18,26 @@ class LogicTest {
   fun reader() = runTestCC {
     runReader(0) {
       bagOfN {
-        runReader(ask() + 5) {
-          ask()
+        runReader(value + 5) {
+          value
         }
       } shouldBe listOf(5)
     }
     runReader(0) {
       bagOfN {
-        runReader(ask() + 5) {
-          ask()
-        } to ask()
+        runReader(value + 5) {
+          value
+        } to value
       } shouldBe listOf(5 to 0)
     }
 
     runReader(0) {
       bagOfN {
-        if (flip()) runReader(ask() + 5) {
-          ask()
+        if (flip()) runReader(value + 5) {
+          value
         } else if (flip()) raise()
-        else runReader(ask() + 3) {
-          ask()
+        else runReader(value + 3) {
+          value
         }
       } shouldBe listOf(5, 3)
     }
