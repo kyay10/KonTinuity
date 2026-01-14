@@ -97,25 +97,25 @@ private suspend fun mu(f: suspend (Baire) -> Int, alpha: Baire): Int = runState(
     modify { max(it, n) }
     alpha(n)
   }
-  get()
+  value
 }
 
 private suspend fun findNeighborhood(predicate: suspend (Cantor) -> Boolean): Map<Int, Bit> =
   runReader(persistentHashMapOf<Int, Bit>().builder(), { build().builder() }) {
     handle {
       predicate { i ->
-        ask()[i] ?: use { k ->
-          val current = ask().build()
+        value[i] ?: use { k ->
+          val current = value.build()
           k(One) || run {
             // reset state
-            ask().clear()
-            ask().putAll(current)
+            value.clear()
+            value.putAll(current)
             k(Zero)
           }
-        }.also { ask()[i] = it }
+        }.also { value[i] = it }
       }
     }
-    ask().build()
+    value.build()
   }
 
 private suspend fun epsilon(predicate: suspend (Cantor) -> Boolean): Cantor {

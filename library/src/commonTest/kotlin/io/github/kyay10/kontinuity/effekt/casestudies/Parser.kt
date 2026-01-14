@@ -5,13 +5,15 @@ import arrow.core.Either.Left
 import arrow.core.Either.Right
 import arrow.core.left
 import arrow.core.raise.Raise
+import arrow.core.raise.context.ensure
+import arrow.core.raise.context.ensureNotNull
+import arrow.core.raise.context.raise
 import arrow.core.recover
 import arrow.core.right
 import io.github.kyay10.kontinuity.Raise
 import io.github.kyay10.kontinuity.effekt.casestudies.TokenKind.*
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.use
-import io.github.kyay10.kontinuity.raise
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -54,12 +56,12 @@ suspend fun alt() = nondet.alt()
 context(_: Nondet, _: Lexer, _: Raise<String>)
 suspend inline fun accept(expectedText: String = "", predicate: (Token) -> Boolean): Token {
   val token = next()
-  return if (predicate(token)) token
-  else raise("unexpected token $token, expected $expectedText")
+  ensure(predicate(token)) { "unexpected token $token, expected $expectedText" }
+  return token
 }
 
 context(_: Nondet, _: Lexer, _: Raise<String>)
-suspend fun any() = accept { t -> true }
+suspend fun any() = accept { true }
 
 context(_: Nondet, _: Lexer, _: Raise<String>)
 suspend fun accept(exp: TokenKind) = accept(exp.toString()) { t -> t.kind == exp }
@@ -73,13 +75,13 @@ suspend fun number() = accept(Number).text
 context(_: Nondet, _: Lexer, _: Raise<String>)
 suspend fun punct(p: String) {
   val text = accept(Punct).text
-  if (text != p) raise("Expected $p but got $text")
+  ensure(text == p) { "Expected $p but got $text" }
 }
 
 context(_: Nondet, _: Lexer, _: Raise<String>)
 suspend fun kw(exp: String) {
   val text = ident()
-  if (text != exp) raise("Expected keyword $exp but got $text")
+  ensure(text == exp) { "Expected keyword $exp but got $text" }
 }
 
 context(_: Nondet)
@@ -104,7 +106,7 @@ data class App(val name: String, val arg: Tree) : Tree
 context(_: Nondet, _: Lexer, _: Raise<String>)
 suspend fun parseNum(): Tree {
   val num = number()
-  return Lit(num.toIntOrNull() ?: raise("Expected number, but cannot convert input to integer: $num"))
+  return Lit(ensureNotNull(num.toIntOrNull()) { "Expected number, but cannot convert input to integer: $num" })
 }
 
 context(_: Nondet, _: Lexer, _: Raise<String>)

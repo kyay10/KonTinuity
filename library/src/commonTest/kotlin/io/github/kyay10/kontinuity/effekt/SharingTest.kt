@@ -130,12 +130,7 @@ context(r: Reader<out MutableList<in Field<*>>?>)
 private inline fun <A> memo(crossinline block: suspend () -> A): Producer<A> {
   val key = Field<A>()
   return Producer {
-    key.getOrElse {
-      block().also {
-        key.set(it)
-        r.ask()?.add(key)
-      }
-    }
+    key.getOrPut { block().also { r.value?.add(key) } }
   }
 }
 
@@ -144,12 +139,9 @@ private class Field<T> {
 
   @Suppress("UNCHECKED_CAST")
   private var value: T = EmptyValue as T
-  fun set(value: T) {
-    this.value = value
-  }
 
-  inline fun getOrElse(block: () -> T): T = when (val value = value) {
-    EmptyValue -> block()
+  inline fun getOrPut(block: () -> T): T = when (val value = value) {
+    EmptyValue -> block().also { this.value = it }
     else -> value
   }
 
@@ -195,6 +187,6 @@ suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R =
     block(object : Sharing {
       override fun <A> share(block: Producer<A>): Producer<A> = memo { block().shareArgs() }
     }).also {
-      ask()?.forEach { it.clear() }
+      value?.forEach { it.clear() }
     }
   }

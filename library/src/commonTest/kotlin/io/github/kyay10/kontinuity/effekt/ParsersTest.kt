@@ -172,16 +172,16 @@ class StringParser<R>(val input: String, prompt: StatefulPrompt<Option<R>, Data>
   private val cache = mutableMapOf<Pair<Int, String>, Pair<Int, Any?>>()
 
   override suspend fun any(): Char {
-    if (get().index >= input.length) fail("Unexpected EOS")
-    return input[get().index++]
+    if (value.index >= input.length) fail("Unexpected EOS")
+    return input[value.index++]
   }
 
   override suspend fun alternative(): Boolean = use { k ->
     // Note: our state is above us here, so we need to save and update
-    val before = get().index
+    val before = value.index
     // does this lead to left biased choice?
     k(true).recover {
-      get().index = before
+      value.index = before
       k(false).bind()
     }
   }
@@ -192,12 +192,12 @@ class StringParser<R>(val input: String, prompt: StatefulPrompt<Option<R>, Data>
 
   override suspend fun <A> nonterminal(name: String, body: suspend () -> A): A {
     // We could as well use body.getClass().getCanonicalName() as key.
-    val key = Pair(get().index, name)
+    val key = Pair(value.index, name)
     val (p, res) = cache.getOrPut(key) {
       val res = body()
-      get().index to res
+      value.index to res
     }
-    get().index = p
+    value.index = p
     @Suppress("UNCHECKED_CAST") return res as A
   }
 }

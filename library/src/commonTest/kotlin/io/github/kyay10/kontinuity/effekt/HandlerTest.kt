@@ -4,6 +4,7 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
+import io.github.kyay10.kontinuity.effekt.getValue
 import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
@@ -105,10 +106,10 @@ private suspend fun number(): Int {
 
 context(_: Exc)
 suspend fun <R> stringInput(input: String, block: suspend Input.() -> R): R = region {
-  val pos = field(0)
+  var pos by field(0)
   block {
-    if (pos.get() >= input.length) raise("EOS")
-    else input[pos.get().also { pos.set(it + 1) }]
+    ensure(pos < input.length)
+    input[pos++]
   }
 }
 
@@ -131,21 +132,18 @@ private suspend fun Generator<Int>.numbers(upto: Int) {
   }
 }
 
-private class Iterate2<A>(val nextValue: StateScope.Field<(suspend (Unit) -> A)?>, p: HandlerPrompt<EffectfulIterator2<A>>) :
-  Generator<A>, Handler<EffectfulIterator2<A>> by p {
+private class Iterate2<A>(field: StateScope.Field<(suspend (Unit) -> A)?>, p: HandlerPrompt<EffectfulIterator2<A>>) :
+  Generator<A>, Handler<EffectfulIterator2<A>> by p, EffectfulIterator2<A> {
+  private var nextValue by field
   override suspend fun yield(value: A) = use { resume ->
-    nextValue.set {
+    nextValue = {
       resume(Unit)
       value
     }
-    EffectfulIteratorImpl(nextValue)
+    this
   }
-
-  private class EffectfulIteratorImpl<A>(private val nextValue: StateScope.Field<(suspend (Unit) -> A)?>) :
-    EffectfulIterator2<A> {
-    override suspend fun hasNext(): Boolean = nextValue.get() != null
-    override suspend fun next(): A = nextValue.get()!!.also { nextValue.set(null) }.invoke(Unit)
-  }
+  override suspend fun hasNext(): Boolean = nextValue != null
+  override suspend fun next(): A = nextValue!!.also { nextValue = null }.invoke(Unit)
 }
 
 suspend fun <A> StateScope.iterate2(block: suspend Generator<A>.() -> Unit) = handle {

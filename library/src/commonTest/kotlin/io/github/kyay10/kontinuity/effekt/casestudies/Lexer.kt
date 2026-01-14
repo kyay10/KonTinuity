@@ -3,7 +3,6 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 import arrow.core.raise.Raise
 import arrow.core.raise.recover
 import io.github.kyay10.kontinuity.effekt.Stateful
-import io.github.kyay10.kontinuity.effekt.get
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -82,9 +81,9 @@ suspend fun <R> Raise<LexerError>.lexerFromList(l: List<Token>, block: suspend L
   data class Data(var index: Int)
   return handleStateful(Data(0), Data::copy) {
     object : Lexer {
-      override suspend fun peek(): Token? = l.getOrNull(get().index)
+      override suspend fun peek(): Token? = l.getOrNull(value.index)
       override suspend fun next(): Token =
-        l.getOrNull(get().index++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
+        l.getOrNull(value.index++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
     }.block()
   }
 }
@@ -116,10 +115,10 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend Lexer.() -
 
   return handleStateful(Data(index = 0, col = 1, line = 1)) {
     object : Lexer {
-      private suspend fun eos(): Boolean = get().index >= input.length
+      private suspend fun eos(): Boolean = value.index >= input.length
       private suspend fun tryMatch(regex: Regex, tokenKind: TokenKind): Token? =
-        regex.find(input.substring(get().index))?.let {
-          Token(tokenKind, it.value, get().toPosition())
+        regex.find(input.substring(value.index))?.let {
+          Token(tokenKind, it.value, value.toPosition())
         }
 
       private suspend fun tryMatchAll(map: Map<TokenKind, Regex>): Token? =
@@ -127,10 +126,10 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend Lexer.() -
 
       override suspend fun peek(): Token? = tryMatchAll(tokenDescriptors)
       override suspend fun next(): Token {
-        val position = get().toPosition()
+        val position = value.toPosition()
         if (eos()) raise(LexerError("Unexpected EOS", position))
         val tok = peek() ?: raise(LexerError("Cannot tokenize input", position))
-        get().consume(tok.text)
+        value.consume(tok.text)
         return tok
       }
     }.block()

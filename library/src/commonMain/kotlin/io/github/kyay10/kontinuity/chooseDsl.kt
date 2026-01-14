@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity
 
 import arrow.core.raise.Raise
-import arrow.core.raise.SingletonRaise
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.consumeEach
@@ -17,17 +16,15 @@ private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue
 public typealias Choose = Prompt<Unit>
 
 public suspend fun <R> runChoice(
-  body: suspend context(SingletonRaise<Unit>, Choose) () -> R, handler: suspend (R) -> Unit
+  body: suspend context(Raise<Unit>, Choose) () -> R, handler: suspend (R) -> Unit
 ): Unit = newReset {
-  handler(body(SingletonRaise(PromptFail(this, Unit)), this))
+  handler(body(PromptFail(this, Unit), this))
 }
 
-public suspend fun <R> runList(body: suspend context(SingletonRaise<Unit>, Choose) () -> R): List<R> =
+public suspend fun <R> runList(body: suspend context(Raise<Unit>, Choose) () -> R): List<R> =
   runReader(mutableListOf(), MutableList<R>::toMutableList) {
-    runChoice(body) {
-      ask().add(it)
-    }
-    ask()
+    runChoice(body) { value.add(it) }
+    value
   }
 
 context(_: Choose)
@@ -55,7 +52,7 @@ public suspend fun <T> replicate(amount: Int, producer: suspend (Int) -> T): Lis
 }
 
 public fun <R> runFlowCC(
-  body: suspend context(SingletonRaise<Unit>, Choose, CoroutineScope) () -> R
+  body: suspend context(Raise<Unit>, Choose, CoroutineScope) () -> R
 ): Flow<R> = channelFlow {
   runCC {
     runChoice({ body() }, this::send)

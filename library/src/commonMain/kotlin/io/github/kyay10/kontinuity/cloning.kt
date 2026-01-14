@@ -346,14 +346,15 @@ public class ReaderT<Start, S> @PublishedApi internal constructor(
     val state: Any? = if (state is ForkOnFirstRead) state.state else state
   }
 
-  public fun ask(): S {
-    var state = state
-    if (state is ForkOnFirstRead) {
-      state = fork(state.state as S)
-      this.state = state
+  public val value: S
+    get() {
+      var state = state
+      if (state is ForkOnFirstRead) {
+        state = fork(state.state as S)
+        this.state = state
+      }
+      return state
     }
-    return state
-  }
 
   override fun MutableList<in Any?>.invalidateSingle() {
     add(rest.frames)
