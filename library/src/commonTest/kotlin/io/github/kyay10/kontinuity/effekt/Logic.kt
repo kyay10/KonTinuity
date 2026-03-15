@@ -1,11 +1,11 @@
 package io.github.kyay10.kontinuity.effekt
 
-import arrow.core.None
 import arrow.core.Option
-import arrow.core.Some
 import arrow.core.toOption
 import io.github.kyay10.kontinuity.ask
 import io.github.kyay10.kontinuity.runReader
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.persistentListOf
 
 data class Stream<out A>(val value: A, val next: (suspend () -> Stream<A>?)?) {
   context(_: Amb, _: Exc)
@@ -57,6 +57,7 @@ private tailrec suspend fun <A> interleaveImpl(
   else interleaveImpl(second, next)
 }
 
+// TODO could we make this tailrec?
 context(_: Logic, _: Amb, _: Exc)
 suspend fun <A, B> fairBind(
   first: suspend context(Amb, Exc) () -> A,
@@ -95,53 +96,39 @@ context(_: Logic, _: Amb, _: Exc)
 suspend fun <A> noneOnFailure(block: suspend context(Amb, Exc) () -> A): Option<A> =
   split(block).toOption().map { it.reflect() }
 
-context(_: Exc)
-suspend inline fun <A> once(crossinline block: suspend context(Amb, Exc) () -> A): A = handle {
-  effectfulLogic {
-    discardWithFast(Result.success(block()))
-  }
-  raise()
-}
+context(_: Exc, _: Logic)
+suspend fun <A> once(block: suspend context(Amb, Exc) () -> A): A = (split(block) ?: raise()).value
 
-suspend inline fun <A> onceOrNull(crossinline block: suspend context(Amb, Exc) () -> A): A? = handle {
-  effectfulLogic {
-    discardWithFast(Result.success(block()))
-  }
-  null
-}
+context(_: Logic)
+suspend fun <A> onceOrNull(block: suspend context(Amb, Exc) () -> A): A? = split(block)?.value
 
-suspend inline fun <A> onceOrNone(crossinline block: suspend context(Amb, Exc) () -> A): Option<A> = handle {
-  effectfulLogic {
-    discardWithFast(Result.success(Some(block())))
-  }
-  None
-}
+context(_: Logic)
+suspend fun <A> onceOrNone(block: suspend context(Amb, Exc) () -> A): Option<A> =
+  split(block).toOption().map { it.value }
 
-context(_: Exc)
-suspend fun gnot(block: suspend context(Amb, Exc) () -> Unit) {
+context(_: Exc, _: Logic)
+suspend fun <A> gnot(block: suspend context(Amb, Exc) () -> A) {
   if (succeeds(block)) raise()
 }
 
-suspend inline fun succeeds(crossinline block: suspend context(Amb, Exc) () -> Unit): Boolean = handle {
-  effectfulLogic {
-    block()
-    discardWithFast(Result.success(true))
-  }
-  false
-}
+context(_: Logic)
+suspend fun <A> succeeds(block: suspend context(Amb, Exc) () -> A) = split(block) != null
 
+context(logic: Logic)
 suspend fun <A> bagOfN(count: Int = -1, block: suspend context(Amb, Exc) () -> A): List<A> =
-  handleStateful(if(count == -1) ArrayDeque<A>() else ArrayDeque(count), ::ArrayDeque) {
-    effectfulLogic {
-      val res = block()
-      val list = get()
-      list.add(res)
-      if (list.size == count) {
-        discardWithFast(Result.success(list))
-      }
-    }
-    get()
-  }
+  bagOfNImpl(count, persistentListOf()) { split(block) }
+
+private tailrec suspend fun <A> bagOfNImpl(
+  count: Int,
+  acc: PersistentList<A>,
+  branch: suspend () -> Stream<A>?
+): List<A> {
+  if (count < -1 || count == 0) return acc
+  val (value, next) = branch() ?: return acc
+  val newAcc = acc.add(value)
+  return if (next == null) newAcc
+  else bagOfNImpl(if (count == -1) -1 else count - 1, newAcc, next)
+}
 
 object LogicDeep : Logic {
   // wrap with a handle that'll allow turning the iteration into an iterator-like thing
@@ -210,15 +197,15 @@ object LogicSimple : Logic {
     }
     null
   }
-}
 
-suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
-  block({
-    useWithFinal { (resumeCopy, resumeFinal) ->
-      resumeCopy(true)
-      resumeFinal(false)
+  private suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
+    block({
+      useWithFinal { (resumeCopy, resumeFinal) ->
+        resumeCopy(true)
+        resumeFinal(false)
+      }
+    }) {
+      discardWithFast(Result.success(Unit))
     }
-  }) {
-    discardWithFast(Result.success(Unit))
   }
 }

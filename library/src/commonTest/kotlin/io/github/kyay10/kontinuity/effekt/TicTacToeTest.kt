@@ -19,13 +19,17 @@ class TicTacToeTest {
   @Ignore
   @Test
   fun aiPrimeTest() = runTestCC(timeout = 10.minutes) {
-    game(Mark.X, aiPrime, Mark.O, aiPrime)
+    with(LogicTree) {
+      game(Mark.X, aiPrime, Mark.O, aiPrime)
+    }
   }
 
   @Ignore
   @Test
   fun aiTest() = runTestCC {
-    game(Mark.X, ai, Mark.O, ai)
+    with(LogicTree) {
+      game(Mark.X, ai, Mark.O, ai)
+    }
   }
 }
 
@@ -136,6 +140,7 @@ fun takeMove(player: Mark, loc: Location, game: Game): Game {
 
 typealias PlayerProc = suspend (Mark, Game) -> Pair<Int, Game>
 
+context(_: Logic)
 tailrec suspend fun game(
   player1Mark: Mark,
   player1: PlayerProc,
@@ -196,6 +201,7 @@ tailrec suspend fun <T> List<T>.chooseBinary(start: Int = 0, endExclusive: Int =
 
 
 // AI player logic using minimax algorithm
+context(_: Logic)
 val ai: PlayerProc
   get() = { player, game ->
     when {
@@ -230,6 +236,7 @@ suspend fun firstMoveWins(player: Mark, game: Game): Location {
 }
 
 // Depth-limited minimax search
+context(_: Logic)
 suspend fun minmax(
   self: suspend (Int, Int, Mark, Game) -> Pair<Int, Game>,
   depthLimit: Int,
@@ -250,6 +257,7 @@ suspend fun minmax(
 }
 
 // Optimized AI with depth and breadth limits
+context(_: Logic)
 val aiPrime: PlayerProc
   get() = { player, game ->
     suspend fun aiPrimeLimited(depthLimit: Int, breadthLimit: Int, player: Mark, game: Game): Pair<Int, Game> =
