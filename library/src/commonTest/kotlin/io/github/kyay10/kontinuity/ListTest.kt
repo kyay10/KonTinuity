@@ -20,6 +20,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun single() = runTestCC {
     val list = listOf(1, 2, 3)
     var counter = 0
@@ -33,6 +34,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun filtering() = runTestCC {
     val list = listOf(1, 2, 3)
     val result = runList {
@@ -44,6 +46,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun multiple() = runTestCC {
     val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3, Int.MAX_VALUE)
     val list2 = listOf(2, 3, Int.MAX_VALUE, 4, Int.MAX_VALUE)
@@ -78,6 +81,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun nested() = runTestCC {
     val list = listOf(listOf(1, 2), listOf(3, 4), listOf(5, 6))
     var innerCount = 0
@@ -95,6 +99,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun ifElse() = runTestCC {
     val list = listOf(1, 2, 2, 3)
     val twoElements = listOf(0, 0)
@@ -118,6 +123,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun forLoops() = runTestCC {
     val result = runList {
       (1..10).forEachIteratorless { i ->
@@ -129,6 +135,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun allEightBitPatterns() = runTestCC {
     val result = runList {
       replicate(8) {
@@ -139,6 +146,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun allEightBitPatternsWithOnlyChange() = runTestCC {
     val result = buildString {
       runList {
@@ -154,6 +162,7 @@ class ListTest {
   }
 
   @Test
+  @RequiresMultishot
   fun permutations() = runTestCC {
     val numbers = (1..5).toList()
     val result = runList {

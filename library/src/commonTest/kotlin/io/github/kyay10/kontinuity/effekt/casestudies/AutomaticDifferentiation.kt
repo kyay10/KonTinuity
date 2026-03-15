@@ -105,6 +105,7 @@ suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend AD<NumH<N>>.(NumH<N>) -
 
 suspend fun showString(prog: suspend AD<String>.(String) -> String) = object : AD<String> {
   override val Double.num: String get() = toString()
+
   @Suppress("EXTENSION_SHADOWED_BY_MEMBER")
   override suspend fun String.plus(other: String) = when {
     this == 0.0.toString() -> other

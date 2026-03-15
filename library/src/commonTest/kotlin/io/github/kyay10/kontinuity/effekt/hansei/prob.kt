@@ -22,27 +22,30 @@ interface Memory {
   ): suspend (A) -> B
 }
 
-context(p: Probabilistic) suspend inline fun <A> Dist<A>.dist(): A = with(p) { dist() }
-suspend inline fun <A> reify(crossinline block: suspend context(Probabilistic, Memory) () -> A): SearchTree<A> = probabilistic {
-  memory {
-    block()
+context(p: Probabilistic)
+suspend inline fun <A> Dist<A>.dist(): A = with(p) { dist() }
+suspend inline fun <A> reify(crossinline block: suspend context(Probabilistic, Memory) () -> A): SearchTree<A> =
+  probabilistic {
+    memory {
+      block()
+    }
   }
-}
 
 @PublishedApi
-internal suspend inline fun <A> probabilistic(crossinline block: suspend context(Probabilistic) () -> A): SearchTree<A> = handle {
-  val result = block(object : Probabilistic {
-    override suspend fun <A> Dist<A>.dist(): A = use { resume ->
-      map { (p, v) ->
-        Probable(p, Value.Branch { resume(v) })
+internal suspend inline fun <A> probabilistic(crossinline block: suspend context(Probabilistic) () -> A): SearchTree<A> =
+  handle {
+    val result = block(object : Probabilistic {
+      override suspend fun <A> Dist<A>.dist(): A = use { resume ->
+        map { (p, v) ->
+          Probable(p, Value.Branch { resume(v) })
+        }
       }
-    }
 
-    // Slightly faster
-    override suspend fun raise(): Nothing = discardWithFast(Result.success(emptyList()))
-  })
-  listOf(Probable(1.0, Value.Leaf(result)))
-}
+      // Slightly faster
+      override suspend fun raise(): Nothing = discardWithFast(Result.success(emptyList()))
+    })
+    listOf(Probable(1.0, Value.Leaf(result)))
+  }
 
 @PublishedApi
 internal suspend inline fun <A> memory(crossinline block: suspend context(Memory) () -> A): A = persistentRegion {

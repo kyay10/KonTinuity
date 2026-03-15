@@ -1,4 +1,5 @@
 package io.github.kyay10.kontinuity.effekt
+
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runSuspend
 import kotlinx.benchmark.*
@@ -12,6 +13,7 @@ import kotlinx.benchmark.State
 open class SharingBench {
   @Param("15")
   var size: Int = 0
+
   @Benchmark
   fun streamSharingBench() = runSuspend {
     runCC {

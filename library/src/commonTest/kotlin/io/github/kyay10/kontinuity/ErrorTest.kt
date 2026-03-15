@@ -2,21 +2,36 @@ package io.github.kyay10.kontinuity
 
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.throwable.shouldHaveMessage
-import kotlin.test.Ignore
 import kotlin.test.Test
 
 class ErrorTest {
-  @Ignore
   @Test
-  fun `nested resumptions fail`() = runTestCC {
+  fun `nested resumptions fail`() = runTest {
     shouldThrow<IllegalStateException> {
-      newReset {
-        shift { resume ->
-          resume locally {
+      runCC {
+        newReset {
+          shift { resume ->
+            resume locally {
+              resume(Unit)
+            }
+          }
+        }
+      }
+    } shouldHaveMessage if (SUPPORTS_MULTISHOT) REENTRANT_NOT_SUPPORTED else COPYING_NOT_SUPPORTED
+  }
+
+  @Test
+  fun `multishot fails`() = runTest {
+    if (SUPPORTS_MULTISHOT) return@runTest
+    shouldThrow<IllegalStateException> {
+      runCC {
+        newReset {
+          shift { resume ->
+            resume(Unit)
             resume(Unit)
           }
         }
       }
-    } shouldHaveMessage "Reentrant resumptions are not supported"
+    } shouldHaveMessage COPYING_NOT_SUPPORTED
   }
 }

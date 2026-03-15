@@ -39,6 +39,8 @@ inline fun <Error, R> HandlerPrompt<R>.Raise(crossinline transform: (Error) -> R
     override fun raise(r: Error): Nothing = discard { transform(r) }
   }
 
+expect annotation class RequiresMultishot()
+
 expect fun runSuspend(block: suspend () -> Unit)
 
 inline fun repeatIteratorless(

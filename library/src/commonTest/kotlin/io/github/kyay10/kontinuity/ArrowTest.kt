@@ -23,6 +23,7 @@ class ArrowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun supportsMultishot() = runTestCC {
     newReset<Int> {
       shift { it(1) + it(2) } + 1
@@ -38,6 +39,7 @@ class ArrowTest {
 
   // This comes from http://homes.sice.indiana.edu/ccshan/recur/recur.pdf and shows how reset/shift should behave
   @Test
+  @RequiresMultishot
   fun multishotResetShift() = runTestCC {
     listOf('a') + newReset<List<Char>> {
       listOf('b') + shift<List<Char>, _> { f -> listOf('1') + f(f(listOf('c'))) }
@@ -52,13 +54,14 @@ class ArrowTest {
   @Test
   fun shiftAndControlDistinction() = runTestCC {
     // TODO this is not very accurate, probably not correct either
-    newReset<String> {
+    newReset {
       shift { it("") }
       shift { f -> "a" + f("") }
     } shouldBe "a"
   }
 
   @Test
+  @RequiresMultishot
   fun multshotNondet() = runTestCC {
     newReset<List<Pair<Int, Int>>> {
       val i: Int = shift { k -> k(10) + k(20) }
@@ -68,6 +71,7 @@ class ArrowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun multishotMoreThanTwice() = runTestCC {
     newReset<List<Pair<Pair<Int, Int>, Int>>> {
       val i: Int = shift { k -> k(10) + k(20) }
@@ -84,6 +88,7 @@ class ArrowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun multishotMoreThanTwiceAndWithMoreMultishotInvocations() = runTestCC {
     newReset<List<Pair<Pair<Int, Int>, Int>>> {
       val i: Int = shift { k -> k(10) + k(20) + k(30) + k(40) + k(50) }
@@ -98,6 +103,7 @@ class ArrowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun multishotIsStacksafeRegardlessOfStackSize() = runTestCC {
     newReset<Int> {
       // bring 10k elements on the stack

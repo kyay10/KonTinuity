@@ -9,6 +9,8 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.startCoroutine
 
+actual annotation class RequiresMultishot
+
 /**
  * Wrapper for `suspend fun main` and `@Test suspend fun testXXX` functions.
  */
@@ -30,7 +32,7 @@ private class RunSuspend : Continuation<Unit> {
     @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN") (this as Object).notifyAll()
   }
 
-  fun await() = synchronized(this) {
+  fun await(): Unit = synchronized(this) {
     while (true) {
       when (val result = this.result) {
         null -> @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN") (this as Object).wait()

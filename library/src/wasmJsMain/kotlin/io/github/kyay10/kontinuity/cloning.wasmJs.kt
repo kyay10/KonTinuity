@@ -3,13 +3,13 @@ package io.github.kyay10.kontinuity
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 
+internal actual const val SUPPORTS_MULTISHOT = false
+
 internal actual val Continuation<*>.completion: Continuation<*>?
-  get() = TODO("Not yet implemented")
+  get() = error(COPYING_NOT_SUPPORTED)
 
-internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T> {
-  TODO("Not yet implemented")
-}
-
-internal actual fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any? {
-  TODO("Not yet implemented")
-}
+internal actual fun <T> Continuation<T>.invokeCopied(
+  completion: Continuation<*>,
+  context: CoroutineContext,
+  result: Result<T>,
+): Any? = error(COPYING_NOT_SUPPORTED)

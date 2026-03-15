@@ -1,11 +1,14 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.RequiresMultishot
+import io.github.kyay10.kontinuity.Stateful
 import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.random.Random
 import kotlin.test.Test
 
+@RequiresMultishot
 class ProbabilisticTest {
   @Test
   fun tracing() = runTestCC {

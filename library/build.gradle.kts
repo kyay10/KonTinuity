@@ -28,10 +28,14 @@ repositories {
 @OptIn(ExperimentalKotlinGradlePluginApi::class)
 kotlin {
   compilerOptions {
-    freeCompilerArgs.add("-Xcontext-parameters")
-    freeCompilerArgs.add("-Xexpect-actual-classes")
-    freeCompilerArgs.add("-Xwhen-guards")
-    freeCompilerArgs.add("-opt-in=kotlin.contracts.ExperimentalContracts")
+    freeCompilerArgs.addAll(
+      "-Xcontext-parameters",
+      "-Xexpect-actual-classes",
+      "-Xwhen-guards",
+      "-opt-in=kotlin.contracts.ExperimentalContracts",
+      "-Xwarning-level=DSL_MARKER_APPLIED_TO_WRONG_TARGET:disabled",
+      "-Xwarning-level=ERROR_SUPPRESSION:disabled",
+    )
   }
   explicitApi()
   // Matching the targets from Arrow
@@ -62,18 +66,14 @@ kotlin {
   // Native: https://kotlinlang.org/docs/native-target-support.html
   // -- Tier 1 --
   linuxX64()
-  macosX64()
   macosArm64()
   iosSimulatorArm64()
-  iosX64()
   // -- Tier 2 --
   linuxArm64()
   watchosSimulatorArm64()
-  watchosX64()
   watchosArm32()
   watchosArm64()
   tvosSimulatorArm64()
-  tvosX64()
   tvosArm64()
   iosArm64()
   // -- Tier 3 --
@@ -103,19 +103,15 @@ kotlin {
       }
     }
 
-    val nonJvmMain by creating {
-      dependsOn(commonMain.get())
-    }
-    val nonJvmTest by creating {
-      dependsOn(commonTest.get())
-    }
+    val nonJvmMain by creating { dependsOn(commonMain.get()) }
+    val nonJvmTest by creating { dependsOn(commonTest.get()) }
 
-    nativeMain.get().dependsOn(nonJvmMain)
-    nativeTest.get().dependsOn(nonJvmTest)
-    jsMain.get().dependsOn(nonJvmMain)
-    jsTest.get().dependsOn(nonJvmTest)
-    wasmJsMain.get().dependsOn(nonJvmMain)
-    wasmJsTest.get().dependsOn(nonJvmTest)
+    nativeMain { dependsOn(nonJvmMain) }
+    nativeTest { dependsOn(nonJvmTest) }
+    jsMain { dependsOn(nonJvmMain) }
+    jsTest { dependsOn(nonJvmTest) }
+    wasmJsMain { dependsOn(nonJvmMain) }
+    wasmJsTest { dependsOn(nonJvmTest) }
   }
 }
 
@@ -200,6 +196,7 @@ object MultishotTransform {
         superName: String,
         interfaces: Array<out String?>
       ) {
+        @Suppress("UNCHECKED_CAST")
         interfaces as Array<String?>
         super.visit(
           version,

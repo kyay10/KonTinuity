@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.higherorder
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.effekt.StatefulHandler
 import io.github.kyay10.kontinuity.effekt.StatefulPrompt
 import io.github.kyay10.kontinuity.effekt.collect
@@ -21,6 +22,7 @@ class WriterTest {
   }
 
   @Test
+  @RequiresMultishot
   fun withNonDetTest() = runTestCC {
     runWriter(0, Int::plus) {
       collect {

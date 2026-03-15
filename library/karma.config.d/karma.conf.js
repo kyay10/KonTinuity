@@ -3,7 +3,7 @@ config.set({
     browserNoActivityTimeout: 600000,
     processKillTimeout: 600000,
     captureTimeout: 600000,
-    browserDisconnectTolerance : 3,
+    browserDisconnectTolerance: 3,
     pingTimeout: 600000,
     client: {
         mocha: {

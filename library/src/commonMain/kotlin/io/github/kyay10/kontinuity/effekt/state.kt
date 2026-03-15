@@ -6,15 +6,14 @@ import arrow.core.Some
 import arrow.core.getOrElse
 import io.github.kyay10.kontinuity.*
 import kotlinx.collections.immutable.PersistentMap
-import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.contracts.contract
 import kotlin.reflect.KProperty
 
 public interface StateScope {
-  public fun <T> field(init: T): Field<T>
   public fun <T> field(): OptionalField<T>
-  public interface Field<T> {
+  public interface NonEmptyField
+  public interface Field<T> : NonEmptyField, OptionalField<T> {
     public var value: T
   }
 
@@ -25,7 +24,11 @@ public interface StateScope {
 }
 
 context(s: StateScope)
-public fun <T> field(init: T): StateScope.Field<T> = s.field(init)
+public fun <T> field(init: T): StateScope.Field<T> {
+  val field = s.field<T>()
+  field.value = init
+  return field.affirm()
+}
 
 context(s: StateScope)
 public fun <T> field(): StateScope.OptionalField<T> = s.field()
@@ -53,9 +56,17 @@ public inline operator fun <T> StateScope.Field<T>.setValue(
 public var <T> StateScope.OptionalField<T>.value: T
   get() = throw UnsupportedOperationException("Use getOrNone() to access optional field")
   set(value) {
-    contract { returns() implies (this@value is StateScope.Field<T>) }
+    contract { returns() implies (this@value is StateScope.NonEmptyField) }
     set(value)
   }
+
+@Suppress("UNCHECKED_CAST")
+public fun <F, T> F.affirm(): StateScope.Field<T> where F : StateScope.NonEmptyField, F : StateScope.OptionalField<T> =
+  this as StateScope.Field<T>
+
+public var <F, T> F.value: T where F : StateScope.NonEmptyField, F : StateScope.OptionalField<T>
+  get() = affirm().value
+  set(value) = set(value)
 
 public inline fun <T> StateScope.OptionalField<T>.getOrPut(defaultValue: () -> T): T {
   contract {
@@ -65,25 +76,21 @@ public inline fun <T> StateScope.OptionalField<T>.getOrPut(defaultValue: () -> T
   return getOrNone().getOrElse { defaultValue().also { value = it } }
 }
 
-public suspend inline fun <R> region(crossinline body: suspend StateScope.() -> R): R =
-  runReader(MutableTypedMap(), MutableTypedMap::copy) {
-    body(MutableStateScope(this))
-  }
+public suspend inline fun <R> region(crossinline body: suspend StateScope.() -> R): R = runMapBuilderNonPersistent {
+  body(MutableStateScope(MutableTypedMap(this)))
+}
 
 public suspend inline fun <R> persistentRegion(crossinline body: suspend StateScope.() -> R): R =
   runState(PersistentTypedMap()) {
     body(PersistentStateScope(this))
   }
 
-public suspend inline fun <R> persistentFastRegion(crossinline body: suspend StateScope.() -> R): R = runReader(
-  MutableTypedMap(persistentHashMapOf<MutableTypedMap.Key<*>, Any?>().builder()), { MutableTypedMap((map as PersistentMap.Builder).build().builder()) }) {
-  body(MutableStateScope(this))
+public suspend inline fun <R> persistentFastRegion(crossinline body: suspend StateScope.() -> R): R = runMapBuilder {
+  body(MutableStateScope(MutableTypedMap(this)))
 }
 
 @PublishedApi
 internal class MutableTypedMap(val map: MutableMap<Key<*>, Any?>) {
-  constructor() : this(mutableMapOf())
-
   interface Key<T>
 
   @Suppress("UNCHECKED_CAST")
@@ -95,8 +102,6 @@ internal class MutableTypedMap(val map: MutableMap<Key<*>, Any?>) {
   operator fun <T> set(key: Key<T>, value: T) {
     map[key] = value
   }
-
-  fun copy(): MutableTypedMap = MutableTypedMap(map.toMutableMap())
 }
 
 @PublishedApi
@@ -113,7 +118,6 @@ internal class PersistentTypedMap private constructor(private val map: Persisten
   fun <T> put(key: Key<T>, value: T) = PersistentTypedMap(map.put(key, value))
 }
 
-@Suppress("UNCHECKED_CAST")
 public fun <K, V> Map<K, V>.getOrNone(key: K): Option<V> {
   val value = get(key)
   if (value == null && !containsKey(key)) {
@@ -125,36 +129,28 @@ public fun <K, V> Map<K, V>.getOrNone(key: K): Option<V> {
 }
 
 @PublishedApi
-internal class MutableStateScope(private val reader: Reader<MutableTypedMap>) : StateScope {
-  override fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().also {
-    reader.value[it] = init
-  }
-
+internal class MutableStateScope(private val map: MutableTypedMap) : StateScope {
   override fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
 
-  private inner class FieldImpl<T> : StateScope.Field<T>, StateScope.OptionalField<T>, MutableTypedMap.Key<T> {
-    override fun getOrNone(): Option<T> = reader.value.getOrNone(this)
+  private inner class FieldImpl<T> : StateScope.Field<T>, MutableTypedMap.Key<T> {
+    override fun getOrNone(): Option<T> = map.getOrNone(this)
     override fun set(value: T) {
       this.value = value
     }
 
     override var value: T
-      get() = reader.value[this]
+      get() = map[this]
       set(value) {
-        reader.value[this] = value
+        map[this] = value
       }
   }
 }
 
 @PublishedApi
 internal class PersistentStateScope(private val state: State<PersistentTypedMap>) : StateScope {
-  override fun <T> field(init: T): StateScope.Field<T> = FieldImpl<T>().also { field ->
-    state.modify { it.put(field, init) }
-  }
-
   override fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
 
-  private inner class FieldImpl<T> : StateScope.Field<T>, StateScope.OptionalField<T>, PersistentTypedMap.Key<T> {
+  private inner class FieldImpl<T> : StateScope.Field<T>, PersistentTypedMap.Key<T> {
     override fun getOrNone(): Option<T> = state.value.getOrNone(this)
 
     override fun set(value: T) {
@@ -168,11 +164,3 @@ internal class PersistentStateScope(private val state: State<PersistentTypedMap>
       }
   }
 }
-
-public interface Stateful<S : Stateful<S>> {
-  public fun fork(): S
-}
-
-public suspend inline fun <E, S : Stateful<S>> handleStateful(
-  value: S, crossinline body: suspend StatefulPrompt<E, S>.() -> E
-): E = handleStateful(value, Stateful<S>::fork, body)

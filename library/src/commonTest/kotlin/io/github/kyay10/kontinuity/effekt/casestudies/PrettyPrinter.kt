@@ -1,23 +1,20 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
+import arrow.core.*
 import arrow.core.Either.Left
 import arrow.core.Either.Right
-import arrow.core.None
-import arrow.core.Option
-import arrow.core.getOrElse
 import arrow.core.raise.Raise
-import arrow.core.recover
-import arrow.core.some
+import io.github.kyay10.kontinuity.Raise
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
-import io.github.kyay10.kontinuity.Raise
 import io.github.kyay10.kontinuity.ensure
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
-import kotlin.text.repeat
 
+@RequiresMultishot
 class PrettyPrinterTest {
   context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
   suspend fun example4b() {
@@ -279,7 +276,7 @@ suspend fun example1(l: List<Int>) {
   text("]")
 }
 
-context(_:Indent, _: Flow, _: Emit, _: LayoutChoice)
+context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
 suspend fun example2() {
   group {
     text("Hi")

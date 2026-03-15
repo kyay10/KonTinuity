@@ -3,11 +3,13 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.math.absoluteValue
 import kotlin.test.Test
 
+@RequiresMultishot
 class SelectTest {
   @Test
   fun enumerateAll() = runTestCC {

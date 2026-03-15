@@ -1,8 +1,9 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.core.raise.Raise
+import arrow.core.raise.ensure
 import arrow.core.raise.recover
-import io.github.kyay10.kontinuity.effekt.Stateful
+import io.github.kyay10.kontinuity.Stateful
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -10,7 +11,9 @@ import kotlin.test.Test
 
 class LexerTest {
   val exampleTokens = listOf(
-    Token(TokenKind.Ident, "foo", Position(1, 1, 0)), Token(TokenKind.Punct, "(", Position(1, 4, 3)), Token(TokenKind.Punct, ")", Position(1, 5, 4))
+    Token(TokenKind.Ident, "foo", Position(1, 1, 0)),
+    Token(TokenKind.Punct, "(", Position(1, 4, 3)),
+    Token(TokenKind.Punct, ")", Position(1, 5, 4))
   )
   val dummyTokens = exampleTokens.map { it.copy(position = dummyPosition) }
 
@@ -115,19 +118,19 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend Lexer.() -
 
   return handleStateful(Data(index = 0, col = 1, line = 1)) {
     object : Lexer {
-      private suspend fun eos(): Boolean = value.index >= input.length
-      private suspend fun tryMatch(regex: Regex, tokenKind: TokenKind): Token? =
+      private fun eos(): Boolean = value.index >= input.length
+      private fun tryMatch(regex: Regex, tokenKind: TokenKind): Token? =
         regex.find(input.substring(value.index))?.let {
           Token(tokenKind, it.value, value.toPosition())
         }
 
-      private suspend fun tryMatchAll(map: Map<TokenKind, Regex>): Token? =
+      private fun tryMatchAll(map: Map<TokenKind, Regex>): Token? =
         map.firstNotNullOfOrNull { (kind, regex) -> tryMatch(regex, kind) }
 
       override suspend fun peek(): Token? = tryMatchAll(tokenDescriptors)
       override suspend fun next(): Token {
         val position = value.toPosition()
-        if (eos()) raise(LexerError("Unexpected EOS", position))
+        ensure(!eos()) { LexerError("Unexpected EOS", position) }
         val tok = peek() ?: raise(LexerError("Cannot tokenize input", position))
         value.consume(tok.text)
         return tok

@@ -77,7 +77,15 @@ val Location.isGood: Boolean
 fun extendLoc(board: Board, move: Move, mark: Mark, loc: Location): Pair<Int, Location> {
   return extendLocImpl(board, move, mark, 0, loc, move(loc))
 }
-private tailrec fun extendLocImpl(board: Board, move: Move, mark: Mark, n: Int, currentLoc: Location, nextLoc: Location): Pair<Int, Location> =
+
+private tailrec fun extendLocImpl(
+  board: Board,
+  move: Move,
+  mark: Mark,
+  n: Int,
+  currentLoc: Location,
+  nextLoc: Location
+): Pair<Int, Location> =
   if (nextLoc.isGood && board[nextLoc] == mark) {
     extendLocImpl(board, move, mark, n + 1, nextLoc, move(nextLoc))
   } else {

@@ -1,8 +1,8 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.repeatIteratorless
 import io.github.kyay10.kontinuity.runTestCC
-import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
+import kotlinx.coroutines.test.runTest as coroutinesRunTest
 
 private const val N = 1_000_000
 
@@ -72,6 +73,7 @@ class SkynetTest {
   // we also perform "busy waiting" which is pretty slow since it captures the
   // continuation on every wait cycle ...
   @Test
+  @RequiresMultishot
   fun skynetScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 
@@ -97,6 +99,7 @@ class SkynetTest {
   }
 
   @Test
+  @RequiresMultishot
   fun skynetFlippedScheduler() = runTestCC(timeout = 10.minutes) {
     data class SkynetData(var sum: Long, var returned: Int)
 

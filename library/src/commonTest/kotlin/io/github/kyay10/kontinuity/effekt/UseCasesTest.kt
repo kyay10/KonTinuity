@@ -3,6 +3,8 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
+import io.github.kyay10.kontinuity.RequiresMultishot
+import io.github.kyay10.kontinuity.Stateful
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -22,6 +24,7 @@ class UseCasesTest {
     }
 
   @Test
+  @RequiresMultishot
   fun example() = runTestCC {
     "123".parseAll { number() } shouldBe listOf(123, 12, 1)
     "123".parseBacktrack { number() } shouldBe Some(123)
@@ -30,7 +33,7 @@ class UseCasesTest {
 
 context(_: Amb, _: Exc, _: Receive<Char>)
 suspend inline fun accept(p: (Char) -> Boolean): Char =
-  receive().also { it -> if (!p(it)) raise("Didn't match $it") }
+  receive().also { if (!p(it)) raise("Didn't match $it") }
 
 context(_: Amb, _: Exc, _: Receive<Char>)
 suspend fun digit(): Int = accept(Char::isDigit).digitToInt()

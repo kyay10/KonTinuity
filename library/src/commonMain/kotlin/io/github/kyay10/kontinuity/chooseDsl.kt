@@ -1,68 +1,52 @@
 package io.github.kyay10.kontinuity
 
 import arrow.core.raise.Raise
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.channels.consumeEach
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.flow.produceIn
 
-/** MonadFail-style errors */
-private class PromptFail<R>(private val prompt: Prompt<R>, private val failValue: R) : Raise<Unit> {
-  override fun raise(r: Unit): Nothing = prompt.abortWith(Result.success(failValue))
+public interface Choose : Raise<Unit> {
+  public suspend fun IntRange.bind(): Int
+  public suspend fun <T> Flow<T>.bind(): T
 }
 
-public typealias Choose = Prompt<Unit>
+context(c: Choose)
+public suspend fun IntRange.bind(): Int = with(c) { bind() }
+
+context(c: Choose)
+public suspend fun <T> Flow<T>.bind(): T = with(c) { bind() }
 
 public suspend fun <R> runChoice(
-  body: suspend context(Raise<Unit>, Choose) () -> R, handler: suspend (R) -> Unit
+  body: suspend context(Choose) () -> R, handler: suspend (R) -> Unit
 ): Unit = newReset {
-  handler(body(PromptFail(this, Unit), this))
+  handler(body(object : Choose {
+    override suspend fun IntRange.bind() = shift { resume -> forEachIteratorless { resume(it) } }
+
+    override suspend fun <T> Flow<T>.bind() = shift { resume -> collect { resume(it) } }
+
+    override fun raise(r: Unit) = abortWith(Result.success(Unit))
+  }))
 }
 
-public suspend fun <R> runList(body: suspend context(Raise<Unit>, Choose) () -> R): List<R> =
-  runReader(mutableListOf(), MutableList<R>::toMutableList) {
-    runChoice(body) { value.add(it) }
-    value
-  }
-
-context(_: Choose)
-public suspend fun <T> List<T>.bind(): T = shift { continuation ->
-  (0..lastIndex).forEachIteratorless { item ->
-    continuation(this[item])
-  }
+public suspend fun <R> runList(body: suspend context(Choose) () -> R): List<R> = buildListLocally {
+  runChoice(body) { add(it) }
 }
 
-context(_: Choose)
-public suspend fun <T> choose(left: T, right: T): T = shift { continuation ->
-  continuation(left)
-  continuation(right)
-}
+context(c: Choose)
+public suspend fun <T> List<T>.bind(): T = this[indices.bind()]
 
 context(_: Choose)
-public suspend fun IntRange.bind(): Int = shift { continuation ->
-  (start..endInclusive).forEachIteratorless { i ->
-    continuation(i)
-  }
-}
+public suspend fun <T> choose(left: T, right: T): T = listOf(left, right).bind()
 
 public suspend fun <T> replicate(amount: Int, producer: suspend (Int) -> T): List<T> = runList {
   producer((0..<amount).bind())
 }
 
 public fun <R> runFlowCC(
-  body: suspend context(Raise<Unit>, Choose, CoroutineScope) () -> R
+  body: suspend context(Choose) () -> R
 ): Flow<R> = channelFlow {
   runCC {
-    runChoice({ body() }, this::send)
+    runChoice(body, ::send)
   }
-}
-
-context(_: Choose, scope: CoroutineScope)
-@OptIn(ExperimentalCoroutinesApi::class)
-public suspend fun <T> Flow<T>.bind(): T = shift { continuation ->
-  produceIn(scope).consumeEach { item -> continuation(item) }
 }
 
 public inline fun <T, R> List<T>.foldIteratorless(initial: R, operation: (acc: R, T) -> R): R {

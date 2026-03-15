@@ -39,7 +39,8 @@ suspend fun <A> SearchTree<A>.explore(maxDepth: Int? = null): SearchTree<A> {
       is Value.Leaf<A> -> rest.loop(p, depth, down, ans.insertWith(v.value, pt * p, Prob::plus), susp)
       is Value.Branch<A> if down -> {
         val newDown = maxDepth == null || depth < maxDepth
-        val (newAns, newSusp) = v.searchTree().loop(p * pt, depth + 1, newDown, ans, susp)
+        val (newAns, newSusp) = @Suppress("NON_TAIL_RECURSIVE_CALL") v.searchTree()
+          .loop(p * pt, depth + 1, newDown, ans, susp)
         rest.loop(p, depth, down, newAns, newSusp)
       }
 
@@ -75,7 +76,8 @@ suspend fun <A> SearchTree<A>.shallowExplore(maxDepth: Int): SearchTree<A> {
       is Value.Leaf<A> -> rest.loop(p, depth, ans.insertWith(v.value, pt * p, Prob::plus), susp)
       else if depth >= maxDepth -> rest.loop(p, depth, ans, susp.add(0, c))
       is Value.Branch<A> -> {
-        val (ans, ch) = v.searchTree().loop(p * pt, depth + 1, ans, persistentListOf())
+        val (ans, ch) = @Suppress("NON_TAIL_RECURSIVE_CALL") v.searchTree()
+          .loop(p * pt, depth + 1, ans, persistentListOf())
         val pTotal = ch.sumOf { it.prob }
         val acc = when {
           pTotal == 0.0 -> susp
@@ -255,13 +257,14 @@ suspend fun <A> SearchTree<A>.sampleDist(
     ans: PersistentMap<A, Prob>,
   ): PersistentMap<A, Prob> {
     if (isEmpty()) return ans
-    val (p, v) = singleOrNull() ?: foldIteratorless(ans to persistentListOf<Probable<SearchTree<A>>>()) { (ans, acc), e ->
-      e.lookAhead(contribution, ans, acc)
-    }.let { (ans, acc) ->
-      if (acc.isEmpty()) return ans
-      val (total, th) = selector(acc)
-      return th.loop(contribution * total, ans)
-    }
+    val (p, v) = singleOrNull()
+      ?: foldIteratorless(ans to persistentListOf<Probable<SearchTree<A>>>()) { (ans, acc), e ->
+        e.lookAhead(contribution, ans, acc)
+      }.let { (ans, acc) ->
+        if (acc.isEmpty()) return ans
+        val (total, th) = selector(acc)
+        return th.loop(contribution * total, ans)
+      }
     return when (v) {
       is Value.Leaf<A> -> ans.insertWith(v.value, p * contribution, Prob::plus)
 
@@ -307,15 +310,12 @@ inline fun <A> statistics(
   val answers = buildMap<A, Pair<Prob, Prob>>(17) {
     for (seed in seeds) {
       for ((p, v) in sampler(seed)) {
-        val (old, old2) = this[v] ?: run {
-          this[v] = p to p * p
-          continue
-        }
+        val (old, old2) = getOrPut(v) { 0.0 to 0.0 }
         this[v] = (old + p) to (old2 + p * p)
       }
     }
   }
-  val n = (seeds.endInclusive - seeds.start + 1).toDouble()
+  val n = (seeds.last - seeds.first + 1).toDouble()
   return answers.map { (v, s) ->
     val (mean, variance) = s
     Statistic(v, mean / n, sqrt((variance - mean * mean / n) / n))

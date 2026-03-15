@@ -1,9 +1,11 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import kotlin.test.Test
 
+@RequiresMultishot
 class FooIblTests {
   @Test
   fun `test foo ibl program 1`() = runTestCC {
@@ -22,7 +24,6 @@ class FooIblTests {
   @Test
   fun `test foo ibl program 2`() = runTestCC {
     val result = exactReify {
-      val x = 'a'
       val f: suspend (Char, Char) -> Char = { x: Char, y: Char ->
         if (flip(0.2)) x else y
       }

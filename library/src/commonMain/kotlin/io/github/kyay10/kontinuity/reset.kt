@@ -1,16 +1,15 @@
 package io.github.kyay10.kontinuity
 
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
+import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlin.coroutines.startCoroutine
+import kotlin.coroutines.suspendCoroutine
 import kotlin.jvm.JvmName
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
@@ -70,6 +69,7 @@ internal tailrec fun Frames<*>.handleTrampolining(
   trampoline: Trampoline
 ): Any? = if (COROUTINE_SUSPENDED === result.getOrNull() || SuspendedException === result.exceptionOrNull()) {
   val nextFrames = trampoline.nextFrames?.takeIf { it === frames } ?: return COROUTINE_SUSPENDED
+  @Suppress("UNCHECKED_CAST")
   nextFrames as Continuation<Any?>
   trampoline.nextFrames = null
   val nextBody = trampoline.nextBody
@@ -79,6 +79,7 @@ internal tailrec fun Frames<*>.handleTrampolining(
 } else result.getOrThrow()
 
 
+@ResetDsl
 public suspend inline fun <T, R> runReader(
   value: T,
   noinline fork: T.() -> T = { this },
@@ -87,6 +88,13 @@ public suspend inline fun <T, R> runReader(
   val reader = ReaderT(context, fork, value, stack.frames, stackRest)
   body.startCoroutineUninterceptedOrReturn(reader, reader)
 }
+
+public interface Stateful<S : Stateful<S>> {
+  public fun fork(): S
+}
+
+public suspend inline fun <S : Stateful<S>, R> runReader(value: S, noinline body: suspend Reader<S>.() -> R): R =
+  runReader(value, Stateful<S>::fork, body)
 
 @ResetDsl
 public suspend inline fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoline { stack, stackRest ->
@@ -98,9 +106,7 @@ public suspend inline fun <T, R> Prompt<R>.shift(
   crossinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
-    init.collectValues()
-    val subCont = SubCont(init, true)
-    suspend { body(subCont) }.startCoroutineIntercepted(rest, restRest.realContext)
+    suspend { body(SubCont(init, true)) }.startCoroutineIntercepted(rest, restRest.realContext)
   }
 }
 
@@ -116,8 +122,7 @@ public suspend inline fun <T, R> Prompt<R>.shiftOnce(
   crossinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
-    val subCont = SubCont(init)
-    suspend { body(subCont) }.startCoroutineIntercepted(rest, restRest.realContext)
+    suspend { body(SubCont(init)) }.startCoroutineIntercepted(rest, restRest.realContext)
   }
 }
 
@@ -130,12 +135,10 @@ public suspend inline fun <T, R> shiftOnce(
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shiftWithFinal(
-  crossinline body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
+  crossinline body: suspend (SubCont<T, R>, SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
-    init.collectValues()
-    val subCont = SubCont(init, true) to SubCont(init)
-    suspend { body(subCont) }.startCoroutineIntercepted(rest, restRest.realContext)
+    suspend { body(SubCont(init, true), SubCont(init)) }.startCoroutineIntercepted(rest, restRest.realContext)
   }
 }
 
@@ -143,18 +146,20 @@ context(p: Prompt<R>)
 @ResetDsl
 @JvmName("takeSubContWithFinalContext")
 public suspend inline fun <T, R> shiftWithFinal(
-  crossinline body: suspend (Pair<SubCont<T, R>, SubCont<T, R>>) -> R
+  crossinline body: suspend (SubCont<T, R>, SubCont<T, R>) -> R
 ): T = p.shiftWithFinal(body)
 
-// TODO maybe use suspendCoroutineToTrampoline here?
-// Acts like shift0/control { it(body()) }
+// Acts like shift { it(body()) }
+// guarantees that the continuation will be resumed at least once
 @ResetDsl
 public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
-  noinline body: suspend (SubCont<T, P>) -> T
-): T = suspendCoroutineAndTrampoline { stack, stackRest, _ ->
+  crossinline body: suspend (SubCont<T, P>) -> T
+): T = suspendCoroutineToTrampoline { stack, stackRest ->
   stack.splitAt(this, stackRest) { rest, restRest, init ->
-    init.collectValues()
-    body.startCoroutineUninterceptedOrReturn(SubCont(init, true), Frames.Under(init, rest, restRest))
+    suspend { body(SubCont(init, true)) }.startCoroutineIntercepted(
+      Frames(Frames.Under(init, rest, restRest)),
+      restRest.realContext
+    )
   }
 }
 
@@ -177,13 +182,14 @@ public fun <R> Prompt<R>.abortS(value: suspend () -> R): Nothing {
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
 internal expect open class NoTrace() : CancellationException
 
+@Suppress("ObjectInheritsException")
 @PublishedApi
 internal data object SuspendedException : NoTrace()
 
 internal inline fun <R> runCatching(block: () -> R, onSuspend: () -> Nothing): Result<R> {
   contract {
-    callsInPlace(block, kotlin.contracts.InvocationKind.AT_MOST_ONCE)
-    callsInPlace(onSuspend, kotlin.contracts.InvocationKind.AT_MOST_ONCE)
+    callsInPlace(block, InvocationKind.AT_MOST_ONCE)
+    callsInPlace(onSuspend, InvocationKind.AT_MOST_ONCE)
   }
   return try {
     val outcome = block()
@@ -195,17 +201,19 @@ internal inline fun <R> runCatching(block: () -> R, onSuspend: () -> Nothing): R
   }
 }
 
-public suspend fun <R> runCC(body: suspend () -> R): R = withContext(currentCoroutineContext().makeTrampoline()) {
-  suspendCancellableCoroutine {
-    body.startCoroutine(EmptyCont(it))
-  }
+@Suppress("SuspendCoroutineLacksCancellationGuarantees")
+public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine { c ->
+  val trampoline = c.context.makeTrampoline()
+  body.startCoroutine(EmptyCont(c, c.context + trampoline).also { trampoline.emptyCont = it })
 }
 
 @PublishedApi
 internal suspend inline fun <T> suspendCoroutineToTrampoline(
   crossinline block: (Frames<T>, SplitCont<*>) -> Unit
 ): T = suspendCoroutineUninterceptedOrReturn {
-  collectStack(it) { stack, stackRest -> block(stack, stackRest) }
+  it.context.onErrorResume {
+    collectStack(it) { stack, stackRest -> block(stack, stackRest) }
+  }
   COROUTINE_SUSPENDED
 }
 

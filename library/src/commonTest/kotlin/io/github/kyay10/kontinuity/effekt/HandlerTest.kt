@@ -4,7 +4,7 @@ import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
 import arrow.core.recover
-import io.github.kyay10.kontinuity.effekt.getValue
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
@@ -13,6 +13,7 @@ import kotlin.test.Test
 
 class HandlerJvmTest {
   @Test
+  @RequiresMultishot
   fun testDrunkFlip() = runTest {
     runCC {
       val res = collect {
@@ -33,6 +34,7 @@ class HandlerJvmTest {
   }
 
   @Test
+  @RequiresMultishot
   fun ex5dot3dot4() = runTest {
     runCC {
       nondet {
@@ -142,6 +144,7 @@ private class Iterate2<A>(field: StateScope.Field<(suspend (Unit) -> A)?>, p: Ha
     }
     this
   }
+
   override suspend fun hasNext(): Boolean = nextValue != null
   override suspend fun next(): A = nextValue!!.also { nextValue = null }.invoke(Unit)
 }

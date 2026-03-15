@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -35,6 +36,7 @@ class GeneratorTest {
   }
 
   @Test
+  @RequiresMultishot
   fun flipCount() = runTestCC {
     ambList {
       val intsIterator = effectfulIterable {
@@ -53,6 +55,7 @@ class GeneratorTest {
   }
 
   @Test
+  @RequiresMultishot
   fun flipCountInside() = runTestCC {
     buildList {
       ambList {
