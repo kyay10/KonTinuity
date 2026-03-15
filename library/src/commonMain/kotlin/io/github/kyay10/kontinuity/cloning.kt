@@ -322,9 +322,7 @@ public sealed class Segmentable<Start>(
       if (values != null)
         error("values have already been collected, but $this was invalidated anyway")
       if (!SUPPORTS_MULTISHOT) return
-      values = ArrayList<Any?>(SMALL_DATA_BUFFER_SIZE).apply {
-        startRest.invalidate()
-      }.toTypedArray()
+      values = startRest.invalidate()
     }
 
     companion object {

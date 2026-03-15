@@ -5,17 +5,15 @@ import java.lang.reflect.Modifier
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.jvm.internal.CloningUtils
+import kotlin.coroutines.jvm.internal.CoroutineStackFrame
 
 public interface MultishotContinuation<T> : Continuation<T> {
   public fun copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T>
 }
 
-public actual typealias StackTraceElement = Any
+public actual typealias StackTraceElement = java.lang.StackTraceElement
 
-public actual interface CoroutineStackFrame {
-  public actual val callerFrame: CoroutineStackFrame?
-  public actual fun getStackTraceElement(): StackTraceElement?
-}
+public actual typealias CoroutineStackFrame = CoroutineStackFrame
 
 internal actual const val SUPPORTS_MULTISHOT = true
 
