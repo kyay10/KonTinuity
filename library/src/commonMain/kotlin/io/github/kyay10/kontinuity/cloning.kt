@@ -230,11 +230,6 @@ public class ReaderT<Start, S> @PublishedApi internal constructor(
     this@ReaderT.state = if (isFinal) state else ForkOnFirstRead(state) as S
     return index + 1
   }
-
-  internal val restRest: SplitCont<*>
-    get() = (this as Segmentable<*>).restRest.ensureNotSegment {
-      "WTF: $this is linked into a Segment!"
-    }
 }
 
 private val SEGMENT_USED = arrayOfNulls<Any?>(0)
@@ -327,7 +322,9 @@ public sealed class Segmentable<Start>(
       if (values != null)
         error("values have already been collected, but $this was invalidated anyway")
       if (!SUPPORTS_MULTISHOT) return
-      values = startRest.invalidate3()
+      values = ArrayList<Any?>(SMALL_DATA_BUFFER_SIZE).apply {
+        startRest.invalidate()
+      }.toTypedArray()
     }
 
     companion object {
@@ -340,36 +337,11 @@ public sealed class Segmentable<Start>(
   }
 
   internal companion object {
-    //TODO benchmark versions and remove losers
-    context(_: MutableList<in Any?>)
-    tailrec fun Segmentable<*>.invalidate() {
-      val restRest = restRest
-      if (restRest.isSegment) return
-      invalidateSingle()
-      restRest.ensureSegmentable().invalidate()
-    }
-
-    fun Segmentable<*>.invalidate2(index: Int = 0): Array<Any?> = when (this) {
-      is Prompt<*> -> when (val restRest = restRest) {
-        is Segment<*, *> -> arrayOfNulls(index)
-        is SplitCont<*> -> restRest.ensureSegmentable().invalidate2(index + 2).also {
-          it[index] = rest.frames
-          it[index + 1] = restRest
-        }
-      }
-
-      is Reader<*> -> restRest.ensureSegmentable().invalidate2(index + 3).also {
-        it[index] = rest.frames
-        it[index + 1] = restRest
-        it[index + 2] = state
-      }
-    }
-
-    fun Segmentable<*>.invalidate3(): Array<Any?> {
+    fun Segmentable<*>.invalidate(): Array<Any?> {
       val startAt: Segmentable<*>
       val startAtSize: Int
       val buffer = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE).apply {
-        var current: Segmentable<*> = this@invalidate3
+        var current: Segmentable<*> = this@invalidate
         var size = 0
         while (true) {
           val restRest = current.restRest
