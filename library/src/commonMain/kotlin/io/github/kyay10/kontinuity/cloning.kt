@@ -323,22 +323,13 @@ public sealed class Segmentable<Start>(
     }
 
     fun Segmentable<*>.invalidate(): Array<Any?> {
-      var bufSize = SMALL_DATA_BUFFER_SIZE
-      var buf = arrayOfNulls<Any?>(bufSize)
+      var buf = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE)
       var size = 0
-      // TODO benchmark buf.size vs bufSize
-      // Inv: buf.size == bufSize
       findSegment(onReader = {
-        if (bufSize < size + 1) {
-          bufSize *= 2
-          buf = buf.copyOf(bufSize)
-        }
+        if (buf.size < size + 1) buf = buf.copyOf(buf.size * 2)
         buf[size++] = it.state
       }) { prompt, rest ->
-        if (bufSize < size + 2) {
-          bufSize *= 2
-          buf = buf.copyOf(bufSize)
-        }
+        if (buf.size < size + 2) buf = buf.copyOf(buf.size * 2)
         buf[size++] = prompt.frames
         buf[size++] = rest
       } ?: error(PROMPT_ALREADY_RESUMED)
