@@ -45,6 +45,10 @@ kotlin {
   }
   jvmToolchain(25)
   js(IR) {
+    compilerOptions {
+      freeCompilerArgs.add("-Xes-generators=false")
+      target = "es2015"
+    }
     browser()
     nodejs {
       testTask {
