@@ -7,10 +7,10 @@ import arrow.core.left
 import arrow.core.raise.Raise
 import arrow.core.raise.context.ensure
 import arrow.core.raise.context.ensureNotNull
-import arrow.core.raise.context.raise
 import arrow.core.recover
 import arrow.core.right
 import io.github.kyay10.kontinuity.Raise
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.effekt.casestudies.TokenKind.*
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.use
@@ -18,6 +18,7 @@ import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
+@RequiresMultishot
 class ParserTest {
   @Test
   fun example() = runTestCC {

@@ -1,5 +1,7 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.RequiresMultishot
+import io.github.kyay10.kontinuity.Stateful
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -12,6 +14,7 @@ class StateTest {
   }
 
   @Test
+  @RequiresMultishot
   fun countDown8() = runTestCC {
     suspend fun Amb.countDown(
       s1: State<Int>,
@@ -88,6 +91,7 @@ class StateTest {
   }
 
   @Test
+  @RequiresMultishot
   fun ambientState1() = runTestCC {
     suspend fun Amb.ex1(s: CrazyState) {
       if (flip()) {
@@ -109,6 +113,7 @@ class StateTest {
   }
 
   @Test
+  @RequiresMultishot
   fun ambientState2() = runTestCC {
     var isFirst = true
     myState(0) {
@@ -122,6 +127,7 @@ class StateTest {
   }
 
   @Test
+  @RequiresMultishot
   fun ambientState3() = runTestCC {
     var first = true
     myState(0) {
@@ -163,7 +169,7 @@ class MyState<R>(prompt: StatefulPrompt<R, Data<Int>>) : CrazyState,
 }
 
 suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R =
-  handleStateful<_, SpecialState.Data<Int>>(SpecialState.Data(init)) {
+  handleStateful(SpecialState.Data(init)) {
     block(MyState(this))
   }
 

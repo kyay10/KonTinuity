@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.effekt.raise
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
@@ -9,6 +10,7 @@ private fun SearchTree<Boolean>.atLeast(prob: Prob, v: Boolean): Boolean {
   return (find { it.value == Value.Leaf(v) }?.prob ?: 0.0) >= prob
 }
 
+@RequiresMultishot
 class PaperExamples {
   @Test
   fun `test extended grass model exact inference`() = runTestCC {

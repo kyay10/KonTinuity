@@ -1,39 +1,41 @@
 package io.github.kyay10.kontinuity
 
+import sun.misc.Unsafe
 import java.lang.reflect.Modifier
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.jvm.internal.CloningUtils
-public interface MultishotContinuation {
-  public fun copy(completion: Continuation<*>, context: CoroutineContext): Continuation<*>
+
+public interface MultishotContinuation<T> : Continuation<T> {
+  public fun copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T>
 }
 
 public actual typealias StackTraceElement = Any
+
 public actual interface CoroutineStackFrame {
   public actual val callerFrame: CoroutineStackFrame?
   public actual fun getStackTraceElement(): StackTraceElement?
 }
-private val UNSAFE = Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe").apply { isAccessible = true }
-  .get(null) as sun.misc.Unsafe
 
-private val baseContClass = Class.forName("kotlin.coroutines.jvm.internal.BaseContinuationImpl")
-private val contClass = Class.forName("kotlin.coroutines.jvm.internal.ContinuationImpl")
-private val completionField = baseContClass.getDeclaredField("completion").apply { isAccessible = true }
-private val contextField = contClass.getDeclaredField("_context").apply { isAccessible = true }
+internal actual const val SUPPORTS_MULTISHOT = true
 
 internal actual val Continuation<*>.completion: Continuation<*>?
   get() = CloningUtils.getParentContinuation(this)
+
+private val UNSAFE = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null) as Unsafe
+
 private val cache = hashMapOf<Class<*>, Array<java.lang.reflect.Field>>()
 
 private tailrec fun <T> copyDeclaredFields(
   obj: T, copy: T, clazz: Class<out T>
 ) {
   val fields = cache.getOrPut(clazz) {
-    clazz.declaredFields.also { it.forEach { it.isAccessible = true } }
+    clazz.declaredFields.also { fields -> fields.forEach { it.isAccessible = true } }
   }
   for (i in fields.indices) {
     val field = fields[i]
     if (Modifier.isStatic(field.modifiers)) continue
+    // TODO check if optimizing based on type is useful
     when (field.type) {
       Int::class.java -> field.setInt(copy, field.getInt(obj))
       else -> {
@@ -44,29 +46,21 @@ private tailrec fun <T> copyDeclaredFields(
       }
     }
   }
-  val superclass = clazz.superclass
-  if (superclass != null && superclass != contClass && superclass != baseContClass)
-    copyDeclaredFields(obj, copy, superclass)
+  if (CloningUtils.isContinuationBaseClass(clazz)) return
+  copyDeclaredFields(obj, copy, clazz.superclass ?: return)
 }
 
-@Suppress("UNCHECKED_CAST")
-internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T> = when (this) {
-  is MultishotContinuation -> this.copy(completion, context) as Continuation<T>
-  else -> {
-    val clazz = javaClass
-    val copy = UNSAFE.allocateInstance(clazz) as Continuation<T>
-    completionField.set(copy, completion)
-    if (contClass.isInstance(this)) {
-      contextField.set(copy, context)
+internal actual fun <T> Continuation<T>.invokeCopied(
+  completion: Continuation<*>,
+  context: CoroutineContext,
+  result: Result<T>,
+): Any? {
+  @Suppress("UNCHECKED_CAST")
+  val copy =
+    if (this is MultishotContinuation) this.copy(completion, context)
+    else (UNSAFE.allocateInstance(javaClass) as Continuation<T>).apply {
+      CloningUtils.initialize(this, completion, context)
+      copyDeclaredFields(this@invokeCopied, this, javaClass)
     }
-    copyDeclaredFields(this, copy, clazz)
-    copy
-  }
+  return CloningUtils.invokeSuspend(copy, result.getOrElse { CloningUtils.createFailure(it) })
 }
-
-internal actual fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any? =
-  result.fold({
-    CloningUtils.invokeSuspend(this, it)
-  }, {
-    CloningUtils.invokeSuspendWithException(this, it)
-  })

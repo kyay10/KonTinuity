@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.core.Either
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
@@ -8,6 +9,7 @@ import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
+@RequiresMultishot
 class AnfTest {
   // let x = f(g(42)) in x
   private val exampleTree: Tree = Let("x", App("f", App("g", Lit(42))), Var("x"))

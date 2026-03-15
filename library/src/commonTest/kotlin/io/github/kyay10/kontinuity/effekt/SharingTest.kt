@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.Reader
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.runReader
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -56,6 +57,7 @@ fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
   Stream(i, acc?.let(Producer.Companion::of))
 }
 
+@RequiresMultishot
 class SharingTest {
   private tailrec suspend fun <T : Comparable<T>> LazyList<T>.isSorted(): Boolean {
     this ?: return true

@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.SubCont
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -47,6 +48,7 @@ class CoroutineTest {
   }
 
   @Test
+  @RequiresMultishot
   fun snapshotTest() = runTestCC {
     val co = coroutine<Unit, Int, Unit> { buckets(data) }
     co.value shouldBe 4
@@ -62,6 +64,7 @@ class CoroutineTest {
   }
 
   @Test
+  @RequiresMultishot
   fun randomTest() = runTestCC {
     buildList {
       ambList {
@@ -129,8 +132,10 @@ class Yielder<In, Out, Result>(prompt: HandlerPrompt<CoroutineState<In, Out, Res
 }
 
 sealed interface CoroutineState<in In, out Out, out Result> {
-  data class Paused<in In, out Out, out Result>(val k: SubCont<In, CoroutineState<In, Out, Result>>, val yieldValue: Out) :
-    CoroutineState<In, Out, Result>
+  data class Paused<in In, out Out, out Result>(
+    val k: SubCont<In, CoroutineState<In, Out, Result>>,
+    val yieldValue: Out
+  ) : CoroutineState<In, Out, Result>
 
   data class Done<Result>(val result: Result) : CoroutineState<Any?, Nothing, Result>
 }

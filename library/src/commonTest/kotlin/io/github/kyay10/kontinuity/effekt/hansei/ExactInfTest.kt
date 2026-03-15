@@ -1,11 +1,13 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.effekt.raise
 import io.github.kyay10.kontinuity.runTestCC
 import io.github.kyay10.kontinuity.yieldToTrampoline
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import kotlin.test.Test
 
+@RequiresMultishot
 class ExactInfTest {
   @Test
   fun `test flip with sharing`() = runTestCC {

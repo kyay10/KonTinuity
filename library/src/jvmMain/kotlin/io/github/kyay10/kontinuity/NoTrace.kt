@@ -1,6 +1,6 @@
 package io.github.kyay10.kontinuity
 
-import kotlinx.coroutines.CancellationException
+import kotlin.coroutines.cancellation.CancellationException
 
 /*
  * Inspired by KotlinX Coroutines:

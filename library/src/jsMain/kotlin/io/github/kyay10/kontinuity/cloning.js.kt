@@ -3,18 +3,22 @@ package io.github.kyay10.kontinuity
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 
-internal actual val Continuation<*>.completion: Continuation<*>? get() = when (val completion = asDynamic().resultContinuation_1){
-  undefined -> null
-  else -> completion
-}
+internal actual const val SUPPORTS_MULTISHOT = true
 
-internal actual fun <T> Continuation<T>.copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T> {
+internal actual val Continuation<*>.completion: Continuation<*>? get() = this.asDynamic().resultContinuation_1
+
+internal actual fun <T> Continuation<T>.invokeCopied(
+  completion: Continuation<*>,
+  context: CoroutineContext,
+  result: Result<T>,
+): Any? {
   val cont = this
-  val descriptors = js("Object.getOwnPropertyDescriptors(cont)")
-  descriptors.resultContinuation_1.value = completion
-  descriptors._context_1.value = context
-  descriptors._intercepted_1.value = null
-  return js("Object.defineProperties(Object.create(Object.getPrototypeOf(cont)), descriptors)")
+  val copy: Continuation<T> = js("Object.create(Object.getPrototypeOf(cont))")
+  // add all properties, which includes resultContinuation, intercepted, and _context
+  js("Object.defineProperties(copy, Object.getOwnPropertyDescriptors(cont))")
+  // call constructor, which resets the coroutine internal state
+  copy.initialize(completion)
+  // thus, we copy the internal state (advancing the coroutine)
+  copy.copyState(from = cont)
+  return copy.invokeSuspend(result)
 }
-
-internal actual fun <T> Continuation<T>.invokeSuspend(result: Result<T>): Any? = Resumer.magic(this, result)

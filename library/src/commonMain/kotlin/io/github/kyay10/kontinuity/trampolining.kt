@@ -2,10 +2,9 @@ package io.github.kyay10.kontinuity
 
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlin.coroutines.AbstractCoroutineContextElement
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.ContinuationInterceptor
-import kotlin.coroutines.CoroutineContext
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
+import kotlin.coroutines.*
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmField
 
@@ -26,7 +25,7 @@ internal fun <Start> Frames<Start>.resumeWithIntercepted(result: Result<Start>, 
 }
 
 @OptIn(InternalCoroutinesApi::class)
-internal fun CoroutineContext.makeTrampoline(): CoroutineContext {
+internal fun CoroutineContext.makeTrampoline(): Trampoline {
   val interceptor = this[ContinuationInterceptor].let {
     if (it is Trampoline) it.interceptor else it
   }
@@ -39,6 +38,8 @@ private class TrampolineWithDelay(interceptor: ContinuationInterceptor?, delay: 
 
 internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
   AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
+
+  lateinit var emptyCont: EmptyCont<*>
 
   @JvmField
   var nextFrames: Continuation<*>? = null
@@ -54,17 +55,20 @@ internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
       interceptor?.interceptContinuation(it) ?: it
     }
 
-  override fun releaseInterceptedContinuation(continuation: Continuation<*>) {
+  override fun releaseInterceptedContinuation(continuation: Continuation<*>) = onErrorResume {
     interceptor?.releaseInterceptedContinuation(continuation)
   }
+
+  internal fun resumeWithException(exception: Throwable) = emptyCont.resumeWithException(exception)
 
   private inner class TrampolineContinuation<T>(val cont: Continuation<T>) : Continuation<T> {
     override val context: CoroutineContext = cont.context
 
     override fun resumeWith(result: Result<T>) {
       cont.resumeWith(result)
-      while (true) {
-        val nextFrames = (nextFrames ?: return) as Continuation<Any?>
+      while (true) onErrorResume {
+        @Suppress("UNCHECKED_CAST")
+        val nextFrames = (nextFrames ?: break) as Continuation<Any?>
         this@Trampoline.nextFrames = null
         val nextBody = this@Trampoline.nextBody
         val result =
@@ -79,3 +83,20 @@ internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
 internal val CoroutineContext.trampoline: Trampoline
   get() =
     this[ContinuationInterceptor] as? Trampoline ?: error("No trampoline in context: $this")
+
+@PublishedApi
+internal fun CoroutineContext.resumeCCWithException(exception: Throwable) {
+  trampoline.resumeWithException(exception)
+}
+
+@PublishedApi
+internal inline fun CoroutineContext.onErrorResume(block: () -> Unit) {
+  contract {
+    callsInPlace(block, InvocationKind.AT_MOST_ONCE)
+  }
+  return try {
+    block()
+  } catch (exception: Throwable) {
+    resumeCCWithException(exception)
+  }
+}

@@ -1,17 +1,19 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.runCC
 import io.kotest.matchers.shouldBe
-import kotlinx.coroutines.test.runTest as coroutinesRunTest
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
+import kotlinx.coroutines.test.runTest as coroutinesRunTest
 
 class AwaitTest {
   @Test
+  @RequiresMultishot
   fun example() = coroutinesRunTest {
     val printed = StringBuilder()
     runCC {
@@ -77,7 +79,8 @@ suspend fun <A> Await.await(d: Deferred<A>): A {
   return d.await()
 }
 
-class MutableAwait(prompt: HandlerPrompt<Unit>, private val processes: MutableList<suspend () -> Unit>) : Await, Handler<Unit> by prompt {
+class MutableAwait(prompt: HandlerPrompt<Unit>, private val processes: MutableList<suspend () -> Unit>) : Await,
+  Handler<Unit> by prompt {
   override suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A = use { k ->
     body {
       processes.add { k(it) }

@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContain
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
@@ -8,6 +9,7 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import kotlin.test.Test
 
+@RequiresMultishot
 class NestedTest {
   context(_: Probabilistic, _: Memory)
   suspend fun testn11(): SearchTree<Boolean> = exactReify(

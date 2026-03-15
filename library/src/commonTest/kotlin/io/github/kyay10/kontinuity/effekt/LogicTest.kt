@@ -13,6 +13,7 @@ import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.milliseconds
 
+@RequiresMultishot
 class LogicTest {
   @Test
   fun reader() = runTestCC {
@@ -227,7 +228,7 @@ class LogicTest {
   fun readerInside() = runTestCC {
     withLogic {
       bagOfN(2) {
-        runReader(0) { if(flip()) 0 else 1 }
+        runReader(0) { if (flip()) 0 else 1 }
       } shouldBe (0..1).toList()
     }
   }

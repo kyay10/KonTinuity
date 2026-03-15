@@ -9,6 +9,7 @@ import kotlin.test.Test
 
 class BuildSystemTest {
   val inputs = mapOf("A1" to 10, "A2" to 20)
+
   @Test
   fun ex1() = runTestCC {
     val accessed = mutableListOf<Key>()

@@ -25,6 +25,7 @@ class FlowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun single() = runTest {
     val flow1 = flowOfWithDelay(1, 2, 3)
     var counter = 0
@@ -43,6 +44,7 @@ class FlowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun filtering() = runTest {
     val flow = flowOfWithDelay(1, 2, 3)
     val result = runFlowCC {
@@ -59,6 +61,7 @@ class FlowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun multiple() = runTest {
     val flow1 = flowOfWithDelay(1, Int.MAX_VALUE, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3)
     val flow2 = flowOfWithDelay(2, 3, Int.MAX_VALUE, 4)
@@ -94,6 +97,7 @@ class FlowTest {
 
   @OptIn(ExperimentalCoroutinesApi::class)
   @Test
+  @RequiresMultishot
   fun nested() = runTest {
     val flow = flowOfWithDelay(flowOfWithDelay(1, 2), flowOfWithDelay(3, 4), flowOfWithDelay(5, 6))
     var innerCount = 0
@@ -116,6 +120,7 @@ class FlowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun ifElse() = runTest {
     val flow = flowOfWithDelay(1, 2, 2, 3)
     val twoElements = flowOfWithDelay(0, 0)
@@ -150,6 +155,7 @@ class FlowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun forLoops() = runTest {
     val result = runFlowCC {
       (1..10).forEachIteratorless { i ->
@@ -166,6 +172,7 @@ class FlowTest {
   }
 
   @Test
+  @RequiresMultishot
   fun permutations() = runTest {
     val numbers = (1..5).toList()
     val result = runFlowCC {

@@ -160,7 +160,7 @@ object LogicDeep : Logic {
       value.addFirst {
         handle ambExc@{
           block({
-            useWithFinal { (resumeCopy, resumeFinal) ->
+            useWithFinal { resumeCopy, resumeFinal ->
               value.addFirst { resumeFinal(false) }
               resumeCopy(true)
             }
@@ -189,7 +189,7 @@ object LogicDeep : Logic {
 object LogicTree : Logic {
   override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A) = handle<Stream<A>?> {
     Stream(block({
-      useWithFinal { (resumeCopy, resumeFinal) ->
+      useWithFinal { resumeCopy, resumeFinal ->
         composeTrees(resumeCopy(true), Producer { resumeFinal(false) })
       }
     }) {
@@ -217,12 +217,10 @@ object LogicSimple : Logic {
 }
 
 suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
-  block(object : Amb {
-    override suspend fun flip() = useTailResumptive { resume ->
+  block({
+    useTailResumptive { resume ->
       resume(true)
       false
     }
-  }, object : Exc {
-    override suspend fun raise(): Nothing = discardWithFast(Result.success(Unit))
-  })
+  }, { discardWithFast(Result.success(Unit)) })
 }

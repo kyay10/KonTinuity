@@ -2,11 +2,13 @@ package io.github.kyay10.kontinuity.effekt.hansei
 
 import arrow.core.None
 import arrow.core.Some
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.collections.shouldContainExactlyInAnyOrder
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
+@RequiresMultishot
 class LazyMemoTest {
   // NOTE: OCaml eval order is rtl! So our examples are "backwards"
   @Test
@@ -250,10 +252,10 @@ class LazyMemoTest {
     context(_: Probabilistic, _: Memory)
     suspend fun testl54(): Triple<Boolean, Int, Int> {
       val u = letLazy { (1..2).uniformly() }
-      val x = letLazy { expensiveFunction(listOf(u().let { suspend { it} }, u).uniformly()()) }
+      val x = letLazy { expensiveFunction(listOf(u().let { suspend { it } }, u).uniformly()()) }
       val c = flip()
       // "backwards" because RTL
-      return if(c) Triple(c, x().also { u() }, x().let { u() })
+      return if (c) Triple(c, x().also { u() }, x().let { u() })
       else Triple(c, u().also { x() }, u().let { x() })
     }
     expensiveComputation = 0

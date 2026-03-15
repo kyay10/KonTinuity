@@ -3,7 +3,7 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
-import arrow.core.getOrElse
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
 import io.kotest.matchers.shouldBe
@@ -11,6 +11,7 @@ import kotlin.test.Test
 
 class PaperTest {
   @Test
+  @RequiresMultishot
   fun ex4dot1() = runTest {
     runCC {
       val res = collect {
@@ -30,7 +31,9 @@ class PaperTest {
     }
   }
 
+  @Suppress("UnusedLambdaExpression")
   @Test
+  @RequiresMultishot
   fun ex4dot3() = runTest {
     runCC {
       val res = collect {
@@ -104,6 +107,7 @@ class PaperTest {
   }
 
   @Test
+  @RequiresMultishot
   fun ex4dot5dot6() = runTest {
     runCC {
       region {
@@ -161,10 +165,7 @@ interface Async {
 context(async: Async)
 suspend fun <T> async(body: suspend () -> T): Async.Promise<T> = async.async(body)
 
-class Poll(
-  val state: StateScope,
-  val fiber: Fiber,
-) : Async {
+class Poll(state: StateScope, val fiber: Fiber) : Async, StateScope by state {
   private class PromiseImpl<T>(val fiber: Fiber, val field: StateScope.OptionalField<T>) : Async.Promise<T> {
     override tailrec suspend fun await(): T = field.getOrPut {
       fiber.suspend()
@@ -173,7 +174,7 @@ class Poll(
   }
 
   override suspend fun <T> async(body: suspend () -> T): Async.Promise<T> {
-    val p = state.field<T>()
+    val p = field<T>()
     fiber.forked { p.value = body() }
     return PromiseImpl(fiber, p)
   }

@@ -122,7 +122,7 @@ class CanResume<A> : Fibre<A> {
 
 class Scheduler2(private val tasks: ArrayDeque<Task>, prompt: HandlerPrompt<Unit>) :
   Handler<Unit> by prompt {
-  suspend fun fork(): Boolean = useWithFinal { (k, final) ->
+  suspend fun fork(): Boolean = useWithFinal { k, final ->
     tasks.addLast { final(true) }
     k(false)
   }

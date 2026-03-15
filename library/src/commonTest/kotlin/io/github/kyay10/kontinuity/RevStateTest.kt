@@ -55,4 +55,5 @@ suspend fun <S, R> RevState<S, R>.setLazy(value: suspend () -> S): Unit = shift 
   value to r
 }
 
-suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> = newReset { suspend { value } to body() }
+suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> =
+  newReset { suspend { value } to body() }

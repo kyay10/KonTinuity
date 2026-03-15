@@ -16,7 +16,8 @@ suspend fun raise(msg: String): Nothing = exc.raise(msg)
 context(exc: Exc)
 suspend fun raise(): Nothing = exc.raise()
 
-context(_: Exc) suspend fun ensure(condition: Boolean) {
+context(_: Exc)
+suspend fun ensure(condition: Boolean) {
   contract {
     returns() implies condition
   }

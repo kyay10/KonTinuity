@@ -2,7 +2,9 @@ package io.github.kyay10.kontinuity
 
 import kotlin.jvm.JvmInline
 
-public data class StateValue<T>(public var value: T)
+public data class StateValue<T>(public var value: T) : Stateful<StateValue<T>> {
+  override fun fork(): StateValue<T> = copy()
+}
 
 @JvmInline
 public value class State<T>(private val underlying: Reader<StateValue<T>>) {
@@ -18,4 +20,4 @@ public inline fun <T> State<T>.modify(f: (T) -> T) {
 }
 
 public suspend inline fun <T, R> runState(value: T, crossinline body: suspend State<T>.() -> R): R =
-  runReader(StateValue(value), { copy() }) { body(State(this)) }
+  runReader(StateValue(value)) { body(State(this)) }

@@ -22,17 +22,18 @@ import kotlin.Nothing
 import kotlin.Pair
 import kotlin.Result
 import kotlin.Unit
-import kotlin.collections.listOf
 import kotlin.test.Test
 import kotlin.to
 import kotlin.with
 
+@RequiresMultishot
 class HExcTest {
   context(r: Raise<Unit>, state: State<Int>)
   private fun decr() {
     ensure(state.value > 0)
     state.value--
   }
+
   context(r: Raise<Unit>, recover: Recover, state: State<Int>)
   private suspend fun tripleDecr() {
     decr()

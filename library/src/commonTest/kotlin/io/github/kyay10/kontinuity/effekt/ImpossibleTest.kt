@@ -4,7 +4,7 @@ import io.github.kyay10.kontinuity.*
 import io.github.kyay10.kontinuity.effekt.Bit.One
 import io.github.kyay10.kontinuity.effekt.Bit.Zero
 import io.kotest.matchers.shouldBe
-import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.toPersistentHashMap
 import kotlin.math.max
 import kotlin.test.Test
 
@@ -20,6 +20,7 @@ operator fun Bit.times(other: Bit) = this.ordinal * other.ordinal
 typealias Baire = suspend (Int) -> Int
 typealias Cantor = suspend (Int) -> Bit
 
+@RequiresMultishot
 class ImpossibleTest {
   // From https://math.andrej.com/2011/12/06/how-to-make-the-impossible-functionals-run-even-faster/
   @Test
@@ -34,7 +35,7 @@ class ImpossibleTest {
   //https://math.andrej.com/2007/09/28/seemingly-impossible-functional-programs/
   @Test
   fun articleExamples() = runTestCC {
-    suspend fun f(a: Cantor): Bit = a(7 * a(4) +  4 * a(7) + 4)
+    suspend fun f(a: Cantor): Bit = a(7 * a(4) + 4 * a(7) + 4)
     suspend fun g(a: Cantor): Bit = a(a(4) + 11 * a(7))
     suspend fun h(a: Cantor): Bit = when {
       a(7) == Zero && a(4) == Zero -> a(4)
@@ -101,21 +102,20 @@ private suspend fun mu(f: suspend (Baire) -> Int, alpha: Baire): Int = runState(
 }
 
 private suspend fun findNeighborhood(predicate: suspend (Cantor) -> Boolean): Map<Int, Bit> =
-  runReader(persistentHashMapOf<Int, Bit>().builder(), { build().builder() }) {
-    handle {
+  buildMapLocally {
+    handle<Boolean> {
       predicate { i ->
-        value[i] ?: use { k ->
-          val current = value.build()
+        get(i) ?: use { k ->
+          val current = map.toPersistentHashMap()
           k(One) || run {
             // reset state
-            value.clear()
-            value.putAll(current)
+            clear()
+            putAll(current)
             k(Zero)
           }
-        }.also { value[i] = it }
+        }.also { set(i, it) }
       }
     }
-    value.build()
   }
 
 private suspend fun epsilon(predicate: suspend (Cantor) -> Boolean): Cantor {

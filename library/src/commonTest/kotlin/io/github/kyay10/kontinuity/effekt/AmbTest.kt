@@ -2,11 +2,13 @@ package io.github.kyay10.kontinuity.effekt
 
 import arrow.core.None
 import arrow.core.Some
-import io.kotest.matchers.shouldBe
+import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.runCC
 import io.github.kyay10.kontinuity.runTest
+import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
+@RequiresMultishot
 class AmbTest {
   context(amb: Amb, exc: Exc)
   suspend fun drunkFlip(): String {
