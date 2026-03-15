@@ -105,8 +105,8 @@ public suspend inline fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoli
 public suspend inline fun <T, R> Prompt<R>.shift(
   crossinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(this, stackRest) { rest, restRest, init ->
-    suspend { body(SubCont(init, true)) }.startCoroutineIntercepted(rest, restRest.realContext)
+  stack.splitAt(this, stackRest) { frames, rest, init ->
+    suspend { body(SubCont(init, true)) }.startCoroutineIntercepted(frames, rest.realContext)
   }
 }
 
@@ -121,8 +121,8 @@ public suspend inline fun <T, R> shift(
 public suspend inline fun <T, R> Prompt<R>.shiftOnce(
   crossinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(this, stackRest) { rest, restRest, init ->
-    suspend { body(SubCont(init)) }.startCoroutineIntercepted(rest, restRest.realContext)
+  stack.splitAt(this, stackRest) { frames, rest, init ->
+    suspend { body(SubCont(init)) }.startCoroutineIntercepted(frames, rest.realContext)
   }
 }
 
@@ -137,8 +137,8 @@ public suspend inline fun <T, R> shiftOnce(
 public suspend inline fun <T, R> Prompt<R>.shiftWithFinal(
   crossinline body: suspend (SubCont<T, R>, SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(this, stackRest) { rest, restRest, init ->
-    suspend { body(SubCont(init, true), SubCont(init)) }.startCoroutineIntercepted(rest, restRest.realContext)
+  stack.splitAt(this, stackRest) { frames, rest, init ->
+    suspend { body(SubCont(init, true), SubCont(init)) }.startCoroutineIntercepted(frames, rest.realContext)
   }
 }
 
@@ -155,10 +155,10 @@ public suspend inline fun <T, R> shiftWithFinal(
 public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
   crossinline body: suspend (SubCont<T, P>) -> T
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(this, stackRest) { rest, restRest, init ->
+  stack.splitAt(this, stackRest) { frames, rest, init ->
     suspend { body(SubCont(init, true)) }.startCoroutineIntercepted(
-      Frames(Frames.Under(init, rest, restRest)),
-      restRest.realContext
+      Frames(Frames.Under(init, frames, rest)),
+      rest.realContext
     )
   }
 }

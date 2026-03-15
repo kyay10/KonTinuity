@@ -31,7 +31,6 @@ kotlin {
     freeCompilerArgs.addAll(
       "-Xcontext-parameters",
       "-Xexpect-actual-classes",
-      "-Xwhen-guards",
       "-opt-in=kotlin.contracts.ExperimentalContracts",
       "-Xwarning-level=DSL_MARKER_APPLIED_TO_WRONG_TARGET:disabled",
       "-Xwarning-level=ERROR_SUPPRESSION:disabled",

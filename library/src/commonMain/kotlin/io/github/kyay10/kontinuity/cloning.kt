@@ -3,7 +3,7 @@ package io.github.kyay10.kontinuity
 import io.github.kyay10.kontinuity.Frames.Copied.Companion.resumeWithImpl
 import io.github.kyay10.kontinuity.Segmentable.Segment
 import io.github.kyay10.kontinuity.Segmentable.Segment.Companion.invalidateAndCollectValues
-import kotlin.contracts.ExperimentalExtendedContracts
+import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
@@ -14,9 +14,12 @@ internal const val REENTRANT_NOT_SUPPORTED = "Reentrant resumptions are not supp
 internal const val COPYING_NOT_SUPPORTED: String = "Copying continuations is not supported"
 
 @PublishedApi
-internal const val SEGMENTABLE_UNLINKED: String = "Segmentable used before being linked into Frames"
+internal const val IS_NOT_ON_THE_STACK: String = " is not on the stack"
+private const val NOT_A_COMPILER_CONTINUATION = "Not a compiler generated continuation "
+private const val MODIFIED_CONCURRENTLY = " was likely modified concurrently: found "
+private const val SEGMENT_ALREADY_USED = "Segment was already used once, but is being reused again"
+private const val PROMPT_ALREADY_RESUMED = "Prompt was already resumed, so it cannot be invalidated"
 
-private const val RUN_INVALIDATIONS = true
 private const val SMALL_DATA_BUFFER_SIZE = 6
 
 internal expect val SUPPORTS_MULTISHOT: Boolean
@@ -55,14 +58,16 @@ public val SplitContOrSegment.isSegment: Boolean
     return this is Segment<*, *>
   }
 
-@OptIn(ExperimentalExtendedContracts::class)
-public inline fun SplitContOrSegment.ensureNotSegment(message: () -> String): SplitCont<*> {
+@PublishedApi
+internal inline fun SplitContOrSegment?.ifSegment(block: (Segment<*, *>?) -> Nothing): SplitCont<*> {
   contract {
-    returns() implies (this@ensureNotSegment is SplitCont<*>)
-    (this@ensureNotSegment is Segment<*, *>) holdsIn message
+    returns() implies (this@ifSegment is SplitCont<*>)
+    callsInPlace(block, InvocationKind.AT_MOST_ONCE)
   }
-  check(!isSegment, message)
-  return this
+  return when (this) {
+    is Segment<*, *>? -> block(this)
+    is SplitCont<*> -> this
+  }
 }
 
 public sealed class SplitCont<in Start>(realContext: CoroutineContext) :
@@ -71,18 +76,18 @@ public sealed class SplitCont<in Start>(realContext: CoroutineContext) :
 }
 
 @PublishedApi
-internal fun <Start> SplitCont<Start>.ensureSegmentable(): Segmentable<Start> =
+internal fun <Start> SplitCont<Start>.errorIfEmptyCont(): Segmentable<Start> =
   this as? Segmentable<Start> ?: error(REENTRANT_NOT_SUPPORTED)
 
 @PublishedApi
 internal inline fun <Start, P, R> Frames<Start>.splitAt(
   p: Prompt<P>,
-  thisRest: SplitCont<*>,
+  stackRest: SplitCont<*>,
   block: (Frames<P>, SplitCont<*>, Segment<Start, P>) -> R
 ): R = block(
-  p.rest,
-  p.restRest.ensureNotSegment { "$p is not on the stack" },
-  Segment(p, this, thisRest.ensureSegmentable())
+  Frames(p.frames),
+  p.rest.ifSegment { error("$p$IS_NOT_ON_THE_STACK") },
+  Segment(p, this, stackRest.errorIfEmptyCont())
 )
 
 internal class EmptyCont<Start>(@JvmField val underlying: Continuation<Start>, context: CoroutineContext) :
@@ -114,7 +119,7 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
     override fun resume(result: Result<RealStart>) = underflow().resumeWith(result)
 
     fun underflow() = captured.prependTo(false, frames, rest)
-    fun underflowCopied(newRest: SplitCont<*>) = captured.prependTo(true, frames, newRest)
+    fun underflowCopied(newRest: Segmentable<*>) = captured.prependTo(true, frames, newRest)
   }
 
   private class Copied<in Start>(
@@ -150,17 +155,14 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
             if (current is Under<Any?, *>)
               return current.underflowCopied(framesRest).resumeWithImpl(param)
             var completion =
-              current.completion as? Continuation<Any?> ?: error("Not a compiler generated continuation $current")
+              current.completion as? Continuation<Any?> ?: error("$NOT_A_COMPILER_CONTINUATION$current")
             when (completion) {
               is Copied -> completion = completion.cont as Continuation<Any?>
-              is EmptyCont -> error("EmptyCont found as parent for copied frames")
               is Segmentable -> {
                 // top-level completion reached -- invoke and return
                 val outcome = current.invokeCopied(framesRest, framesRest, param) { return }
                 return framesRest.underflow().resumeWithImpl(outcome)
               }
-
-              else -> {}
             }
             // Optimized by only setting it upon suspension.
             // This is safe only if no one accesses cont in between
@@ -182,14 +184,27 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
   }
 }
 
-context(list: MutableList<in T>)
-private fun <T> add(element: T) = list.add(element)
-
 public class Prompt<Start> @PublishedApi internal constructor(
   context: CoroutineContext,
-  rest: Continuation<Start>,
-  restRest: SplitCont<*>
-) : Segmentable<Start>(context, rest, restRest)
+  frames: Continuation<Start>,
+  @PublishedApi @JvmField internal var rest: SplitContOrSegment?,
+) : Segmentable<Start>(context, frames) {
+  @PublishedApi
+  override fun underflow(): Frames<Start> = super.underflow().also { rest = null }
+
+  @Suppress("UNCHECKED_CAST")
+  context(arr: Array<out Any?>)
+  override fun revalidateSingle(isFinal: Boolean, index: Int): Int {
+    val frames = Frames(arr[index] as Continuation<Start>)
+    val rest = arr[index + 1] as Segmentable<*>
+    if (this.rest !== rest) {
+      invalidateAndCollectValues()
+      this.rest = rest
+    }
+    this.frames = (if (isFinal) frames else frames.copy(rest)).frames
+    return index + 2
+  }
+}
 
 public typealias Reader<S> = ReaderT<*, out S>
 
@@ -197,9 +212,9 @@ public class ReaderT<Start, S> @PublishedApi internal constructor(
   context: CoroutineContext,
   private val fork: S.() -> S,
   @JvmField internal var state: S,
-  rest: Continuation<Start>,
-  restRest: SplitCont<*>,
-) : Segmentable<Start>(context, rest, restRest) {
+  frames: Continuation<Start>,
+  @PublishedApi @JvmField internal val rest: SplitCont<*>,
+) : Segmentable<Start>(context, frames) {
   private class ForkOnFirstRead(state: Any?) {
     @JvmField
     val state: Any? = if (state is ForkOnFirstRead) state.state else state
@@ -216,65 +231,31 @@ public class ReaderT<Start, S> @PublishedApi internal constructor(
       return state
     }
 
-  context(_: MutableList<in Any?>)
-  override fun invalidateSingle() {
-    super.invalidateSingle()
-    add(state)
-  }
-
   @Suppress("UNCHECKED_CAST")
   context(arr: Array<out Any?>)
   override fun revalidateSingle(isFinal: Boolean, index: Int): Int {
-    val index = super.revalidateSingle(isFinal, index)
     val state = arr[index] as S
     this@ReaderT.state = if (isFinal) state else ForkOnFirstRead(state) as S
+    if (!isFinal) frames = Frames(frames).copy(rest.errorIfEmptyCont()).frames
     return index + 1
   }
 }
 
 private val SEGMENT_USED = arrayOfNulls<Any?>(0)
 
-@PublishedApi
-internal inline val <Start> Segmentable<Start>.rest: Frames<Start>
-  get() = Frames(_rest ?: error(SEGMENTABLE_UNLINKED))
-
-@PublishedApi
-internal inline val Segmentable<*>.restRest: SplitContOrSegment
-  get() = _restRest ?: error(SEGMENTABLE_UNLINKED)
-
 public sealed class Segmentable<Start>(
   context: CoroutineContext,
-  @PublishedApi @JvmField internal var _rest: Continuation<Start>?,
-  @PublishedApi @JvmField internal var _restRest: SplitContOrSegment?,
+  @PublishedApi @JvmField internal var frames: Continuation<Start>,
 ) : SplitCont<Start>(context) {
-  final override val callerFrame: CoroutineStackFrame? get() = _rest as? CoroutineStackFrame
+  final override val callerFrame: CoroutineStackFrame? get() = frames as? CoroutineStackFrame
   final override fun getStackTraceElement(): StackTraceElement? = null
 
   @PublishedApi
-  internal fun underflow(): Frames<Start> = rest.also {
-    _rest = null
-    _restRest = null
-  }
-
-  context(_: MutableList<in Any?>)
-  protected open fun invalidateSingle() {
-    add(rest.frames)
-    add(restRest)
-  }
+  internal open fun underflow(): Frames<Start> = Frames(frames)
 
   // returns new index
-  @Suppress("UNCHECKED_CAST")
   context(arr: Array<out Any?>)
-  protected open fun revalidateSingle(isFinal: Boolean, index: Int): Int {
-    val frames = Frames(arr[index] as Continuation<Start>)
-    val rest = arr[index + 1] as SplitCont<*>
-    if (_restRest !== rest) {
-      if (RUN_INVALIDATIONS) invalidateAndCollectValues()
-      _restRest = rest
-    }
-    _rest = (if (isFinal) frames else frames.copy(rest.ensureSegmentable())).frames
-    return index + 2
-  }
+  protected abstract fun revalidateSingle(isFinal: Boolean, index: Int): Int
 
   final override fun resume(result: Result<Start>) {
     underflow().resumeWith(result)
@@ -288,25 +269,21 @@ public sealed class Segmentable<Start>(
     private var values: Array<Any?>? = null,
   ) : SplitContOrSegment {
     init {
-      delimiter._rest = null
-      delimiter._restRest = this
+      delimiter.rest = this
     }
 
     @Suppress("UNCHECKED_CAST")
     fun prependTo(shouldCopy: Boolean, stack: Frames<End>, stackRest: SplitCont<*>): Frames<Start> {
-      if (values === SEGMENT_USED) error(
-        if (SUPPORTS_MULTISHOT) "Segment was already used once, but is being reused again"
-        else COPYING_NOT_SUPPORTED
-      )
+      if (values === SEGMENT_USED) error(if (SUPPORTS_MULTISHOT) SEGMENT_ALREADY_USED else COPYING_NOT_SUPPORTED)
       val shouldCopy = shouldCopy && SUPPORTS_MULTISHOT
 
-      return (if (shouldCopy) start.copy(startRest.ensureSegmentable()) else start).also {
-        if (shouldCopy && values == null) collectValues()
+      return (if (shouldCopy) start.copy(startRest.errorIfEmptyCont()) else start).also {
+        if (shouldCopy) collectValues()
         values?.run { startRest.revalidate(!shouldCopy, delimiter) }
         if (!shouldCopy) values = SEGMENT_USED
-        delimiter._rest = stack.frames
-        if (RUN_INVALIDATIONS && delimiter._restRest !== this) delimiter.invalidateAndCollectValues()
-        delimiter._restRest = stackRest
+        if (delimiter.rest !== this) delimiter.invalidateAndCollectValues()
+        delimiter.frames = stack.frames
+        delimiter.rest = stackRest
       }
     }
 
@@ -314,72 +291,58 @@ public sealed class Segmentable<Start>(
     private tailrec fun Segmentable<*>.revalidate(isFinal: Boolean, delimiter: Prompt<*>, index: Int = 0) {
       if (this === delimiter) return
       val newIndex = revalidateSingle(isFinal, index)
-      restRest.ensureNotSegment { "${this@Segment} was likely modified concurrently" }.ensureSegmentable()
-        .revalidate(isFinal, delimiter, newIndex)
+      when (this) {
+        is Prompt -> rest.ifSegment { error("${this@Segment}$MODIFIED_CONCURRENTLY$it") }
+        is Reader<*> -> rest
+      }.errorIfEmptyCont().revalidate(isFinal, delimiter, newIndex)
     }
 
     private fun collectValues() {
-      if (values != null)
-        error("values have already been collected, but $this was invalidated anyway")
+      if (values != null) return
       if (!SUPPORTS_MULTISHOT) return
       values = startRest.invalidate()
     }
 
     companion object {
-      tailrec fun Segmentable<*>.invalidateAndCollectValues() {
-        val restRest = _restRest ?: return
-        return if (restRest is Segment<*, *>) restRest.collectValues()
-        else restRest.ensureNotSegment { REENTRANT_NOT_SUPPORTED }.ensureSegmentable().invalidateAndCollectValues()
-      }
+      fun Segmentable<*>.invalidateAndCollectValues() = findSegment()?.collectValues()
     }
   }
 
   internal companion object {
+    inline fun Segmentable<*>.findSegment(
+      onReader: (current: Reader<*>) -> Unit = {},
+      onPrompt: (current: Prompt<*>, rest: SplitCont<*>) -> Unit = { _, _ -> },
+    ): Segment<*, *>? {
+      var current: Segmentable<*> = this
+      while (true) {
+        current = when (current) {
+          is Reader<*> -> current.rest.also { onReader(current) }
+          is Prompt<*> -> current.rest.ifSegment { return it }.also { onPrompt(current, it) }
+        }.errorIfEmptyCont()
+      }
+    }
+
     fun Segmentable<*>.invalidate(): Array<Any?> {
-      val startAt: Segmentable<*>
-      val startAtSize: Int
-      val buffer = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE).apply {
-        var current: Segmentable<*> = this@invalidate
-        var size = 0
-        while (true) {
-          val restRest = current.restRest
-          if (restRest.isSegment) return this
-          if (SMALL_DATA_BUFFER_SIZE < size + 3) break
-          this[size++] = current.rest.frames
-          this[size++] = restRest
-          if (current is Reader<*>) this[size++] = current.state
-          current = restRest.ensureSegmentable()
+      var bufSize = SMALL_DATA_BUFFER_SIZE
+      var buf = arrayOfNulls<Any?>(bufSize)
+      var size = 0
+      // TODO benchmark buf.size vs bufSize
+      // Inv: buf.size == bufSize
+      findSegment(onReader = {
+        if (bufSize < size + 1) {
+          bufSize *= 2
+          buf = buf.copyOf(bufSize)
         }
-        startAt = current
-        startAtSize = size
-      }
-      val size = run {
-        var current = startAt
-        var size = startAtSize
-        do {
-          val restRest = current.restRest
-          if (restRest.isSegment) break
-          size += when (current) {
-            is Prompt<*> -> 2
-            is Reader<*> -> 3
-          }
-          current = restRest.ensureSegmentable()
-        } while (true)
-        size
-      }
-      return arrayOfNulls<Any?>(size).apply {
-        buffer.copyInto(this, 0, 0, startAtSize)
-        var index = startAtSize
-        var current = startAt
-        while (index < size) {
-          val restRest = current.restRest
-          restRest.ensureNotSegment { "$current was likely modified concurrently" }
-          this[index++] = current.rest.frames
-          this[index++] = restRest
-          if (current is Reader<*>) this[index++] = current.state
-          current = restRest.ensureSegmentable()
+        buf[size++] = it.state
+      }) { prompt, rest ->
+        if (bufSize < size + 2) {
+          bufSize *= 2
+          buf = buf.copyOf(bufSize)
         }
-      }
+        buf[size++] = prompt.frames
+        buf[size++] = rest
+      } ?: error(PROMPT_ALREADY_RESUMED)
+      return buf
     }
   }
 }
