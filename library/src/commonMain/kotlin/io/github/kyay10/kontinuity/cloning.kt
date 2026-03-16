@@ -118,7 +118,7 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
 
     override fun resume(result: Result<RealStart>) = underflow().resumeWith(result)
 
-    fun underflow() = captured.prependTo(false, frames, rest)
+    private fun underflow() = captured.prependTo(false, frames, rest)
     fun underflowCopied(newRest: Segmentable<*>) = captured.prependTo(true, frames, newRest)
   }
 
@@ -185,10 +185,13 @@ internal value class Frames<in Start>(val frames: Continuation<Start>) {
 }
 
 public class Prompt<Start> @PublishedApi internal constructor(
-  context: CoroutineContext,
-  frames: Continuation<Start>,
-  @PublishedApi @JvmField internal var rest: SplitContOrSegment?,
-) : Segmentable<Start>(context, frames) {
+  frames: Frames<Start>,
+  rest: SplitCont<*>,
+) : Segmentable<Start>(rest.realContext, frames) {
+  @PublishedApi
+  @JvmField
+  internal var rest: SplitContOrSegment? = rest
+
   @PublishedApi
   override fun underflow(): Frames<Start> = super.underflow().also { rest = null }
 
@@ -209,12 +212,11 @@ public class Prompt<Start> @PublishedApi internal constructor(
 public typealias Reader<S> = ReaderT<*, out S>
 
 public class ReaderT<Start, S> @PublishedApi internal constructor(
-  context: CoroutineContext,
   private val fork: S.() -> S,
   @JvmField internal var state: S,
-  frames: Continuation<Start>,
+  frames: Frames<Start>,
   @PublishedApi @JvmField internal val rest: SplitCont<*>,
-) : Segmentable<Start>(context, frames) {
+) : Segmentable<Start>(rest.realContext, frames) {
   private class ForkOnFirstRead(state: Any?) {
     @JvmField
     val state: Any? = if (state is ForkOnFirstRead) state.state else state
@@ -245,8 +247,11 @@ private val SEGMENT_USED = arrayOfNulls<Any?>(0)
 
 public sealed class Segmentable<Start>(
   context: CoroutineContext,
-  @PublishedApi @JvmField internal var frames: Continuation<Start>,
+  frames: Frames<Start>,
 ) : SplitCont<Start>(context) {
+  @PublishedApi
+  @JvmField
+  internal var frames: Continuation<Start> = frames.frames
   final override val callerFrame: CoroutineStackFrame? get() = frames as? CoroutineStackFrame
   final override fun getStackTraceElement(): StackTraceElement? = null
 

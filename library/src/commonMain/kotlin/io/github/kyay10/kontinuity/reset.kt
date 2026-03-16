@@ -2,7 +2,6 @@ package io.github.kyay10.kontinuity
 
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
-import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
@@ -57,37 +56,18 @@ public class SubCont<in T, out R> @PublishedApi internal constructor(
 
 
 @ResetDsl
-public suspend inline fun <R> newReset(noinline body: suspend Prompt<R>.() -> R): R =
-  suspendCoroutineAndTrampoline { stack, stackRest, context ->
-    val prompt = Prompt(context, stack.frames, stackRest)
+public suspend fun <R> newReset(body: suspend Prompt<R>.() -> R): R =
+  suspendCoroutineHere { stack, stackRest ->
+    val prompt = Prompt(stack, stackRest)
     body.startCoroutineUninterceptedOrReturn(prompt, prompt)
   }
 
-@PublishedApi
-internal tailrec fun Frames<*>.handleTrampolining(
-  result: Result<Any?>,
-  trampoline: Trampoline
-): Any? = if (COROUTINE_SUSPENDED === result.getOrNull() || SuspendedException === result.exceptionOrNull()) {
-  val nextFrames = trampoline.nextFrames?.takeIf { it === frames } ?: return COROUTINE_SUSPENDED
-  @Suppress("UNCHECKED_CAST")
-  nextFrames as Continuation<Any?>
-  trampoline.nextFrames = null
-  val nextBody = trampoline.nextBody
-  val result =
-    if (nextBody != null) runCatching { nextBody.startCoroutineUninterceptedOrReturn(nextFrames) } else trampoline.nextResult
-  handleTrampolining(result, trampoline)
-} else result.getOrThrow()
-
-
 @ResetDsl
-public suspend inline fun <T, R> runReader(
-  value: T,
-  noinline fork: T.() -> T = { this },
-  noinline body: suspend Reader<T>.() -> R
-): R = suspendCoroutineAndTrampoline { stack, stackRest, context ->
-  val reader = ReaderT(context, fork, value, stack.frames, stackRest)
-  body.startCoroutineUninterceptedOrReturn(reader, reader)
-}
+public suspend fun <T, R> runReader(value: T, fork: T.() -> T = { this }, body: suspend Reader<T>.() -> R): R =
+  suspendCoroutineHere { stack, stackRest ->
+    val reader = ReaderT(fork, value, stack, stackRest)
+    body.startCoroutineUninterceptedOrReturn(reader, reader)
+  }
 
 public interface Stateful<S : Stateful<S>> {
   public fun fork(): S
@@ -217,13 +197,14 @@ internal suspend inline fun <T> suspendCoroutineToTrampoline(
   COROUTINE_SUSPENDED
 }
 
-@PublishedApi
-internal suspend inline fun <T> suspendCoroutineAndTrampoline(
-  crossinline block: (Frames<T>, SplitCont<*>, CoroutineContext) -> Any?
+private suspend inline fun <T> suspendCoroutineHere(
+  crossinline block: (Frames<T>, SplitCont<*>) -> Any?
 ): T = suspendCoroutineUninterceptedOrReturn {
   collectStack(it) { stack, stackRest ->
-    val realContext = stackRest.realContext
-    val trampoline = realContext.trampoline
-    stack.handleTrampolining(runCatching { block(stack, stackRest, realContext) }, trampoline)
+    try {
+      block(stack, stackRest)
+    } catch (_: SuspendedException) {
+      COROUTINE_SUSPENDED
+    }
   }
 }
