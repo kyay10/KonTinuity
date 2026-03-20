@@ -15,17 +15,16 @@ public actual typealias StackTraceElement = java.lang.StackTraceElement
 
 public actual typealias CoroutineStackFrame = CoroutineStackFrame
 
-internal actual const val SUPPORTS_MULTISHOT = true
-
-internal actual val Continuation<*>.completion: Continuation<*>?
-  get() = CloningUtils.getParentContinuation(this)
+@Suppress("UNCHECKED_CAST")
+internal actual val <N> Frames<*, N>.completion: Stack<N>?
+  get() = CloningUtils.getParentContinuation(frames)?.let { Stack(it as Continuation<N>) }
 
 private val UNSAFE = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null) as Unsafe
 
 private val cache = hashMapOf<Class<*>, Array<java.lang.reflect.Field>>()
 
 private tailrec fun <T> copyDeclaredFields(
-  obj: T, copy: T, clazz: Class<out T>
+  from: T, to: T, clazz: Class<out T>
 ) {
   val fields = cache.getOrPut(clazz) {
     clazz.declaredFields.also { fields -> fields.forEach { it.isAccessible = true } }
@@ -35,30 +34,30 @@ private tailrec fun <T> copyDeclaredFields(
     if (Modifier.isStatic(field.modifiers)) continue
     // TODO check if optimizing based on type is useful
     when (field.type) {
-      Int::class.java -> field.setInt(copy, field.getInt(obj))
+      Int::class.java -> field.setInt(to, field.getInt(from))
       else -> {
-        val v = field.get(obj)
+        val v = field.get(from)
         // Sometimes generated continuations contain references to themselves
         // hence we need to change that immediate reference (or else we run into memory leaks)
-        field.set(copy, if (v === obj) copy else v)
+        field.set(to, if (v === from) to else v)
       }
     }
   }
   if (CloningUtils.isContinuationBaseClass(clazz)) return
-  copyDeclaredFields(obj, copy, clazz.superclass ?: return)
+  copyDeclaredFields(from, to, clazz.superclass ?: return)
 }
 
-internal actual fun <T> Continuation<T>.invokeCopied(
-  completion: Continuation<*>,
-  context: CoroutineContext,
-  result: Result<T>,
-): Any? {
-  @Suppress("UNCHECKED_CAST")
-  val copy =
-    if (this is MultishotContinuation) this.copy(completion, context)
-    else (UNSAFE.allocateInstance(javaClass) as Continuation<T>).apply {
-      CloningUtils.initialize(this, completion, context)
-      copyDeclaredFields(this@invokeCopied, this, javaClass)
-    }
-  return CloningUtils.invokeSuspend(copy, result.getOrElse { CloningUtils.createFailure(it) })
-}
+@Suppress("UNCHECKED_CAST")
+private fun <S, N> Frames<S, N>.copy(completion: Stack<N>, context: SplitCont<*>): Continuation<S> =
+  if (frames is MultishotContinuation) frames.copy(completion.frames, context)
+  else (UNSAFE.allocateInstance(javaClass) as Continuation<S>).apply {
+    copyDeclaredFields(frames, this, javaClass)
+    CloningUtils.initialize(this, completion.frames, context)
+  }
+
+@Suppress("UNCHECKED_CAST")
+internal actual fun <S, N> Frames<S, N>.invokeCopied(
+  completion: Stack<N>,
+  context: SplitCont<*>,
+  result: Result<S>
+): N = CloningUtils.invokeSuspend(copy(completion, context), result.getOrElse { CloningUtils.createFailure(it) }) as N

@@ -15,7 +15,7 @@ class MonadTest {
     }
   }
 
-  suspend fun <S, A, B> Prompt<State<S, A>>.bind(state: State<S, B>): B = shift { k -> state.flatMap { k(it) } }
+  suspend fun <S, A, B> Prompt<State<S, A>>.bind(state: State<S, B>): B = shiftOnce { k -> state.flatMap { k(it) } }
 
   suspend fun <S, R> stateReset(body: suspend Prompt<State<S, R>>.() -> R): State<S, R> =
     newReset { State.of(body(this)) }
@@ -55,7 +55,7 @@ class MonadTest {
     }
   }
 
-  suspend fun <R, A, B> Prompt<Reader<R, A>>.bind(reader: Reader<R, B>): B = shift { k -> reader.flatMap { k(it) } }
+  suspend fun <R, A, B> Prompt<Reader<R, A>>.bind(reader: Reader<R, B>): B = shiftOnce { k -> reader.flatMap { k(it) } }
 
   suspend fun <R, A> readerReset(body: suspend Prompt<Reader<R, A>>.() -> A): Reader<R, A> =
     newReset { Reader.of(body(this)) }

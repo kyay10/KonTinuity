@@ -31,12 +31,12 @@ class RevStateTest {
 
 typealias RevState<S, R> = Prompt<Pair<suspend () -> S, R>>
 
-suspend fun <S, R> RevState<S, R>.modify(f: suspend (S) -> S) = shift {
+suspend fun <S, R> RevState<S, R>.modify(f: suspend (S) -> S) = shiftOnce {
   val (s, r) = it(Unit)
   suspend { f(s()) } to r
 }
 
-suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = shift {
+suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = shiftOnce {
   val channel = Channel<suspend () -> S>()
   it(suspend {
     channel.receive()()
@@ -45,12 +45,12 @@ suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = shift {
   }
 }
 
-suspend fun <S, R> RevState<S, R>.set(value: S): Unit = shift {
+suspend fun <S, R> RevState<S, R>.set(value: S): Unit = shiftOnce {
   val (_, r) = it(Unit)
   suspend { value } to r
 }
 
-suspend fun <S, R> RevState<S, R>.setLazy(value: suspend () -> S): Unit = shift {
+suspend fun <S, R> RevState<S, R>.setLazy(value: suspend () -> S): Unit = shiftOnce {
   val (_, r) = it(Unit)
   value to r
 }

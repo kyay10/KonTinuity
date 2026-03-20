@@ -4,18 +4,19 @@ import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
-import org.jetbrains.org.objectweb.asm.*
-import org.jetbrains.org.objectweb.asm.Opcodes.ACC_PUBLIC
-import org.jetbrains.org.objectweb.asm.Opcodes.ACC_SYNTHETIC
+import org.jetbrains.org.objectweb.asm.ClassReader
+import org.jetbrains.org.objectweb.asm.ClassVisitor
+import org.jetbrains.org.objectweb.asm.ClassWriter
+import org.jetbrains.org.objectweb.asm.Opcodes.*
+import org.jetbrains.org.objectweb.asm.Type
 import org.jetbrains.org.objectweb.asm.tree.ClassNode
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 
-
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
   id("module.publication")
-  id("org.jetbrains.kotlinx.benchmark") version "0.4.14"
+  id("org.jetbrains.kotlinx.benchmark") version "0.4.16"
 }
 
 repositories {
@@ -38,11 +39,7 @@ kotlin {
   }
   explicitApi()
   // Matching the targets from Arrow
-  jvm {
-    compilations.create("benchmark") {
-      associateWith(this@jvm.compilations.getByName("test"))
-    }
-  }
+  jvm()
   jvmToolchain(25)
   js(IR) {
     compilerOptions {
@@ -105,15 +102,32 @@ kotlin {
         implementation(kotlincrypto.hash.md)
       }
     }
+    val multishotMain by creating { dependsOn(commonMain.get()) }
+    val multishotTest by creating { dependsOn(commonTest.get()) }
 
     val nonJvmMain by creating { dependsOn(commonMain.get()) }
     val nonJvmTest by creating { dependsOn(commonTest.get()) }
 
-    nativeMain { dependsOn(nonJvmMain) }
+    val nonMultishotMain by creating { dependsOn(nonJvmMain) }
+
+    jvmMain { dependsOn(multishotMain) }
+    jvmTest { dependsOn(multishotTest) }
+
+    nativeMain { dependsOn(nonMultishotMain) }
     nativeTest { dependsOn(nonJvmTest) }
-    jsMain { dependsOn(nonJvmMain) }
-    jsTest { dependsOn(nonJvmTest) }
-    wasmJsMain { dependsOn(nonJvmMain) }
+    jsMain {
+      dependsOn(nonJvmMain)
+      dependsOn(multishotMain)
+      dependencies {
+        implementation(kotlinWrappers.js)
+        implementation(kotlinWrappers.jsCore)
+      }
+    }
+    jsTest {
+      dependsOn(nonJvmTest)
+      dependsOn(multishotTest)
+    }
+    wasmJsMain { dependsOn(nonMultishotMain) }
     wasmJsTest { dependsOn(nonJvmTest) }
   }
 }
@@ -125,7 +139,7 @@ tasks.withType<Test> {
     "-Xmx4096m",
     "-Xms4096m",
     "-XX:+AlwaysPreTouch",
-    "-XX:+UseParallelGC"
+    "-XX:+UseParallelGC",
   )
 }
 
@@ -138,11 +152,35 @@ publishing {
     }
   }
 }
+
 benchmark {
   targets {
-    register("jvmBenchmark") {
+    register("jvmTest") {
       this as JvmBenchmarkTarget
       jmhVersion = "1.37"
+    }
+    register("jsTest")
+    register("wasmJsTest")
+    register("macosArm64Test")
+  }
+  configurations {
+    register("skynet") {
+      include(".*Skynet.*")
+      mode = "AverageTime"
+      warmups = 10
+      iterations = 10
+      iterationTime = 1
+      iterationTimeUnit = TimeUnit.SECONDS.name
+      outputTimeUnit = TimeUnit.MILLISECONDS.name
+    }
+    register("sharing") {
+      include(".*Sharing.*")
+      mode = "AverageTime"
+      warmups = 10
+      iterations = 10
+      iterationTime = 1
+      iterationTimeUnit = TimeUnit.SECONDS.name
+      outputTimeUnit = TimeUnit.MILLISECONDS.name
     }
   }
 }
@@ -159,38 +197,34 @@ tasks.withType<KotlinJvmCompile>().configureEach {
 }
 
 object MultishotTransform {
-  private val lambdaClasses = setOf(
-    "kotlin/coroutines/jvm/internal/SuspendLambda", "kotlin/coroutines/jvm/internal/RestrictedSuspendLambda"
-  )
-  private val continuationImplName = "kotlin/coroutines/jvm/internal/ContinuationImpl"
-  private val continuationClasses = setOf(
-    continuationImplName, "kotlin/coroutines/jvm/internal/BaseContinuationImpl"
-  ) + lambdaClasses
+  private const val COROUTINES_PKG = "kotlin/coroutines/jvm/internal"
+  private const val CONTINUATION_IMPL = "$COROUTINES_PKG/ContinuationImpl"
+  private val lambdaClasses = setOf("$COROUTINES_PKG/SuspendLambda", "$COROUTINES_PKG/RestrictedSuspendLambda")
+  private val continuationClasses = setOf(CONTINUATION_IMPL, "$COROUTINES_PKG/BaseContinuationImpl") + lambdaClasses
 
-  private val copyDescriptor =
-    Type.getMethodDescriptor(
-      Type.getType(Continuation::class.java),
-      Type.getType(Continuation::class.java),
-      Type.getType(CoroutineContext::class.java)
-    )
-  val continuationImplConstructor =
-    Type.getMethodDescriptor(
-      Type.VOID_TYPE,
-      Type.getType(Continuation::class.java),
-      Type.getType(CoroutineContext::class.java)
-    )
+  private val copyDescriptor = Type.getMethodDescriptor(
+    Type.getType(Continuation::class.java),
+    Type.getType(Continuation::class.java),
+    Type.getType(CoroutineContext::class.java)
+  )
+
+  private val continuationImplConstructor: String = Type.getMethodDescriptor(
+    Type.VOID_TYPE,
+    Type.getType(Continuation::class.java),
+    Type.getType(CoroutineContext::class.java)
+  )
 
   fun transform(bytes: ByteArray): ByteArray? {
     val classNode = ClassNode()
     val classReader = ClassReader(bytes).apply { accept(classNode, 0) }
     if (classNode.superName !in continuationClasses) return null
-    if (classNode.methods.any { it.name == "invokeSuspend$\$forInline" }) return null
+    if (classNode.methods.any { it.name == $$$"invokeSuspend$$forInline" }) return null
     val constructor = classNode.methods.single { it.name == "<init>" }
-    val fields = classNode.fields
+    val fields = classNode.fields.filter { it.access and ACC_STATIC == 0 }
 
     val classWriter = ClassWriter(classReader, 0)
 
-    val visitor = object : ClassVisitor(Opcodes.ASM5, classWriter) {
+    val visitor = object : ClassVisitor(ASM5, classWriter) {
       override fun visit(
         version: Int,
         access: Int,
@@ -228,69 +262,47 @@ object MultishotTransform {
           visitCode()
           // copy fields from this to created instance
           for (field in fields) {
-            visitVarInsn(Opcodes.ALOAD, 0)
-            visitVarInsn(Opcodes.ALOAD, 1)
-            visitFieldInsn(
-              Opcodes.GETFIELD,
-              classNode.name,
-              field.name,
-              field.desc
-            )
-            visitFieldInsn(
-              Opcodes.PUTFIELD,
-              classNode.name,
-              field.name,
-              field.desc
-            )
+            visitVarInsn(ALOAD, 0)
+            visitVarInsn(ALOAD, 1)
+            visitFieldInsn(GETFIELD, classNode.name, field.name, field.desc)
+            visitFieldInsn(PUTFIELD, classNode.name, field.name, field.desc)
           }
-          visitVarInsn(Opcodes.ALOAD, 0)
+          visitVarInsn(ALOAD, 0)
           val (superCallIndex, superCall) = constructor.instructions.withIndex()
-            .first { it.value.opcode == Opcodes.INVOKESPECIAL }
+            .first { it.value.opcode == INVOKESPECIAL }
           if (classNode.superName in lambdaClasses) {
             // find arity from super constructor call
             val arityInsn = constructor.instructions[superCallIndex - 2]
             arityInsn.clone(null).accept(this)
           }
           // load completion
-          visitVarInsn(Opcodes.ALOAD, 2)
-          if (classNode.superName == continuationImplName) {
+          visitVarInsn(ALOAD, 2)
+          if (classNode.superName == CONTINUATION_IMPL) {
             // load context
-            visitVarInsn(Opcodes.ALOAD, 3)
-            visitMethodInsn(
-              Opcodes.INVOKESPECIAL,
-              continuationImplName,
-              "<init>",
-              continuationImplConstructor,
-              false
-            )
+            visitVarInsn(ALOAD, 3)
+            visitMethodInsn(INVOKESPECIAL, CONTINUATION_IMPL, "<init>", continuationImplConstructor, false)
           } else {
             // call super constructor
             superCall.clone(null).accept(this)
           }
-          visitInsn(Opcodes.RETURN)
+          visitInsn(RETURN)
           // this and 3 arguments. Either for a field value (might be 2-long if double or long) or arity + completion
           visitMaxs(3, 4)
           visitEnd()
         }
         // add copy method
-        visitMethod(ACC_PUBLIC or ACC_SYNTHETIC, "copy", copyDescriptor, null, null).apply {
+        visitMethod(ACC_PUBLIC or ACC_SYNTHETIC or ACC_FINAL, "copy", copyDescriptor, null, null).apply {
           visitParameter("completion", 0)
           visitCode()
           // create new instance of this class
-          visitTypeInsn(Opcodes.NEW, classNode.name)
-          visitInsn(Opcodes.DUP)
+          visitTypeInsn(NEW, classNode.name)
+          visitInsn(DUP)
           // Call copy constructor
-          visitVarInsn(Opcodes.ALOAD, 0)
-          visitVarInsn(Opcodes.ALOAD, 1)
-          visitVarInsn(Opcodes.ALOAD, 2)
-          visitMethodInsn(
-            Opcodes.INVOKESPECIAL,
-            classNode.name,
-            "<init>",
-            copyConstructorDescriptor,
-            false
-          )
-          visitInsn(Opcodes.ARETURN)
+          visitVarInsn(ALOAD, 0)
+          visitVarInsn(ALOAD, 1)
+          visitVarInsn(ALOAD, 2)
+          visitMethodInsn(INVOKESPECIAL, classNode.name, "<init>", copyConstructorDescriptor, false)
+          visitInsn(ARETURN)
           visitMaxs(5, 3)
           visitEnd()
         }

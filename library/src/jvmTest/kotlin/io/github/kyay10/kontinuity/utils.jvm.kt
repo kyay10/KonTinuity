@@ -9,8 +9,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.startCoroutine
 
-actual annotation class RequiresMultishot
-
 /**
  * Wrapper for `suspend fun main` and `@Test suspend fun testXXX` functions.
  */

@@ -1,9 +1,7 @@
 package io.github.kyay10.kontinuity.effekt.higherorder
 
-import io.github.kyay10.kontinuity.RequiresMultishot
 import io.github.kyay10.kontinuity.effekt.StatefulHandler
 import io.github.kyay10.kontinuity.effekt.StatefulPrompt
-import io.github.kyay10.kontinuity.effekt.collect
 import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -19,25 +17,6 @@ class WriterTest {
       }.first shouldBe 2
       tell(3)
     }.first shouldBe 6
-  }
-
-  @Test
-  @RequiresMultishot
-  fun withNonDetTest() = runTestCC {
-    runWriter(0, Int::plus) {
-      collect {
-        listen {
-          tell(1)
-          if (flip()) {
-            tell(2)
-            true
-          } else {
-            tell(3)
-            false
-          }
-        }
-      }
-    } shouldBe (6 to listOf(3 to true, 4 to false))
   }
 }
 

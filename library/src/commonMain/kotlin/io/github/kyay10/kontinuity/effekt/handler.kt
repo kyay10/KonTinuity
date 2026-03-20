@@ -11,20 +11,8 @@ public interface StatefulHandler<E, S> : Handler<E> {
 }
 
 @ResetDsl
-public suspend inline fun <A, E> Handler<E>.use(crossinline body: suspend (SubCont<A, E>) -> E): A =
-  prompt.shift(body)
-
-@ResetDsl
-public suspend inline fun <A, E> Handler<E>.useOnce(crossinline body: suspend (SubCont<A, E>) -> E): A =
+public suspend inline fun <A, E> Handler<E>.useOnce(crossinline body: suspend (SubContFinal<A, E>) -> E): A =
   prompt.shiftOnce(body)
-
-@ResetDsl
-public suspend inline fun <A, R> Handler<R>.useTailResumptive(crossinline body: suspend (SubCont<A, R>) -> A): A =
-  prompt.inHandlingContext(body)
-
-@ResetDsl
-public suspend inline fun <A, E> Handler<E>.useWithFinal(crossinline body: suspend (SubCont<A, E>, SubCont<A, E>) -> E): A =
-  prompt.shiftWithFinal(body)
 
 @ResetDsl
 public fun <E> Handler<E>.discard(body: suspend () -> E): Nothing = prompt.abortS(body)

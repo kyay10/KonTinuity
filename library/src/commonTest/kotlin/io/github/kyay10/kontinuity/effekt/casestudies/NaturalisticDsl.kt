@@ -1,7 +1,7 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
 import io.github.kyay10.kontinuity.effekt.handleStateful
-import io.github.kyay10.kontinuity.effekt.use
+import io.github.kyay10.kontinuity.effekt.useOnce
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.reflect.KProperty
@@ -74,7 +74,7 @@ suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence {
   data class Data(var i: Int)
   return handleStateful(Data(0), Data::copy) {
     s { who ->
-      use { resume ->
+      useOnce { resume ->
         val x = Person("x${value.i++}")
         ForAll(x, Implies(Is(x, who), resume(x)))
       }

@@ -9,15 +9,15 @@ import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmField
 
 @PublishedApi
-internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: Frames<T>, context: CoroutineContext): Unit =
-  with(context.trampoline) {
+internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: Stack<T>, trampoline: Trampoline): Unit =
+  with(trampoline) {
     nextFrames = seq.frames
     nextBody = this@startCoroutineIntercepted
   }
 
 @PublishedApi
-internal fun <Start> Frames<Start>.resumeWithIntercepted(result: Result<Start>, context: CoroutineContext) {
-  if (result.exceptionOrNull() !== SuspendedException) with(context.trampoline) {
+internal fun <Start> Stack<Start>.resumeWithIntercepted(result: Result<Start>, trampoline: Trampoline) {
+  if (result.exceptionOrNull() !== SuspendedException) with(trampoline) {
     nextFrames = this@resumeWithIntercepted.frames
     nextBody = null
     nextResult = result
@@ -25,19 +25,14 @@ internal fun <Start> Frames<Start>.resumeWithIntercepted(result: Result<Start>, 
 }
 
 @OptIn(InternalCoroutinesApi::class)
-internal fun CoroutineContext.makeTrampoline(): Trampoline {
-  val interceptor = this[ContinuationInterceptor].let {
-    if (it is Trampoline) it.interceptor else it
+internal class Trampoline(
+  context: CoroutineContext,
+  interceptor: Interceptor = context[ContinuationInterceptor].let { if (it is Interceptor) it.interceptor else it }
+    .let { if (it is Delay) InterceptorWithDelay(it, it) else Interceptor(it) },
+) : CoroutineContext by (context + interceptor) {
+  init {
+    interceptor.trampoline = this
   }
-  return if (interceptor is Delay) TrampolineWithDelay(interceptor, interceptor) else Trampoline(interceptor)
-}
-
-@InternalCoroutinesApi
-private class TrampolineWithDelay(interceptor: ContinuationInterceptor?, delay: Delay) :
-  Trampoline(interceptor), Delay by delay
-
-internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
-  AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
 
   lateinit var emptyCont: EmptyCont<*>
 
@@ -50,30 +45,40 @@ internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
   @JvmField
   var nextResult: Result<Any?> = Result.success(null)
 
-  override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> =
-    TrampolineContinuation(continuation).let {
-      interceptor?.interceptContinuation(it) ?: it
-    }
+  @InternalCoroutinesApi
+  private class InterceptorWithDelay(
+    interceptor: ContinuationInterceptor?,
+    delay: Delay,
+  ) : Interceptor(interceptor), Delay by delay
 
-  override fun releaseInterceptedContinuation(continuation: Continuation<*>) = onErrorResume {
-    interceptor?.releaseInterceptedContinuation(continuation)
+  @PublishedApi
+  internal open class Interceptor(val interceptor: ContinuationInterceptor?) :
+    AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
+    lateinit var trampoline: Trampoline
+
+    override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> =
+      trampoline.Cont(continuation).let { interceptor?.interceptContinuation(it) ?: it }
+
+    override fun releaseInterceptedContinuation(continuation: Continuation<*>) = onErrorResume {
+      interceptor?.releaseInterceptedContinuation(continuation)
+    }
   }
 
   internal fun resumeWithException(exception: Throwable) = emptyCont.resumeWithException(exception)
 
-  private inner class TrampolineContinuation<T>(val cont: Continuation<T>) : Continuation<T> {
+  inner class Cont<T>(val cont: Continuation<T>) : Continuation<T> {
     override val context: CoroutineContext = cont.context
 
-    override fun resumeWith(result: Result<T>) {
+    override fun resumeWith(result: Result<T>) = with(this@Trampoline) {
       cont.resumeWith(result)
       while (true) onErrorResume {
         @Suppress("UNCHECKED_CAST")
         val nextFrames = (nextFrames ?: break) as Continuation<Any?>
-        this@Trampoline.nextFrames = null
-        val nextBody = this@Trampoline.nextBody
+        this.nextFrames = null
+        val nextBody = this.nextBody
         val result =
           if (nextBody != null) runCatching({ nextBody.startCoroutineUninterceptedOrReturn(nextFrames) }) { continue } else nextResult
-        Frames(nextFrames).resumeWith(result)
+        nextFrames.resumeWith(result)
       }
     }
   }
@@ -82,7 +87,7 @@ internal open class Trampoline(val interceptor: ContinuationInterceptor?) :
 @PublishedApi
 internal val CoroutineContext.trampoline: Trampoline
   get() =
-    this[ContinuationInterceptor] as? Trampoline ?: error("No trampoline in context: $this")
+    (this[ContinuationInterceptor] as? Trampoline.Interceptor ?: error("No trampoline in context: $this")).trampoline
 
 @PublishedApi
 internal fun CoroutineContext.resumeCCWithException(exception: Throwable) {

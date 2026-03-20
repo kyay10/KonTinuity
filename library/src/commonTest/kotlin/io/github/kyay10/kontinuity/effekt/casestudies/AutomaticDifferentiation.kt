@@ -2,7 +2,7 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.autoCloseScope
 import io.github.kyay10.kontinuity.effekt.handle
-import io.github.kyay10.kontinuity.effekt.use
+import io.github.kyay10.kontinuity.effekt.useOnce
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -129,14 +129,14 @@ suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double 
   handle {
     val res = object : AD<NumB> {
       override val Double.num: NumB get() = NumB(this, 0.0)
-      override suspend fun NumB.plus(other: NumB) = use { resume ->
+      override suspend fun NumB.plus(other: NumB) = useOnce { resume ->
         val z = NumB(value + other.value, 0.0)
         resume(z)
         d += z.d
         other.d += z.d
       }
 
-      override suspend fun NumB.times(other: NumB) = use { resume ->
+      override suspend fun NumB.times(other: NumB) = useOnce { resume ->
         val z = NumB(value * other.value, 0.0)
         resume(z)
         d += other.value * z.d
@@ -144,7 +144,7 @@ suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double 
 
       }
 
-      override suspend fun exp(x: NumB) = use { resume ->
+      override suspend fun exp(x: NumB) = useOnce { resume ->
         val xExp = mathExp(x.value)
         val z = NumB(xExp, 0.0)
         resume(z)

@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
-import io.github.kyay10.kontinuity.RequiresMultishot
-import io.github.kyay10.kontinuity.SubCont
+import io.github.kyay10.kontinuity.SubContFinal
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -11,15 +10,6 @@ class GeneratorTest {
     var i = 0
     while (i <= to) {
       yield(i++)
-    }
-  }
-
-  context(amb: Amb)
-  suspend fun Generator<Int>.numbersFlip(to: Int) {
-    var i = 0
-    while (i <= to) {
-      yield(if (amb.flip()) i else -i)
-      i++
     }
   }
 
@@ -33,40 +23,6 @@ class GeneratorTest {
         add(i)
       }
     } shouldBe (0..10).toList()
-  }
-
-  @Test
-  @RequiresMultishot
-  fun flipCount() = runTestCC {
-    ambList {
-      val intsIterator = effectfulIterable {
-        numbers(10)
-      }.iterator()
-      intsIterator.next() shouldBe 0
-      intsIterator.next() shouldBe 1
-      if (flip()) {
-        intsIterator.next() shouldBe 2
-        intsIterator.next() shouldBe 3
-      } else {
-        // since `intsIterator` is mutated outside of the scope of the ambient handler state.
-        intsIterator.next() shouldBe 4
-      }
-    }.size shouldBe 2
-  }
-
-  @Test
-  @RequiresMultishot
-  fun flipCountInside() = runTestCC {
-    buildList {
-      ambList {
-        val ints = effectfulIterable {
-          numbersFlip(2)
-        }
-        for (i in ints) {
-          add(i)
-        }
-      }.size shouldBe 8
-    } shouldBe listOf(0, 1, 2, 1, -2, 0, -1, 2, -1, -2, 0, 1, 2, 1, -2, 0, -1, 2, -1, -2)
   }
 }
 
@@ -107,7 +63,7 @@ class EffectfulIteratorImpl<A>(var current: EffectfulIteratorStep<A>) : Effectfu
 }
 
 sealed interface EffectfulIteratorStep<out A> {
-  data class Value<A>(val value: A, val next: SubCont<Unit, EffectfulIteratorStep<A>>) : EffectfulIteratorStep<A>
+  data class Value<A>(val value: A, val next: SubContFinal<Unit, EffectfulIteratorStep<A>>) : EffectfulIteratorStep<A>
   object Done : EffectfulIteratorStep<Nothing>
 }
 
@@ -119,7 +75,7 @@ fun interface Generator<A> {
 
 class Iterate<A>(prompt: HandlerPrompt<EffectfulIteratorStep<A>>) : Handler<EffectfulIteratorStep<A>> by prompt,
   Generator<A> {
-  override suspend fun yield(value: A): Unit = use {
+  override suspend fun yield(value: A): Unit = useOnce {
     EffectfulIteratorStep.Value(value, it)
   }
 }

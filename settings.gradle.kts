@@ -1,3 +1,5 @@
+@file:Suppress("UnstableApiUsage")
+
 pluginManagement {
   includeBuild("convention-plugins")
   repositories {
@@ -23,6 +25,9 @@ dependencyResolutionManagement {
     create("kotlincrypto") {
       // https://github.com/KotlinCrypto/version-catalog/blob/master/gradle/kotlincrypto.versions.toml
       from("org.kotlincrypto:version-catalog:0.7.0")
+    }
+    create("kotlinWrappers") {
+      from("org.jetbrains.kotlin-wrappers:kotlin-wrappers-catalog:2026.3.13")
     }
   }
 }

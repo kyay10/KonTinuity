@@ -4,7 +4,9 @@ import arrow.core.raise.Raise
 import arrow.core.raise.ensure
 import arrow.core.raise.recover
 import io.github.kyay10.kontinuity.Stateful
+import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.handleStateful
+import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -80,14 +82,13 @@ data class LexerError(val msg: String, val pos: Position)
 
 val dummyPosition = Position(0, 0, 0)
 
-suspend fun <R> Raise<LexerError>.lexerFromList(l: List<Token>, block: suspend Lexer.() -> R): R {
-  data class Data(var index: Int)
-  return handleStateful(Data(0), Data::copy) {
-    object : Lexer {
-      override suspend fun peek(): Token? = l.getOrNull(value.index)
+suspend fun <R> Raise<LexerError>.lexerFromList(l: List<Token>, block: suspend context(Lexer) () -> R) = runState(0) {
+  handle {
+    block(object : Lexer {
+      override suspend fun peek(): Token? = l.getOrNull(value)
       override suspend fun next(): Token =
-        l.getOrNull(value.index++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
-    }.block()
+        l.getOrNull(value++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
+    })
   }
 }
 
@@ -102,7 +103,7 @@ private val tokenDescriptors = mapOf(
   TokenKind.Space to "^[ \t\n]+".toRegex()
 )
 
-suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend Lexer.() -> R): R {
+suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend context(Lexer) () -> R): R {
   data class Data(var index: Int, var col: Int, var line: Int) : Stateful<Data> {
     fun toPosition() = Position(line, col, index)
     fun consume(text: String) {
@@ -117,40 +118,38 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend Lexer.() -
   }
 
   return handleStateful(Data(index = 0, col = 1, line = 1)) {
-    object : Lexer {
-      private fun eos(): Boolean = value.index >= input.length
-      private fun tryMatch(regex: Regex, tokenKind: TokenKind): Token? =
+    block(object : Lexer {
+      override suspend fun peek(): Token? = tokenDescriptors.firstNotNullOfOrNull { (kind, regex) ->
         regex.find(input.substring(value.index))?.let {
-          Token(tokenKind, it.value, value.toPosition())
+          Token(kind, it.value, value.toPosition())
         }
+      }
 
-      private fun tryMatchAll(map: Map<TokenKind, Regex>): Token? =
-        map.firstNotNullOfOrNull { (kind, regex) -> tryMatch(regex, kind) }
-
-      override suspend fun peek(): Token? = tryMatchAll(tokenDescriptors)
       override suspend fun next(): Token {
         val position = value.toPosition()
-        ensure(!eos()) { LexerError("Unexpected EOS", position) }
+        ensure(value.index < input.length) { LexerError("Unexpected EOS", position) }
         val tok = peek() ?: raise(LexerError("Cannot tokenize input", position))
         value.consume(tok.text)
         return tok
       }
-    }.block()
+    })
   }
 }
 
-suspend fun Lexer.skipSpaces() {
+context(_: Lexer)
+suspend fun skipSpaces() {
   while (peek()?.kind == TokenKind.Space) next()
 }
 
-suspend fun <R> Lexer.skipWhitespace(block: suspend Lexer.() -> R): R = object : Lexer {
-  override suspend fun next(): Token = with(this@skipWhitespace) {
+context(outer: Lexer)
+suspend fun <R> skipWhitespace(block: suspend Lexer.() -> R): R = block(object : Lexer {
+  override suspend fun next(): Token = with(outer) {
     skipSpaces()
-    return next()
+    next()
   }
 
-  override suspend fun peek(): Token? = with(this@skipWhitespace) {
+  override suspend fun peek(): Token? = with(outer) {
     skipSpaces()
-    return peek()
+    peek()
   }
-}.block()
+})
