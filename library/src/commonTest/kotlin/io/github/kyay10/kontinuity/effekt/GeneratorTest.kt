@@ -1,17 +1,13 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.SubContFinal
+import io.github.kyay10.kontinuity.repeatIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class GeneratorTest {
-  suspend fun Generator<Int>.numbers(to: Int) {
-    var i = 0
-    while (i <= to) {
-      yield(i++)
-    }
-  }
+  suspend fun Generator<Int>.numbers(to: Int) = repeatIteratorless(to + 1) { yield(it) }
 
   @Test
   fun countTo10() = runTestCC {

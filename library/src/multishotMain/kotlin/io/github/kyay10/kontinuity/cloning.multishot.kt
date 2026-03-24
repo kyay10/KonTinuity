@@ -1,7 +1,7 @@
 package io.github.kyay10.kontinuity
 
 import io.github.kyay10.kontinuity.Frames.Under
-import io.github.kyay10.kontinuity.ReaderT.ForkOnFirstRead
+import io.github.kyay10.kontinuity.ReaderCont.ForkOnFirstRead
 import io.github.kyay10.kontinuity.Segment.Companion.invalidateAndCollectValues
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
@@ -62,7 +62,7 @@ internal class Copied<Start>(frames: Stack<Start>, @JvmField val rest: SplitCont
           return underflow.resumeCopied(param, Copied(underflow, rest), rest)
         }
 
-        is ReaderT<Start, *> -> {
+        is ReaderCont<Start, *> -> {
           next.frames = Stack(CompletedContinuation)
           val underflow = frames.underflow()
           val rest = frames.rest
@@ -70,7 +70,7 @@ internal class Copied<Start>(frames: Stack<Start>, @JvmField val rest: SplitCont
         }
       }
       val completion = completion?.unwrapCopied ?: error("$NOT_A_COMPILER_CONTINUATION$this")
-      if (completion.frames is Prompt) { // completion.frames === rest seems to always hold
+      if (completion.frames is PromptCont) { // completion.frames === rest seems to always hold
         next.frames = Stack(CompletedContinuation)
         val outcome = runCatching({ invokeCopied(completion, completion.frames, param) }) { return }
         // inlined version of completion.resumeWith(outcome)
@@ -96,7 +96,7 @@ internal class Copied<Start>(frames: Stack<Start>, @JvmField val rest: SplitCont
 
 @PublishedApi
 internal actual class Segment<Start, End> actual constructor(
-  private val delimiter: Prompt<End>,
+  private val delimiter: PromptCont<End>,
   private val start: Stack<Start>,
   @JvmField val startRest: Marker<*>,
 ) : SplitContOrSegment {
@@ -138,14 +138,14 @@ internal actual class Segment<Start, End> actual constructor(
 }
 
 private inline fun Marker<*>.findSegment(
-  onReader: (current: Reader<*>) -> Unit = {},
-  onPrompt: (current: Prompt<*>, rest: SplitCont<*>) -> Unit = { _, _ -> },
+  onReader: (current: ReaderCont<*, *>) -> Unit = {},
+  onPrompt: (current: PromptCont<*>, rest: SplitCont<*>) -> Unit = { _, _ -> },
 ): Segment<*, *>? {
   var current: Marker<*> = this
   while (true) {
     current = when (current) {
-      is Reader<*> -> current.rest.also { onReader(current) }
-      is Prompt -> current.rest.ifSegment { return it }.also { onPrompt(current, it) }
+      is ReaderCont<*, *> -> current.rest.also { onReader(current) }
+      is PromptCont -> current.rest.ifSegment { return it }.also { onPrompt(current, it) }
     }.errorIfEmptyCont()
   }
 }
@@ -167,22 +167,27 @@ private fun Marker<*>.invalidate(): Array<Any?> {
   return buf
 }
 
-private fun <Start> Prompt<Start>.invalidateFrames(rest: SplitCont<*>) = frames.also { frames = it.copy(rest) }
+private fun <Start> PromptCont<Start>.invalidateFrames(rest: SplitCont<*>) = frames.also { frames = it.copy(rest) }
 
 @Suppress("UNCHECKED_CAST")
-private fun <Start, S> ReaderT<Start, S>.invalidateState() = state.also { state = ForkOnFirstRead(it) as S }
+private fun <Start, S> ReaderCont<Start, S>.invalidateState() = state.also { state = ForkOnFirstRead(it) as S }
 
-private tailrec fun Marker<*>.revalidate(values: Array<Any?>, isFinal: Boolean, delimiter: Prompt<*>, index: Int = 0) {
+private tailrec fun Marker<*>.revalidate(
+  values: Array<Any?>,
+  isFinal: Boolean,
+  delimiter: PromptCont<*>,
+  index: Int = 0
+) {
   if (this === delimiter) return
   val newIndex: Int
   when (this) {
-    is Prompt -> {
+    is PromptCont -> {
       newIndex = index + 2
       revalidateSingle(values, isFinal, index)
       rest.ifSegment { error("$this$MODIFIED_CONCURRENTLY$it") }
     }
 
-    is Reader<*> -> {
+    is ReaderCont<*, *> -> {
       newIndex = index + 1
       revalidateSingle(values, isFinal, index)
       rest
@@ -191,7 +196,7 @@ private tailrec fun Marker<*>.revalidate(values: Array<Any?>, isFinal: Boolean, 
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun <Start> Prompt<Start>.revalidateSingle(arr: Array<out Any?>, isFinal: Boolean, index: Int) {
+private fun <Start> PromptCont<Start>.revalidateSingle(arr: Array<out Any?>, isFinal: Boolean, index: Int) {
   val frames = Stack(arr[index] as Continuation<Start>)
   val rest = arr[index + 1] as Marker<*>
   if (this.rest !== rest) {
@@ -202,7 +207,7 @@ private fun <Start> Prompt<Start>.revalidateSingle(arr: Array<out Any?>, isFinal
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun <Start, S> ReaderT<Start, S>.revalidateSingle(arr: Array<out Any?>, isFinal: Boolean, index: Int) {
+private fun <Start, S> ReaderCont<Start, S>.revalidateSingle(arr: Array<out Any?>, isFinal: Boolean, index: Int) {
   val state = arr[index] as S
   this.state = if (isFinal) state else ForkOnFirstRead(state) as S
 }

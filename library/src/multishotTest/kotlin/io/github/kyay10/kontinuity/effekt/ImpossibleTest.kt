@@ -142,10 +142,8 @@ private suspend fun modulus(f: suspend (Cantor) -> Int): Int = least { n ->
 
 private inline fun least(p: (Int) -> Boolean): Int {
   var n = 0
-  while (true) {
-    if (p(n)) return n
-    n++
-  }
+  while (!p(n)) n++
+  return n
 }
 
 private suspend fun eq(n: Int, a: Cantor, b: Cantor): Boolean {

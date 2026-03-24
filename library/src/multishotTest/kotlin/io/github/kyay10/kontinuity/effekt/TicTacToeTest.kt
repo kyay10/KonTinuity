@@ -4,7 +4,7 @@ import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.PersistentMap
-import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlin.test.Ignore
 import kotlin.test.Test
@@ -118,7 +118,7 @@ private fun maxCluster(board: Board, mark: Mark, loc: Location, move: Move): Pai
 // Initialize a new game with an empty board, all possible moves, and no winner.
 fun newGame(): Game {
   val moves = (0 until n).flatMap { x -> (0 until n).map { y -> Location(x, y) } }.toPersistentList()
-  return Game(winner = null, moves = moves, board = persistentMapOf())
+  return Game(winner = null, moves = moves, board = persistentHashMapOf())
 }
 
 // Generate a string representation of the board.
@@ -144,20 +144,19 @@ fun takeMove(player: Mark, loc: Location, game: Game): Game {
 
 typealias PlayerProc = suspend (Mark, Game) -> Pair<Int, Game>
 
+data class Winner(val player: Mark?)
+
+
 tailrec suspend fun game(
   player1Mark: Mark,
   player1: PlayerProc,
   player2Mark: Mark,
   player2: PlayerProc,
   game: Game = newGame()
-): Unit = when {
-  game.winner != null -> {
-    println("${game.winner.first} wins!")
-  }
+): Winner = when {
+  game.winner != null -> Winner(game.winner.second)
 
-  game.moves.isEmpty() -> {
-    println("Draw!")
-  }
+  game.moves.isEmpty() -> Winner(null)
 
   else -> {
     val (_, nextGame) = player1(player1Mark, game)

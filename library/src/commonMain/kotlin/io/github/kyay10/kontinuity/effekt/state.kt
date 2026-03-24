@@ -1,50 +1,50 @@
 package io.github.kyay10.kontinuity.effekt
 
-import arrow.core.None
-import arrow.core.Option
-import arrow.core.Some
-import arrow.core.getOrElse
-import io.github.kyay10.kontinuity.*
-import kotlinx.collections.immutable.PersistentMap
-import kotlinx.collections.immutable.persistentMapOf
+import arrow.core.*
+import io.github.kyay10.kontinuity.runListBuilder
+import io.github.kyay10.kontinuity.runMapBuilder
 import kotlin.contracts.contract
+import kotlin.jvm.JvmName
 import kotlin.reflect.KProperty
 
-public interface StateScope {
+public interface Region {
   public fun <T> field(): OptionalField<T>
   public interface NonEmptyField
-  public interface Field<T> : NonEmptyField, OptionalField<T> {
+  public sealed interface Field<T> : NonEmptyField, OptionalField<T> {
     public var value: T
+    override fun set(value: T) {
+      this.value = value
+    }
   }
 
-  public interface OptionalField<T> {
+  public sealed interface OptionalField<T> {
     public fun getOrNone(): Option<T>
     public fun set(value: T)
   }
 }
 
-context(s: StateScope)
-public fun <T> field(init: T): StateScope.Field<T> {
+context(s: Region)
+public fun <T> field(init: T): Region.Field<T> {
   val field = s.field<T>()
   field.value = init
   return field.affirm()
 }
 
-context(s: StateScope)
-public fun <T> field(): StateScope.OptionalField<T> = s.field()
+context(s: Region)
+public fun <T> field(): Region.OptionalField<T> = s.field()
 
-public inline fun <T> StateScope.Field<T>.update(f: (T) -> T) {
+public inline fun <T> Region.Field<T>.update(f: (T) -> T) {
   value = f(value)
 }
 
 @Suppress("NOTHING_TO_INLINE")
-public inline operator fun <T> StateScope.Field<T>.getValue(
+public inline operator fun <T> Region.Field<T>.getValue(
   thisRef: Any?,
   property: KProperty<*>
 ): T = value
 
 @Suppress("NOTHING_TO_INLINE")
-public inline operator fun <T> StateScope.Field<T>.setValue(
+public inline operator fun <T> Region.Field<T>.setValue(
   thisRef: Any?,
   property: KProperty<*>,
   value: T
@@ -53,114 +53,81 @@ public inline operator fun <T> StateScope.Field<T>.setValue(
 }
 
 @get:Deprecated("", level = DeprecationLevel.HIDDEN)
-public var <T> StateScope.OptionalField<T>.value: T
+@get:JvmName("getValueUnsafe")
+@set:JvmName("setOptionalValue")
+public var <T> Region.OptionalField<T>.value: T
   get() = throw UnsupportedOperationException("Use getOrNone() to access optional field")
   set(value) {
-    contract { returns() implies (this@value is StateScope.NonEmptyField) }
+    contract { returns() implies (this@value is Region.NonEmptyField) }
     set(value)
   }
 
 @Suppress("UNCHECKED_CAST")
-public fun <F, T> F.affirm(): StateScope.Field<T> where F : StateScope.NonEmptyField, F : StateScope.OptionalField<T> =
-  this as StateScope.Field<T>
+private fun <F, T> F.affirm(): Region.Field<T> where F : Region.NonEmptyField, F : Region.OptionalField<T> =
+  this as Region.Field<T>
 
-public var <F, T> F.value: T where F : StateScope.NonEmptyField, F : StateScope.OptionalField<T>
+public var <F, T> F.value: T where F : Region.NonEmptyField, F : Region.OptionalField<T>
   get() = affirm().value
   set(value) = set(value)
 
-public inline fun <T> StateScope.OptionalField<T>.getOrPut(defaultValue: () -> T): T {
+public inline fun <T> Region.OptionalField<T>.getOrPut(defaultValue: () -> T): T {
   contract {
     callsInPlace(defaultValue, kotlin.contracts.InvocationKind.AT_MOST_ONCE)
-    returns() implies (this@getOrPut is StateScope.Field<T>)
+    returns() implies (this@getOrPut is Region.Field<T>)
   }
   return getOrNone().getOrElse { defaultValue().also { value = it } }
 }
 
-public suspend inline fun <R> region(crossinline body: suspend StateScope.() -> R): R = runMapBuilderNonPersistent {
-  body(MutableStateScope(MutableTypedMap(this)))
+public suspend inline fun <R> region(crossinline body: suspend Region.() -> R): R = runMapBuilder {
+  body(MutableRegion(this))
 }
 
-public suspend inline fun <R> persistentRegion(crossinline body: suspend StateScope.() -> R): R =
-  runState(PersistentTypedMap()) {
-    body(PersistentStateScope(this))
-  }
-
-public suspend inline fun <R> persistentFastRegion(crossinline body: suspend StateScope.() -> R): R = runMapBuilder {
-  body(MutableStateScope(MutableTypedMap(this)))
+public suspend inline fun <R> listRegion(crossinline body: suspend Region.() -> R): R = runListBuilder {
+  body(ListRegion(this))
 }
 
 @PublishedApi
-internal class MutableTypedMap(val map: MutableMap<Key<*>, Any?>) {
-  interface Key<T>
+internal class MutableRegion(private val map: MutableMap<Region.Field<*>, Any?>) : Region {
+  override fun <T> field(): Region.OptionalField<T> = FieldImpl()
+  private var index = 0
 
-  @Suppress("UNCHECKED_CAST")
-  operator fun <T> get(key: Key<T>): T = map.getValue(key) as T
-
-  @Suppress("UNCHECKED_CAST")
-  fun <T> getOrNone(key: Key<T>): Option<T> = map.getOrNone(key) as Option<T>
-
-  operator fun <T> set(key: Key<T>, value: T) {
-    map[key] = value
-  }
-}
-
-@PublishedApi
-internal class PersistentTypedMap private constructor(private val map: PersistentMap<Key<*>, Any?>) {
-  constructor() : this(persistentMapOf())
-
-  interface Key<T>
-
-  @Suppress("UNCHECKED_CAST")
-  operator fun <T> get(key: Key<T>): T = map.getValue(key) as T
-
-  @Suppress("UNCHECKED_CAST")
-  fun <T> getOrNone(key: Key<T>): Option<T> = map.getOrNone(key) as Option<T>
-  fun <T> put(key: Key<T>, value: T) = PersistentTypedMap(map.put(key, value))
-}
-
-public fun <K, V> Map<K, V>.getOrNone(key: K): Option<V> {
-  val value = get(key)
-  if (value == null && !containsKey(key)) {
-    return None
-  } else {
-    @Suppress("UNCHECKED_CAST")
-    return Some(value as V)
-  }
-}
-
-@PublishedApi
-internal class MutableStateScope(private val map: MutableTypedMap) : StateScope {
-  override fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
-
-  private inner class FieldImpl<T> : StateScope.Field<T>, MutableTypedMap.Key<T> {
-    override fun getOrNone(): Option<T> = map.getOrNone(this)
-    override fun set(value: T) {
-      this.value = value
-    }
+  @Suppress("UNCHECKED_CAST", "EqualsOrHashCode")
+  private inner class FieldImpl<T> : Region.Field<T> {
+    private val id = index++
+    override fun getOrNone(): Option<T> = map.getOrNone(this) as Option<T>
 
     override var value: T
-      get() = map[this]
+      get() = map.getValue(this) as T
       set(value) {
         map[this] = value
       }
+
+    override fun hashCode(): Int = id
   }
 }
 
+// Very fast, but NOT time-travel safe...
 @PublishedApi
-internal class PersistentStateScope(private val state: State<PersistentTypedMap>) : StateScope {
-  override fun <T> field(): StateScope.OptionalField<T> = FieldImpl()
+internal class ListRegion(private val list: MutableList<Any?>) : Region {
+  override fun <T> field(): Region.OptionalField<T> = FieldImpl()
 
-  private inner class FieldImpl<T> : StateScope.Field<T>, PersistentTypedMap.Key<T> {
-    override fun getOrNone(): Option<T> = state.value.getOrNone(this)
+  private data object EmptyValue
 
-    override fun set(value: T) {
-      this.value = value
+  private inner class FieldImpl<T> : Region.Field<T> {
+    private val id = list.size
+
+    init {
+      list.add(EmptyValue)
     }
 
+    @Suppress("UNCHECKED_CAST")
+    override fun getOrNone(): Option<T> = list[id].let { if (it === EmptyValue) None else Some(it as T) }
+
+    @Suppress("UNCHECKED_CAST")
     override var value: T
-      get() = state.value[this]
+      get() = list[id] as T
       set(value) {
-        state.modify { it.put(this, value) }
+        list[id] = value
       }
   }
 }

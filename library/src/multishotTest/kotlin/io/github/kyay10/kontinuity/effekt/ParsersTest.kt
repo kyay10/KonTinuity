@@ -3,8 +3,8 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
-import arrow.core.recover
-import io.github.kyay10.kontinuity.Stateful
+import io.github.kyay10.kontinuity.handleErrorWith
+import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -123,9 +123,7 @@ suspend fun CharParsers.digit(): Int {
 
 suspend fun CharParsers.number(): Int {
   var res = digit()
-  while (alternative()) {
-    res = res * 10 + digit()
-  }
+  while (alternative()) res = res * 10 + digit()
   return res
 }
 
@@ -143,64 +141,47 @@ interface Parser3<S> {
   suspend fun <A> nonterminal(name: String, body: suspend () -> A): A
 
   companion object {
-    suspend fun <A> parse(input: String, parser: suspend CharParsers.() -> A): Option<A> =
-      handleStateful(StringParser.Data(0)) {
-        Some(parser(StringParser(input, this)))
+    suspend fun <A> parse(input: String, parser: suspend CharParsers.() -> A): Option<A> = runState(0) {
+      handle {
+        Some(parser(object : CharParsers {
+          private val cache = mutableMapOf<Pair<Int, String>, Pair<Int, Any?>>()
+
+          override suspend fun any(): Char {
+            if (value >= input.length) fail("Unexpected EOS")
+            return input[value++]
+          }
+
+          override suspend fun alternative(): Boolean = use { k ->
+            // Note: our state is above us here, so we need to save and update
+            val before = value
+            // does this lead to left biased choice?
+            k(true).handleErrorWith {
+              value = before
+              k(false)
+            }
+          }
+
+          override suspend fun fail(explanation: String): Nothing = discard { None }
+
+          override suspend fun <A> nonterminal(name: String, body: suspend () -> A): A {
+            // We could as well use body.getClass().getCanonicalName() as key.
+            val key = value to name
+            val (p, res) = cache.getOrPut(key) {
+              val res = body()
+              value to res
+            }
+            value = p
+            @Suppress("UNCHECKED_CAST") return res as A
+          }
+        }))
       }
+    }
   }
 }
 
 suspend fun <S> Parser3<S>.expect(token: S) {
   val res = any()
   if (res != token) fail("Expected $token, but got $res")
-}
-
-suspend fun Parser3<*>.alternatives(n: Int): Int {
-  var i = 1
-  while (i < n) {
-    if (alternative()) return i
-    i++
-  }
-  return 0
-}
-
-class StringParser<R>(val input: String, prompt: StatefulPrompt<Option<R>, Data>) : CharParsers,
-  StatefulHandler<Option<R>, StringParser.Data> by prompt {
-  data class Data(var index: Int) : Stateful<Data> {
-    override fun fork() = copy()
-  }
-
-  private val cache = mutableMapOf<Pair<Int, String>, Pair<Int, Any?>>()
-
-  override suspend fun any(): Char {
-    if (value.index >= input.length) fail("Unexpected EOS")
-    return input[value.index++]
-  }
-
-  override suspend fun alternative(): Boolean = use { k ->
-    // Note: our state is above us here, so we need to save and update
-    val before = value.index
-    // does this lead to left biased choice?
-    k(true).recover {
-      value.index = before
-      k(false).bind()
-    }
-  }
-
-  override suspend fun fail(explanation: String): Nothing {
-    discard { None }
-  }
-
-  override suspend fun <A> nonterminal(name: String, body: suspend () -> A): A {
-    // We could as well use body.getClass().getCanonicalName() as key.
-    val key = Pair(value.index, name)
-    val (p, res) = cache.getOrPut(key) {
-      val res = body()
-      value.index to res
-    }
-    value.index = p
-    @Suppress("UNCHECKED_CAST") return res as A
-  }
 }
 
 class ToPush<R>(val outer: CharParsers, prompt: HandlerPrompt<PushParser<R>>) : Handler<PushParser<R>> by prompt,
@@ -244,8 +225,6 @@ interface PushParser<out R> {
 
 suspend fun <R> PushParser<R>.feedAll(p: CharParsers): R {
   var self = this
-  while (!self.isDone) {
-    self = self.feed(p.any())
-  }
+  while (!self.isDone) self = self.feed(p.any())
   return self.result!!
 }

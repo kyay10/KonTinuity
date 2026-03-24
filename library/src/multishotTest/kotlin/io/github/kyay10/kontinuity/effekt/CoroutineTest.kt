@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.effekt
 
 import io.github.kyay10.kontinuity.SubCont
+import io.github.kyay10.kontinuity.forEachIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -19,20 +20,10 @@ class CoroutineTest {
   }
 
   context(_: YieldAny<A>)
-  suspend fun <A> bucket(b: List<A>) {
-    var i = 0
-    while (i < b.size) {
-      yield(b[i++])
-    }
-  }
+  suspend fun <A> bucket(b: List<A>) = b.forEachIteratorless { yield(it) }
 
   context(_: YieldAny<A>)
-  suspend fun <A> buckets(bs: List<List<A>>) {
-    var i = 0
-    while (i < bs.size) {
-      bucket(bs[i++])
-    }
-  }
+  suspend fun <A> buckets(bs: List<List<A>>) = bs.forEachIteratorless { bucket(it) }
 
   val data = listOf(listOf(4, 3, 5, 7), listOf(8), listOf(), listOf(1, 3, 7))
 

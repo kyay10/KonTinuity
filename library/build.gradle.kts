@@ -132,16 +132,19 @@ kotlin {
   }
 }
 
+val myJvmArgs = listOf(
+  "-Xmx4096m",
+  "-Xms4096m",
+  "-XX:+AlwaysPreTouch",
+  "-XX:+UseParallelGC",
+)
+
 tasks.withType<Test> {
   useJUnitPlatform()
-  jvmArgs = listOf(
-    "-XX:+HeapDumpOnOutOfMemoryError",
-    "-Xmx4096m",
-    "-Xms4096m",
-    "-XX:+AlwaysPreTouch",
-    "-XX:+UseParallelGC",
-  )
+  jvmArgs = myJvmArgs
 }
+
+tasks.withType<JavaExec> { jvmArgs = myJvmArgs }
 
 publishing {
   publications.withType<MavenPublication> {
@@ -293,6 +296,7 @@ object MultishotTransform {
         // add copy method
         visitMethod(ACC_PUBLIC or ACC_SYNTHETIC or ACC_FINAL, "copy", copyDescriptor, null, null).apply {
           visitParameter("completion", 0)
+          visitParameter("context", 0)
           visitCode()
           // create new instance of this class
           visitTypeInsn(NEW, classNode.name)

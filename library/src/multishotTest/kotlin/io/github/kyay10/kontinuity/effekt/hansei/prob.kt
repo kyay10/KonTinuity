@@ -1,13 +1,13 @@
 package io.github.kyay10.kontinuity.effekt.hansei
 
 import arrow.core.getOrElse
+import arrow.core.getOrNone
 import io.github.kyay10.kontinuity.effekt.*
 import io.github.kyay10.kontinuity.repeatIteratorless
-import kotlinx.collections.immutable.persistentMapOf
+import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.plus
 import kotlin.contracts.contract
 import kotlin.math.pow
-import kotlin.random.Random
 
 interface Probabilistic : Exc {
   suspend fun <A> Dist<A>.dist(): A
@@ -48,7 +48,7 @@ internal suspend inline fun <A> probabilistic(crossinline block: suspend context
   }
 
 @PublishedApi
-internal suspend inline fun <A> memory(crossinline block: suspend context(Memory) () -> A): A = persistentRegion {
+internal suspend inline fun <A> memory(crossinline block: suspend context(Memory) () -> A): A = listRegion {
   block(object : Memory {
     override fun <A> letLazy(block: suspend () -> A): suspend () -> A {
       val loc = field<A>()
@@ -56,7 +56,7 @@ internal suspend inline fun <A> memory(crossinline block: suspend context(Memory
     }
 
     override fun <A, B> memo(block: suspend (A) -> B): suspend (A) -> B {
-      var map by field(persistentMapOf<A, B>())
+      var map by field(persistentHashMapOf<A, B>())
       return { a ->
         map.getOrNone(a).getOrElse {
           block(a).also { v ->
@@ -133,19 +133,6 @@ context(_: Probabilistic)
 suspend fun <B> variableElimination(block: suspend context(Probabilistic, Memory) () -> B): B =
   exactReify(block).reflect()
 
-fun <A> Random.selector(): Selector<A> {
-  return (selector@{ choices ->
-    val total = choices.sumOf { (p, _) -> p }
-    val r = nextDouble() * total // [0, total)
-    var acc = 0.0
-    for ((p, v) in choices) {
-      acc += p
-      if (r < acc) return@selector Probable(total, v)
-    }
-    error("Choice selection: can't happen")
-  })
-}
-
 fun <A> OcamlRandom.selector(): Selector<A> = selector@{ choices ->
   val total = choices.sumOf { (p, _) -> p }
   val r = nextDouble() * total // [0, total)
@@ -194,6 +181,4 @@ context(m: Memory)
 fun <A> letLazy(block: suspend () -> A): suspend () -> A = m.letLazy(block)
 
 context(m: Memory)
-fun <A, B> memo(
-  block: suspend (A) -> B
-): suspend (A) -> B = m.memo(block)
+fun <A, B> memo(block: suspend (A) -> B): suspend (A) -> B = m.memo(block)

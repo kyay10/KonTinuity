@@ -2,8 +2,8 @@ package io.github.kyay10.kontinuity.effekt
 
 import arrow.core.Option
 import arrow.core.Some
-import arrow.core.recover
-import io.github.kyay10.kontinuity.Stateful
+import io.github.kyay10.kontinuity.handleErrorWith
+import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -39,24 +39,17 @@ suspend fun digit(): Int = accept(Char::isDigit).digitToInt()
 context(_: Amb, _: Exc, _: Receive<Char>)
 suspend fun number(): Int {
   var res = digit()
-  while (flip()) {
-    res = res * 10 + digit()
-  }
+  while (flip()) res = res * 10 + digit()
   return res
 }
 
-data class StringReaderData(var pos: Int = 0) : Stateful<StringReaderData> {
-  override fun fork() = copy()
-}
-
 context(_: Exc)
-suspend fun <R> stringReader(input: String, block: suspend Receive<Char>.() -> R): R =
-  handleStateful(StringReaderData()) {
-    block {
-      if (value.pos >= input.length) raise("Unexpected EOS")
-      input[value.pos++]
-    }
+suspend fun <R> stringReader(input: String, block: suspend Receive<Char>.() -> R): R = runState(0) {
+  block {
+    if (value >= input.length) raise("Unexpected EOS")
+    input[value++]
   }
+}
 
 suspend fun <E> nonDet(block: suspend context(Amb, Exc) () -> E): List<E> = handle {
   listOf(block(AmbList(this)) {
@@ -66,7 +59,7 @@ suspend fun <E> nonDet(block: suspend context(Amb, Exc) () -> E): List<E> = hand
 
 class Backtrack<R>(p: HandlerPrompt<Option<R>>) : Amb, Handler<Option<R>> by p {
   override suspend fun flip(): Boolean = use { resume ->
-    resume(true).recover { resume(false).bind() }
+    resume(true).handleErrorWith { resume(false) }
   }
 }
 

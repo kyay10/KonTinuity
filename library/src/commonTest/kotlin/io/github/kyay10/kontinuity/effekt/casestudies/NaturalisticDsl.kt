@@ -1,7 +1,8 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
-import io.github.kyay10.kontinuity.effekt.handleStateful
+import io.github.kyay10.kontinuity.effekt.handle
 import io.github.kyay10.kontinuity.effekt.useOnce
+import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.reflect.KProperty
@@ -46,21 +47,21 @@ infix fun Person.loves(loved: Person) = Is(this, InLoveWith(loved))
 // John said "Mary loves me"
 val s1 = Say(John, Mary loves John)
 
-fun interface Speaker {
-  suspend fun speaker(): Person
-}
+data class Speaker(val person: Person)
 
-suspend fun Speaker.me() = speaker()
+context(s: Speaker)
+val me get() = s.person
 
-inline infix fun Person.said(s: Speaker.() -> Sentence): Sentence = Say(this, Speaker { this }.s())
+inline infix fun Person.said(s: context(Speaker) () -> Sentence): Sentence = Say(this, s(Speaker(this)))
 infix fun Person.said(s: Sentence): Sentence = Say(this, s)
 
-suspend fun s1a() = John said { Mary loves me() }
+fun s1a() = John said { Mary loves me }
 
 // John said Mary loves me
-suspend fun Speaker.s1b() = John said (Mary loves me())
+context(_: Speaker)
+fun s1b() = John said (Mary loves me)
 
-suspend fun s1c() = Peter said { s1b() }
+fun s1c() = Peter said { s1b() }
 
 fun interface Quantification {
   suspend fun quantify(who: Predicate): Person
@@ -68,14 +69,13 @@ fun interface Quantification {
 
 suspend fun Quantification.every(who: Predicate) = quantify(who)
 
-suspend fun s2() = scoped { John said { every(Woman) loves me() } }
+suspend fun s2() = scoped { John said { every(Woman) loves me } }
 
-suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence {
-  data class Data(var i: Int)
-  return handleStateful(Data(0), Data::copy) {
+suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence = runState(0) {
+  handle {
     s { who ->
       useOnce { resume ->
-        val x = Person("x${value.i++}")
+        val x = Person("x${value++}")
         ForAll(x, Implies(Is(x, who), resume(x)))
       }
     }

@@ -1,10 +1,7 @@
 package io.github.kyay10.kontinuity.effekt
 
-import arrow.core.None
-import arrow.core.Option
-import arrow.core.Some
-import arrow.core.toOption
-import io.github.kyay10.kontinuity.runReader
+import io.github.kyay10.kontinuity.buildListLocally
+import io.github.kyay10.kontinuity.runListBuilder
 
 data class Stream<out A>(val value: A, val next: Producer<Stream<A>?>?) : Shareable<Stream<A>> {
   context(_: Amb, _: Exc)
@@ -17,6 +14,10 @@ data class Stream<out A>(val value: A, val next: Producer<Stream<A>?>?) : Sharea
 
   context(_: Sharing)
   override fun shareArgs(): Stream<A> = Stream(value.shareArgs(), next?.let { share(it) })
+
+  companion object {
+    inline operator fun <A> invoke(value: A, crossinline next: suspend () -> Stream<A>?) = Stream(value, Producer(next))
+  }
 }
 
 context(_: Amb, _: Exc)
@@ -81,24 +82,6 @@ private suspend fun <A, B> fairBindImpl(
   else interleave({ second(value) }) { fairBindImpl(next, second) }
 }
 
-// I think nullOnFailure/noneOnFailure are better replacements
-context(_: Logic, _: Amb, _: Exc)
-suspend inline fun <A, B> ifte(
-  noinline condition: suspend context(Amb, Exc) () -> A,
-  then: (A) -> B,
-  otherwise: () -> B
-): B {
-  val stream = split(condition) ?: return otherwise()
-  return then(stream.reflect())
-}
-
-context(_: Logic, _: Amb, _: Exc)
-suspend fun <A> nullOnFailure(block: suspend context(Amb, Exc) () -> A): A? = split(block)?.reflect()
-
-context(_: Logic, _: Amb, _: Exc)
-suspend fun <A> noneOnFailure(block: suspend context(Amb, Exc) () -> A): Option<A> =
-  split(block).toOption().map { it.reflect() }
-
 context(_: Exc)
 suspend inline fun <A> once(crossinline block: suspend context(Amb, Exc) () -> A): A = handle {
   effectfulLogic {
@@ -114,13 +97,6 @@ suspend inline fun <A> onceOrNull(crossinline block: suspend context(Amb, Exc) (
   null
 }
 
-suspend inline fun <A> onceOrNone(crossinline block: suspend context(Amb, Exc) () -> A): Option<A> = handle {
-  effectfulLogic {
-    discardWithFast(Result.success(Some(block())))
-  }
-  None
-}
-
 context(_: Exc)
 suspend fun gnot(block: suspend context(Amb, Exc) () -> Unit) {
   if (succeeds(block)) raise()
@@ -134,18 +110,14 @@ suspend inline fun succeeds(crossinline block: suspend context(Amb, Exc) () -> U
   false
 }
 
-suspend fun <A> bagOfN(count: Int = -1, block: suspend context(Amb, Exc) () -> A): List<A> =
-  handleStateful(if (count == -1) ArrayDeque<A>() else ArrayDeque(count), ::ArrayDeque) {
+suspend fun <A> bagOfN(count: Int = -1, block: suspend context(Amb, Exc) () -> A) = buildListLocally {
+  handle {
     effectfulLogic {
-      val res = block()
-      val list = value
-      list.add(res)
-      if (list.size == count) {
-        discardWithFast(Result.success(list))
-      }
+      add(block())
+      if (size == count) discardWithFast(Result.success(Unit))
     }
-    value
   }
+}
 
 object LogicDeep : Logic {
   // wrap with a handle that'll allow turning the iteration into an iterator-like thing
@@ -156,29 +128,27 @@ object LogicDeep : Logic {
   //  and thus split can be simpler, and can just return the list of jobs as List<suspend AmbExc.() -> A>
 
   override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>? = handle split@{
-    runReader(ArrayDeque<suspend () -> A>(), ::ArrayDeque) {
-      value.addFirst {
+    runListBuilder<suspend () -> A, _> {
+      add {
         handle ambExc@{
           block({
             useWithFinal { resumeCopy, resumeFinal ->
-              value.addFirst { resumeFinal(false) }
+              add { resumeFinal(false) }
               resumeCopy(true)
             }
           }, {
             discard {
-              val branches = value
-              if (branches.isEmpty()) this@split.discardWithFast(Result.success(null))
-              else branches.removeFirst().invoke()
+              val branch = removeLastOrNull() ?: this@split.discardWithFast(Result.success(null))
+              branch()
             }
           })
         }
       }
-      while (true) {
-        val branch = value.removeFirstOrNull() ?: break
-        val result = branch()
-        val isLast = value.isEmpty()
+      while (isNotEmpty()) {
+        val result = removeLast()()
+        val isLast = isEmpty()
         useOnce {
-          Stream(result, if (isLast) null else Producer { it(Unit) })
+          if (isLast) Stream(result, null) else Stream(result) { it(Unit) }
         }
       }
       null
@@ -200,7 +170,7 @@ object LogicTree : Logic {
   private suspend fun <A> composeTrees(stream: Stream<A>?, next: Producer<Stream<A>?>): Stream<A>? {
     val (value, nextPrime) = stream ?: return next()
     nextPrime ?: return Stream(value, next)
-    return Stream(value, Producer { composeTrees(nextPrime(), next) })
+    return Stream(value) { composeTrees(nextPrime(), next) }
   }
 }
 
@@ -209,7 +179,7 @@ object LogicSimple : Logic {
     effectfulLogic {
       val res = block()
       useOnce {
-        Stream(res, Producer { it(Unit) })
+        Stream(res) { it(Unit) }
       }
     }
     null

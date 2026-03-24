@@ -2,8 +2,8 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 
 import arrow.core.Either
 import io.github.kyay10.kontinuity.effekt.handle
-import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
+import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -60,18 +60,15 @@ data class CApp(val name: String, val arg: Expr) : Stmt
 data class CRet(val expr: Expr) : Stmt
 
 fun interface Fresh {
-  suspend fun fresh(): String
+  fun fresh(): String
 }
 
 context(fresh: Fresh)
-suspend fun fresh(): String = fresh.fresh()
+fun fresh(): String = fresh.fresh()
 
-suspend fun <R> freshVars(block: suspend context(Fresh) () -> R): R {
-  data class Data(var i: Int)
-  return handleStateful(Data(0), Data::copy) {
-    block {
-      "x${++value.i}"
-    }
+suspend fun <R> freshVars(block: suspend context(Fresh) () -> R) = runState(0) {
+  block {
+    "x${++value}"
   }
 }
 
@@ -106,7 +103,7 @@ suspend fun bindHere(block: suspend context(Bind) () -> Stmt): Stmt = handle {
 suspend fun translate(e: Tree): Stmt = freshVars { bindHere { e.toStmt() } }
 
 context(_: Emit)
-suspend fun Expr.emit() = text(
+fun Expr.emit() = text(
   when (this) {
     is CLit -> value.toString()
     is CVar -> name

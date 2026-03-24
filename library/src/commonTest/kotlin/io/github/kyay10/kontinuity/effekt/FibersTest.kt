@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
-import io.github.kyay10.kontinuity.runCC
-import io.github.kyay10.kontinuity.runTest
+import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
@@ -36,10 +35,8 @@ class FibersTest {
   }
 
   @Test
-  fun example() = runTest {
-    runCC {
-      user2()
-    }
+  fun example() = runTestCC {
+    user2()
     printed.toString() shouldBe """
       |Hello from fiber
       |In our main thread
@@ -50,11 +47,7 @@ class FibersTest {
       |
     """.trimMargin()
     printed.clear()
-    runCC {
-      scheduler2 {
-        user1()
-      }
-    }
+    scheduler2 { user1() }
     printed.toString() shouldBe """
       |Hello from main
       |Hello from fork

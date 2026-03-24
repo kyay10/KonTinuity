@@ -1,10 +1,10 @@
 package io.github.kyay10.kontinuity.effekt
 
-import io.github.kyay10.kontinuity.Stateful
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
+import io.github.kyay10.kontinuity.State as BuiltInState
 
 class StateTest {
   @Test
@@ -41,15 +41,10 @@ class StateTest {
   }
 }
 
-open class SpecialState<R, S>(prompt: StatefulPrompt<R, Data<S>>) : State<S>,
-  StatefulHandler<R, SpecialState.Data<S>> by prompt {
-  data class Data<S>(var state: S) : Stateful<Data<S>> {
-    override fun fork() = copy()
-  }
-
-  override suspend fun getValue(): S = (this as StatefulHandler<R, Data<S>>).value.state
+class SpecialState<S>(val state: BuiltInState<S>) : State<S> {
+  override suspend fun getValue(): S = state.value
   override suspend fun put(value: S) {
-    (this as StatefulHandler<R, Data<S>>).value.state = value
+    state.value = value
   }
 }
 

@@ -1,15 +1,15 @@
 package io.github.kyay10.kontinuity.effekt.casestudies
 
-import arrow.core.*
 import arrow.core.Either.Left
 import arrow.core.Either.Right
+import arrow.core.None
+import arrow.core.Option
+import arrow.core.getOrElse
 import arrow.core.raise.Raise
-import io.github.kyay10.kontinuity.Raise
+import arrow.core.some
+import io.github.kyay10.kontinuity.*
 import io.github.kyay10.kontinuity.effekt.handle
-import io.github.kyay10.kontinuity.effekt.handleStateful
 import io.github.kyay10.kontinuity.effekt.use
-import io.github.kyay10.kontinuity.ensure
-import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
@@ -70,13 +70,6 @@ class PrettyPrinterTest {
       line()
       text("lines")
     }
-  }
-
-  context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
-  suspend fun helloWorld() {
-    text("hello")
-    line()
-    text("world")
   }
 
   @Test
@@ -153,19 +146,15 @@ enum class Direction {
   Horizontal, Vertical
 }
 
-fun interface Indent {
-  suspend fun indent(): Int
-}
+data class Indent(val indent: Int)
 
 context(indent: Indent)
-suspend fun indent() = indent.indent()
+val indent get() = indent.indent
 
-fun interface DefaultIndent {
-  suspend fun defaultIndent(): Int
-}
+data class DefaultIndent(val defaultIndent: Int)
 
 context(defaultIndent: DefaultIndent)
-suspend fun defaultIndent() = defaultIndent.defaultIndent()
+val defaultIndent get() = defaultIndent.defaultIndent
 
 fun interface Flow {
   suspend fun flow(): Direction
@@ -175,21 +164,20 @@ context(flow: Flow)
 suspend fun flow() = flow.flow()
 
 fun interface Emit {
-  suspend fun emitText(text: String)
-  suspend fun emitNewline() = emitText("\n")
+  fun emitText(text: String)
 }
 
 context(emit: Emit)
-suspend fun text(content: String) = emit.emitText(content)
+fun text(content: String) = emit.emitText(content)
 
 context(emit: Emit)
-suspend fun newline() = emit.emitNewline()
+fun newline() = text("\n")
 
 context(_: Emit)
-suspend fun space() = text(" ")
+fun space() = text(" ")
 
 context(_: Emit)
-suspend fun spaces(n: Int) {
+fun spaces(n: Int) {
   if (n > 0) {
     text(" ".repeat(n))
   }
@@ -200,7 +188,7 @@ suspend fun lineOr(replace: String) = when (flow()) {
   Direction.Horizontal -> text(replace)
   Direction.Vertical -> {
     newline()
-    spaces(indent())
+    spaces(indent)
   }
 }
 
@@ -212,36 +200,16 @@ suspend fun linebreak() = lineOr("")
 
 // Uses `n` as the indentation in the given document
 context(_: Indent)
-suspend inline fun <R> withIndent(n: Int, doc: suspend context(Indent) () -> R): R = with(Indent { n }) {
-  doc()
-}
+suspend inline fun <R> withIndent(n: Int, doc: suspend context(Indent) () -> R): R = doc(Indent(n))
 
 context(_: Indent)
-suspend inline fun <R> nest(
-  j: Int, doc: suspend context(Indent) () -> R
-): R = withIndent(indent() + j, doc)
+suspend inline fun <R> nest(j: Int, doc: suspend context(Indent) () -> R): R = withIndent(indent + j, doc)
 
 context(_: Indent, _: DefaultIndent)
-suspend inline fun <R> nested(
-  doc: suspend context(Indent) () -> R
-): R = nest(defaultIndent(), doc)
+suspend inline fun <R> nested(doc: suspend context(Indent) () -> R): R = nest(defaultIndent, doc)
 
 context(_: Flow)
-suspend inline fun <R> fix(
-  direction: Direction, doc: suspend context(Flow) () -> R
-): R = with(Flow { direction }) {
-  doc(contextOf<Flow>())
-}
-
-context(_: Flow)
-suspend inline fun <R> horizontal(
-  doc: suspend context(Flow) () -> R
-): R = fix(Direction.Horizontal, doc)
-
-context(_: Flow)
-suspend inline fun <R> vertical(
-  doc: suspend context(Flow) () -> R
-): R = fix(Direction.Vertical, doc)
+suspend inline fun <R> fix(direction: Direction, doc: suspend context(Flow) () -> R): R = doc(Flow { direction })
 
 fun interface LayoutChoice {
   suspend fun choice(): Direction
@@ -251,25 +219,15 @@ context(layoutChoice: LayoutChoice)
 suspend fun choice() = layoutChoice.choice()
 
 context(_: Flow, _: LayoutChoice)
-suspend inline fun group(
-  doc: suspend context(Flow) () -> Unit
-) = fix(choice(), doc)
-
-context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
-suspend fun softline() = group { line() }
-
-context(_: Indent, _: Flow, _: Emit, _: LayoutChoice)
-suspend fun softbreak() = group { linebreak() }
+suspend inline fun group(doc: suspend context(Flow) () -> Unit) = fix(choice(), doc)
 
 context(_: Indent, _: Flow, _: Emit)
 suspend fun example1(l: List<Int>) {
   text("[")
-  var n = 0
-  while (n < l.size) {
-    text(l[n].toString())
+  l.forEachIteratorless {
+    text(it.toString())
     text(",")
     line()
-    n++
   }
   text("]")
 }
@@ -302,40 +260,28 @@ suspend fun example3() = group {
 suspend fun <R> searchLayout(p: suspend context(Raise<Unit>, LayoutChoice) () -> R): Option<R> = handle {
   p(Raise { None }) {
     use { k ->
-      k(Direction.Horizontal).recover { k(Direction.Vertical).bind() }
+      k(Direction.Horizontal).handleErrorWith { k(Direction.Vertical) }
     }
   }.some()
 }
 
-suspend fun writer(p: suspend context(Emit) () -> Unit): String {
-  data class Data(var content: String)
-  return handleStateful(Data(""), Data::copy) {
-    p { text ->
-      value.content += text
-    }
-    value.content
-  }
+suspend fun writer(p: suspend context(Emit) () -> Unit) = runState("") {
+  p { text -> value += text }
+  value
 }
 
 context(emit: Emit, layoutChoice: LayoutChoice, _: Raise<Unit>)
 suspend fun printer(
   width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit
-) {
-  data class PrinterData(var pos: Int)
-  handleStateful(PrinterData(0), PrinterData::copy) {
-    block(Indent { 0 }, DefaultIndent { defaultIndent }, Flow(layoutChoice::choice), object : Emit {
-      override suspend fun emitText(text: String) {
-        value.pos += text.length
-        ensure(value.pos <= width)
-        emit.emitText(text)
-      }
-
-      override suspend fun emitNewline() {
-        emit.emitNewline()
-        value.pos = 0
-      }
-    })
-  }
+) = runState(0) {
+  block(Indent(0), DefaultIndent(defaultIndent), Flow(layoutChoice::choice), Emit {
+    it.lines().forEachIndexed { i, string ->
+      if (i > 0) value = 0
+      value += string.length
+      ensure(value <= width)
+    }
+    emit.emitText(it)
+  })
 }
 
 suspend fun pretty(
@@ -343,32 +289,20 @@ suspend fun pretty(
 ): String = searchLayout {
   writer {
     printer(width, 2) {
-      contextOf<Indent>()
-      contextOf<DefaultIndent>()
-      contextOf<Flow>()
-      contextOf<Emit>()
-      contextOf<LayoutChoice>()
-      block(
-        contextOf<Indent>(),
-        contextOf<DefaultIndent>(),
-        contextOf<Flow>(),
-        contextOf<Emit>(),
-        contextOf<LayoutChoice>()
-      )
+      block()
     }
   }
 }.getOrElse { "Cannot print document, since it would overflow." }
 
 context(_: Emit)
-suspend inline fun parens(block: () -> Unit) {
+inline fun parens(block: () -> Unit) {
   text("(")
   block()
   text(")")
 }
 
-
 context(_: Emit)
-suspend inline fun braces(block: () -> Unit) {
+inline fun braces(block: () -> Unit) {
   text("{")
   block()
   text("}")

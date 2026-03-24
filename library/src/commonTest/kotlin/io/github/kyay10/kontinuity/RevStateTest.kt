@@ -6,7 +6,7 @@ import kotlin.test.Test
 
 class RevStateTest {
   @Test
-  fun reverse() = runTest {
+  fun reverse() = runTestCC {
     // Usage example
     data class CounterState(val count: Int)
 
@@ -18,14 +18,11 @@ class RevStateTest {
       modify { state -> state.copy(count = state.count * 2) }
     }
 
-    val result = runCC {
-      runRevState(CounterState(0)) {
-        doubleCounter()
-        doubleCounter()
-        incrementCounter()
-      }.first()
-    }
-    result shouldBe CounterState(4)
+    runRevState(CounterState(0)) {
+      doubleCounter()
+      doubleCounter()
+      incrementCounter()
+    }.first() shouldBe CounterState(4)
   }
 }
 
@@ -38,9 +35,9 @@ suspend fun <S, R> RevState<S, R>.modify(f: suspend (S) -> S) = shiftOnce {
 
 suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = shiftOnce {
   val channel = Channel<suspend () -> S>()
-  it(suspend {
+  it {
     channel.receive()()
-  }).also { (s, _) ->
+  }.also { (s, _) ->
     channel.send(s)
   }
 }
@@ -48,11 +45,6 @@ suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = shiftOnce {
 suspend fun <S, R> RevState<S, R>.set(value: S): Unit = shiftOnce {
   val (_, r) = it(Unit)
   suspend { value } to r
-}
-
-suspend fun <S, R> RevState<S, R>.setLazy(value: suspend () -> S): Unit = shiftOnce {
-  val (_, r) = it(Unit)
-  value to r
 }
 
 suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> =

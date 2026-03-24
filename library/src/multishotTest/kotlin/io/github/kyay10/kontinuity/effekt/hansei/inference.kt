@@ -209,7 +209,7 @@ suspend fun <A> SearchTree<A>.rejectionSampleDist(
   repeatIteratorless(iterations) {
     ans = loop(1.0, ans)
   }
-  println("rejection sampling: done $iterations worlds")
+  //println("rejection sampling: done $iterations worlds")
   return ans.map { (v, p) ->
     Probable(p / iterations, Value.Leaf(v))
   }
@@ -290,7 +290,7 @@ suspend fun <A> SearchTree<A>.sampleDist(
       val (total, th) = selector(cch)
       th.loop(contribution * total, it)
     }
-    println("sample importance: done $samples worlds")
+    //println("sample importance: done $samples worlds")
     return ans.fold(ans2) { ans, (v, p) ->
       ans.insertWith(v, samples * p, Prob::plus)
     }.map { (v, p) ->

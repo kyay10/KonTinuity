@@ -4,6 +4,7 @@ import kotlinx.collections.immutable.*
 
 public class ListBuilder<T>(private val reader: Reader<MutableList<T>>) : MutableList<T> {
   public val list: MutableList<T> get() = reader.value
+  public val readOnly: List<T> get() = reader.unsafeValue
   override fun add(element: T): Boolean = list.add(element)
   override fun remove(element: T): Boolean = list.remove(element)
   override fun addAll(elements: Collection<T>): Boolean = list.addAll(elements)
@@ -24,18 +25,18 @@ public class ListBuilder<T>(private val reader: Reader<MutableList<T>>) : Mutabl
   override fun listIterator(index: Int): MutableListIterator<T> = list.listIterator(index)
   override fun subList(fromIndex: Int, toIndex: Int): MutableList<T> = list.subList(fromIndex, toIndex)
   override val size: Int
-    get() = list.size
+    get() = readOnly.size
 
-  override fun isEmpty(): Boolean = list.isEmpty()
-  override fun contains(element: T): Boolean = list.contains(element)
-  override fun containsAll(elements: Collection<T>): Boolean = list.containsAll(elements)
-  override fun get(index: Int): T = list[index]
-  override fun indexOf(element: T): Int = list.indexOf(element)
-  override fun lastIndexOf(element: T): Int = list.lastIndexOf(element)
+  override fun isEmpty(): Boolean = readOnly.isEmpty()
+  override fun contains(element: T): Boolean = readOnly.contains(element)
+  override fun containsAll(elements: Collection<T>): Boolean = readOnly.containsAll(elements)
+  override fun get(index: Int): T = readOnly[index]
+  override fun indexOf(element: T): Int = readOnly.indexOf(element)
+  override fun lastIndexOf(element: T): Int = readOnly.lastIndexOf(element)
   override fun iterator(): MutableIterator<T> = list.iterator()
-  override fun toString(): String = list.toString()
-  override fun equals(other: Any?): Boolean = list == other
-  override fun hashCode(): Int = list.hashCode()
+  override fun toString(): String = readOnly.toString()
+  override fun equals(other: Any?): Boolean = readOnly == other
+  override fun hashCode(): Int = readOnly.hashCode()
 }
 
 public suspend fun <T, R> runListBuilder(body: suspend ListBuilder<T>.() -> R): R =
@@ -49,6 +50,7 @@ public suspend fun <T> buildListLocally(body: suspend ListBuilder<T>.() -> Unit)
 
 public class MapBuilder<K, V>(private val reader: Reader<MutableMap<K, V>>) : MutableMap<K, V> {
   public val map: MutableMap<K, V> get() = reader.value
+  public val readOnly: Map<K, V> get() = reader.unsafeValue
   override fun clear() {
     map.clear()
   }
@@ -66,20 +68,17 @@ public class MapBuilder<K, V>(private val reader: Reader<MutableMap<K, V>>) : Mu
   override val values: MutableCollection<V>
     get() = map.values
 
-  override fun containsKey(key: K): Boolean = map.containsKey(key)
-  override fun containsValue(value: V): Boolean = map.containsValue(value)
-  override fun get(key: K): V? = map[key]
-  override fun isEmpty(): Boolean = map.isEmpty()
+  override fun containsKey(key: K): Boolean = readOnly.containsKey(key)
+  override fun containsValue(value: V): Boolean = readOnly.containsValue(value)
+  override fun get(key: K): V? = readOnly[key]
+  override fun isEmpty(): Boolean = readOnly.isEmpty()
   override val size: Int
-    get() = map.size
+    get() = readOnly.size
 
-  override fun equals(other: Any?): Boolean = map == other
-  override fun hashCode(): Int = map.hashCode()
-  override fun toString(): String = map.toString()
+  override fun equals(other: Any?): Boolean = readOnly == other
+  override fun hashCode(): Int = readOnly.hashCode()
+  override fun toString(): String = readOnly.toString()
 }
-
-public suspend fun <K, V, R> runMapBuilderNonPersistent(body: suspend MapBuilder<K, V>.() -> R): R =
-  runReader(hashMapOf(), ::HashMap) { body(MapBuilder(this)) }
 
 public suspend fun <K, V, R> runMapBuilder(body: suspend MapBuilder<K, V>.() -> R): R =
   runReader(persistentHashMapOf<K, V>().builder(), { build().builder() }) { body(MapBuilder(this)) }

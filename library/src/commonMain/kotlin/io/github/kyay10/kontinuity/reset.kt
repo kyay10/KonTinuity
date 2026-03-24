@@ -9,7 +9,6 @@ import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlin.coroutines.startCoroutine
 import kotlin.coroutines.suspendCoroutine
 import kotlin.jvm.JvmInline
-import kotlin.jvm.JvmName
 
 @Target(AnnotationTarget.CLASS, AnnotationTarget.TYPE, AnnotationTarget.FUNCTION, AnnotationTarget.PROPERTY)
 @DslMarker
@@ -40,15 +39,15 @@ public value class SubContFinal<in T, out R> @PublishedApi internal constructor(
 
 @ResetDsl
 public suspend fun <R> newReset(body: suspend Prompt<R>.() -> R): R = suspendCoroutineHere { stack, stackRest ->
-  val prompt = Prompt(stack, stackRest)
-  body.startCoroutineUninterceptedOrReturn(prompt, prompt)
+  val prompt = PromptCont(stack, stackRest)
+  body.startCoroutineUninterceptedOrReturn(Prompt(prompt), prompt)
 }
 
 @ResetDsl
 public suspend fun <T, R> runReader(value: T, fork: T.() -> T = { this }, body: suspend Reader<T>.() -> R): R =
   suspendCoroutineHere { stack, stackRest ->
-    val reader = ReaderT(fork, value, stack, stackRest)
-    body.startCoroutineUninterceptedOrReturn(reader, reader)
+    val reader = ReaderCont(fork, value, stack, stackRest)
+    body.startCoroutineUninterceptedOrReturn(Reader(reader), reader)
   }
 
 public interface Stateful<S : Stateful<S>> {
@@ -67,31 +66,24 @@ public suspend fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoline { st
 public suspend inline fun <T, R> Prompt<R>.shiftOnce(
   crossinline body: suspend (SubContFinal<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(this, stackRest) { frames, init ->
-    suspend { body(SubContFinal(init)) }.startCoroutineIntercepted(frames, trampoline)
+  stack.splitAt(stackRest) { frames, init ->
+    suspend { body(SubContFinal(init)) }.startCoroutineIntercepted(frames, init.trampoline)
   }
 }
 
-context(p: Prompt<R>)
-@ResetDsl
-@JvmName("takeSubContOnceContext")
-public suspend inline fun <T, R> shiftOnce(
-  crossinline body: suspend (SubContFinal<T, R>) -> R
-): T = p.shiftOnce(body)
-
 public fun <R> Prompt<R>.abortWith(value: Result<R>): Nothing {
-  underflow().resumeWithIntercepted(value, trampoline)
+  prompt.underflow().resumeWithIntercepted(value, prompt.trampoline)
   throw SuspendedException
 }
 
-public suspend inline fun <R> Prompt<R>.abortWithFast(value: Result<R>): Nothing =
+public suspend fun <R> Prompt<R>.abortWithFast(value: Result<R>): Nothing =
   suspendCoroutineUninterceptedOrReturn {
-    underflow().resumeWithIntercepted(value, trampoline)
+    prompt.underflow().resumeWithIntercepted(value, prompt.trampoline)
     COROUTINE_SUSPENDED
   }
 
 public fun <R> Prompt<R>.abortS(value: suspend () -> R): Nothing {
-  value.startCoroutineIntercepted(underflow(), trampoline)
+  value.startCoroutineIntercepted(prompt.underflow(), prompt.trampoline)
   throw SuspendedException
 }
 

@@ -6,10 +6,6 @@ public interface Handler<E> {
   public val prompt: Prompt<E>
 }
 
-public interface StatefulHandler<E, S> : Handler<E> {
-  public val value: S
-}
-
 @ResetDsl
 public suspend inline fun <A, E> Handler<E>.useOnce(crossinline body: suspend (SubContFinal<A, E>) -> E): A =
   prompt.shiftOnce(body)
@@ -28,24 +24,4 @@ public suspend inline fun <E> handle(crossinline body: suspend HandlerPrompt<E>.
   body(HandlerPrompt(this))
 }
 
-@ResetDsl
-public suspend inline fun <E, S> handleStateful(
-  value: S, noinline fork: S.() -> S, crossinline body: suspend StatefulPrompt<E, S>.() -> E
-): E = runReader(value, fork) {
-  handle {
-    body(StatefulPrompt(this, this@runReader))
-  }
-}
-
-@ResetDsl
-public suspend inline fun <E, S : Stateful<S>> handleStateful(
-  value: S, crossinline body: suspend StatefulPrompt<E, S>.() -> E
-): E = handleStateful(value, Stateful<S>::fork, body)
-
 public class HandlerPrompt<E> @PublishedApi internal constructor(override val prompt: Prompt<E>) : Handler<E>
-
-public class StatefulPrompt<E, S> @PublishedApi internal constructor(
-  prompt: HandlerPrompt<E>, private val reader: Reader<S>
-) : StatefulHandler<E, S>, Handler<E> by prompt {
-  override val value: S get() = reader.value
-}

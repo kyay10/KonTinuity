@@ -2,8 +2,7 @@ package io.github.kyay10.kontinuity.effekt
 
 import arrow.core.None
 import arrow.core.Some
-import io.github.kyay10.kontinuity.runCC
-import io.github.kyay10.kontinuity.runTest
+import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
@@ -15,41 +14,35 @@ class AmbTest {
   }
 
   @Test
-  fun drunkFlipTest() = runTest {
-    runCC {
-      ambList {
-        maybe {
-          drunkFlip()
-        }
+  fun drunkFlipTest() = runTestCC {
+    ambList {
+      maybe {
+        drunkFlip()
       }
     } shouldBe listOf(Some("Heads"), Some("Tails"), None)
-    runCC {
-      maybe {
-        ambList {
-          drunkFlip()
-        }
+    maybe {
+      ambList {
+        drunkFlip()
       }
     } shouldBe None
   }
 
   @Test
-  fun example() = runTest {
+  fun example() = runTestCC {
     val printed = StringBuilder()
-    runCC {
-      ambList {
-        printed.appendLine("Trying to flip a coin...")
-        if (!flip()) {
-          printed.appendLine("We dropped the coin")
-          -1
+    ambList {
+      printed.appendLine("Trying to flip a coin...")
+      if (!flip()) {
+        printed.appendLine("We dropped the coin")
+        -1
+      } else {
+        printed.appendLine("We caught the coin")
+        if (flip()) {
+          printed.appendLine("That's heads")
+          0
         } else {
-          printed.appendLine("We caught the coin")
-          if (flip()) {
-            printed.appendLine("That's heads")
-            0
-          } else {
-            printed.appendLine("That's tails")
-            1
-          }
+          printed.appendLine("That's tails")
+          1
         }
       }
     } shouldBe listOf(0, 1, -1)

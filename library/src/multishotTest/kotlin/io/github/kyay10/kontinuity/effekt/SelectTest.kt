@@ -3,6 +3,7 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
+import arrow.core.some
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.math.absoluteValue
@@ -75,8 +76,7 @@ suspend fun <R> selectAll(body: suspend Select.() -> R): List<R> = handle { list
 class SelectFirst<R>(p: HandlerPrompt<Option<R>>) : Select, Handler<Option<R>> by p {
   override suspend fun <A> Iterable<A>.select(): A = use { k ->
     forEach {
-      val res = k(it)
-      if (res is Some) return@use res
+      k(it).onSome { res -> return@use res.some() }
     }
     None
   }

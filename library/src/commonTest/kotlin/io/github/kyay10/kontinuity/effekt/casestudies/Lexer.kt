@@ -5,7 +5,7 @@ import arrow.core.raise.ensure
 import arrow.core.raise.recover
 import io.github.kyay10.kontinuity.Stateful
 import io.github.kyay10.kontinuity.effekt.handle
-import io.github.kyay10.kontinuity.effekt.handleStateful
+import io.github.kyay10.kontinuity.runReader
 import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
@@ -117,22 +117,24 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend context(Le
     override fun fork() = copy()
   }
 
-  return handleStateful(Data(index = 0, col = 1, line = 1)) {
-    block(object : Lexer {
-      override suspend fun peek(): Token? = tokenDescriptors.firstNotNullOfOrNull { (kind, regex) ->
-        regex.find(input.substring(value.index))?.let {
-          Token(kind, it.value, value.toPosition())
+  return runReader(Data(index = 0, col = 1, line = 1)) {
+    handle {
+      block(object : Lexer {
+        override suspend fun peek(): Token? = tokenDescriptors.firstNotNullOfOrNull { (kind, regex) ->
+          regex.find(input.substring(value.index))?.let {
+            Token(kind, it.value, value.toPosition())
+          }
         }
-      }
 
-      override suspend fun next(): Token {
-        val position = value.toPosition()
-        ensure(value.index < input.length) { LexerError("Unexpected EOS", position) }
-        val tok = peek() ?: raise(LexerError("Cannot tokenize input", position))
-        value.consume(tok.text)
-        return tok
-      }
-    })
+        override suspend fun next(): Token {
+          val position = value.toPosition()
+          ensure(value.index < input.length) { LexerError("Unexpected EOS", position) }
+          val tok = peek() ?: raise(LexerError("Cannot tokenize input", position))
+          value.consume(tok.text)
+          return tok
+        }
+      })
+    }
   }
 }
 

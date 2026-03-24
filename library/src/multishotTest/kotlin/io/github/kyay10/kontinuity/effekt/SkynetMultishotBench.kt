@@ -25,9 +25,7 @@ open class SkynetMultishotBench {
           data.sum += res
         }
       }
-      while (data.returned < div) {
-        yield()
-      }
+      while (data.returned < div) yield()
       yield()
       return data.sum
     }
@@ -50,9 +48,7 @@ open class SkynetMultishotBench {
           data.sum += res
         }
       }
-      while (data.returned < div) {
-        yield()
-      }
+      while (data.returned < div) yield()
       yield()
       return data.sum
     }

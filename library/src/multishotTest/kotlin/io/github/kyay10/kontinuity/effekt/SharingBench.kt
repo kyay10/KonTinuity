@@ -18,4 +18,34 @@ open class SharingBench {
       }
     }.let(bh::consume)
   }
+
+  @Benchmark
+  fun sharingBench(bh: Blackhole) = runSuspendCC {
+    val list = (1..size).toList().toLazyList()
+    bagOfN {
+      sharing {
+        list.sort().toPersistentList()
+      }
+    }.let(bh::consume)
+  }
+
+  @Benchmark
+  fun sharingBenchHonest(bh: Blackhole) = runSuspendCC {
+    val list = (1..size).toList().toLazyList()
+    bagOfN {
+      sharingHonest {
+        list.sort().toPersistentList()
+      }
+    }.let(bh::consume)
+  }
+
+  @Benchmark
+  fun streamSharingBenchHonest(bh: Blackhole) = runSuspendCC {
+    val list = (1..size).toList().toStream()
+    bagOfN {
+      sharingHonest {
+        list.sort().toPersistentList()
+      }
+    }.let(bh::consume)
+  }
 }

@@ -1,17 +1,14 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.repeatIteratorless
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class GeneratorMultishotTest {
   context(amb: Amb)
-  suspend fun Generator<Int>.numbersFlip(to: Int) {
-    var i = 0
-    while (i <= to) {
-      yield(if (amb.flip()) i else -i)
-      i++
-    }
+  suspend fun Generator<Int>.numbersFlip(to: Int) = repeatIteratorless(to + 1) {
+    yield(if (amb.flip()) it else -it)
   }
 
   @Test

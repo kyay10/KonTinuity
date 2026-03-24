@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.effekt
 
+import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -106,34 +107,31 @@ interface CrazyState : State<Int> {
   suspend fun bar()
 }
 
-class MyState<R>(prompt: StatefulPrompt<R, Data<Int>>) : CrazyState,
-  SpecialState<R, Int>(prompt) {
-  override suspend fun foo() {
-    put(2)
-    use { k ->
-      k(Unit)
-      put(13)
-      k(Unit)
-    }
-  }
+suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R = specialState(init) {
+  handle {
+    block(object : CrazyState, State<Int> by this@specialState {
+      override suspend fun foo() {
+        put(2)
+        use { k ->
+          k(Unit)
+          put(13)
+          k(Unit)
+        }
+      }
 
-  override suspend fun bar() {
-    put(2)
-    use { k ->
-      put(getValue() + 1)
-      k(Unit)
-      put(getValue() + 1)
-      k(Unit)
-    }
+      override suspend fun bar() {
+        put(2)
+        use { k ->
+          put(getValue() + 1)
+          k(Unit)
+          put(getValue() + 1)
+          k(Unit)
+        }
+      }
+    })
   }
 }
 
-suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R =
-  handleStateful(SpecialState.Data(init)) {
-    block(MyState(this))
-  }
-
-suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R =
-  handleStateful<_, SpecialState.Data<S>>(SpecialState.Data(init)) {
-    block(SpecialState(this))
-  }
+suspend fun <R, S> specialState(init: S, block: suspend State<S>.() -> R): R = runState(init) {
+  block(SpecialState(this))
+}

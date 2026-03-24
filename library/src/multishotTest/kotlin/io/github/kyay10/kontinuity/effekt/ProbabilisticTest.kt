@@ -1,7 +1,7 @@
 package io.github.kyay10.kontinuity.effekt
 
-import io.github.kyay10.kontinuity.Stateful
 import io.github.kyay10.kontinuity.SubCont
+import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.random.Random
@@ -44,28 +44,22 @@ class ProbabilisticTest {
   }
 }
 
-class ProbHandler<R>(prompt: StatefulPrompt<List<Weighted<R>>, Data>) : Prob,
-  StatefulHandler<List<Weighted<R>>, ProbHandler.Data> by prompt {
-  data class Data(var p: Double = 1.0) : Stateful<Data> {
-    override fun fork() = copy()
-  }
+suspend fun <R> probabilistic(body: suspend Prob.() -> R): List<Weighted<R>> = runState(1.0) {
+  handle {
+    listOf(Weighted(body(object : Prob {
+      override suspend fun flip(): Boolean = use { k ->
+        val previous = value
+        k(false).also { value = previous } + k(true)
+      }
 
-  override suspend fun flip(): Boolean = use { k ->
-    val previous = value.p
-    k(false).also { value.p = previous } + k(true)
-  }
+      override suspend fun fail(): Nothing = discard { emptyList() }
 
-  override suspend fun fail(): Nothing = discard { emptyList() }
-
-  override suspend fun factor(p: Double) {
-    value.p *= p
+      override suspend fun factor(p: Double) {
+        value *= p
+      }
+    }), value))
   }
 }
-
-suspend fun <R> probabilistic(body: suspend ProbHandler<R>.() -> R): List<Weighted<R>> =
-  handleStateful(ProbHandler.Data()) {
-    listOf(Weighted(body(ProbHandler(this)), value.p))
-  }
 
 data class Weighted<T>(val value: T, val weight: Double)
 

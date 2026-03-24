@@ -3,11 +3,11 @@ package io.github.kyay10.kontinuity.effekt.casestudies
 import arrow.core.Either
 import arrow.core.Either.Left
 import arrow.core.Either.Right
+import arrow.core.handleErrorWith
 import arrow.core.left
 import arrow.core.raise.Raise
 import arrow.core.raise.context.ensure
 import arrow.core.raise.context.ensureNotNull
-import arrow.core.recover
 import arrow.core.right
 import io.github.kyay10.kontinuity.Raise
 import io.github.kyay10.kontinuity.effekt.casestudies.TokenKind.*
@@ -58,9 +58,6 @@ suspend inline fun accept(expectedText: String = "", predicate: (Token) -> Boole
   ensure(predicate(token)) { "unexpected token $token, expected $expectedText" }
   return token
 }
-
-context(_: Nondet, _: Lexer, _: Raise<String>)
-suspend fun any() = accept { true }
 
 context(_: Nondet, _: Lexer, _: Raise<String>)
 suspend fun accept(exp: TokenKind) = accept(exp.toString()) { t -> t.kind == exp }
@@ -174,7 +171,7 @@ suspend fun <R> parse(input: String, block: suspend context(Nondet, Lexer, Raise
     Raise<LexerError, _> { Left("${it.msg}: ${it.pos}") }.lexer(input) {
       skipWhitespace {
         block(
-          Nondet { use { k -> k(true).recover { k(false).bind() } } },
+          Nondet { use { k -> k(true).handleErrorWith { k(false) } } },
           this,
           Raise { it.left() }
         ).right()

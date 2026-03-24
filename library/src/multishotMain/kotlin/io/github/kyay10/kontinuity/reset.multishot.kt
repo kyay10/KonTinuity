@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity
 
 import kotlin.jvm.JvmInline
-import kotlin.jvm.JvmName
 
 
 @JvmInline
@@ -26,33 +25,19 @@ public value class SubCont<in T, out R> @PublishedApi internal constructor(
 public suspend inline fun <T, R> Prompt<R>.shift(
   crossinline body: suspend (SubCont<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(this, stackRest) { frames, init ->
-    suspend { body(SubCont(init)) }.startCoroutineIntercepted(frames, trampoline)
+  stack.splitAt(stackRest) { frames, init ->
+    suspend { body(SubCont(init)) }.startCoroutineIntercepted(frames, init.trampoline)
   }
 }
-
-context(p: Prompt<R>)
-@ResetDsl
-@JvmName("takeSubContContext")
-public suspend inline fun <T, R> shift(
-  crossinline body: suspend (SubCont<T, R>) -> R
-): T = p.shift(body)
 
 @ResetDsl
 public suspend inline fun <T, R> Prompt<R>.shiftWithFinal(
   crossinline body: suspend (SubCont<T, R>, SubContFinal<T, R>) -> R
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(this, stackRest) { frames, init ->
-    suspend { body(SubCont(init), SubContFinal(init)) }.startCoroutineIntercepted(frames, trampoline)
+  stack.splitAt(stackRest) { frames, init ->
+    suspend { body(SubCont(init), SubContFinal(init)) }.startCoroutineIntercepted(frames, init.trampoline)
   }
 }
-
-context(p: Prompt<R>)
-@ResetDsl
-@JvmName("takeSubContWithFinalContext")
-public suspend inline fun <T, R> shiftWithFinal(
-  crossinline body: suspend (SubCont<T, R>, SubContFinal<T, R>) -> R
-): T = p.shiftWithFinal(body)
 
 // Acts like shift { it(body()) }
 // guarantees that the continuation will be resumed at least once
@@ -60,10 +45,17 @@ public suspend inline fun <T, R> shiftWithFinal(
 public suspend inline fun <T, P> Prompt<P>.inHandlingContext(
   crossinline body: suspend (SubCont<T, P>) -> T
 ): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  val rest = rest.ifSegment { error("$this is not on the stack") }
-  stack.splitAt(this, stackRest) { frames, init ->
+  val rest = rest
+  stack.splitAt(stackRest) { frames, init ->
     suspend { body(SubCont(init)) }.startCoroutineIntercepted(
-      Frames.Under(init, frames, rest).wrapped, trampoline
+      makeUnder(init, frames, rest), init.trampoline
     )
   }
 }
+
+@PublishedApi
+internal val Prompt<*>.rest: SplitCont<*> get() = prompt.rest.ifSegment { error("$this is not on the stack") }
+
+@PublishedApi
+internal fun <T, P> makeUnder(init: Segment<T, P>, frames: Stack<P>, rest: SplitCont<*>): Stack<T> =
+  Frames.Under(init, frames, rest).wrapped

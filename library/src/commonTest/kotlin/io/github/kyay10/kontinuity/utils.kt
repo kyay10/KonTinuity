@@ -3,10 +3,14 @@ package io.github.kyay10.kontinuity
 import arrow.core.raise.Raise
 import io.github.kyay10.kontinuity.effekt.HandlerPrompt
 import io.github.kyay10.kontinuity.effekt.discard
+import io.kotest.matchers.shouldBe
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.test.TestResult
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.time.Duration
@@ -54,3 +58,11 @@ inline fun repeatIteratorless(
 fun <T> flowOfWithDelay(vararg elements: T) = flowOf(*elements).onEach {
   delay(0.milliseconds)
 }
+
+suspend fun <R> assertNonTerminatingCC(timeout: Duration = 10.milliseconds, block: suspend () -> R) =
+  nonTerminatingCC(timeout, block) shouldBe null
+
+suspend fun <R> nonTerminatingCC(timeout: Duration = 10.milliseconds, block: suspend () -> R) =
+  withContext(Dispatchers.Default.limitedParallelism(1)) {
+    withTimeoutOrNull(timeout) { runCC(block) }
+  }

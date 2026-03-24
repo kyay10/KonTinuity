@@ -3,47 +3,36 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
-import arrow.core.recover
-import io.github.kyay10.kontinuity.runCC
-import io.github.kyay10.kontinuity.runTest
+import io.github.kyay10.kontinuity.handleErrorWith
+import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class HandlerMultishotTest {
   @Test
-  fun testDrunkFlip() = runTest {
-    runCC {
-      val res = collect {
-        maybe {
-          drunkFlip()
-        }
+  fun testDrunkFlip() = runTestCC {
+    collect {
+      maybe {
+        drunkFlip()
       }
-      res shouldBe listOf(Some("Heads"), Some("Tails"), None)
-    }
-    runCC {
-      val res = maybe {
-        collect {
-          drunkFlip()
-        }
+    } shouldBe listOf(Some("Heads"), Some("Tails"), None)
+    maybe {
+      collect {
+        drunkFlip()
       }
-      res shouldBe None
-    }
+    } shouldBe None
   }
 
   @Test
-  fun ex5dot3dot4() = runTest {
-    runCC {
-      nondet {
-        stringInput("123") {
-          number()
-        }
+  fun ex5dot3dot4() = runTestCC {
+    nondet {
+      stringInput("123") {
+        number()
       }
     } shouldBe listOf(123, 12, 1)
-    runCC {
-      backtrack2 {
-        stringInput("123") {
-          number()
-        }
+    backtrack2 {
+      stringInput("123") {
+        number()
       }
     } shouldBe Some(123)
   }
@@ -80,13 +69,8 @@ private suspend fun digit(): Int = when (val c = read()) {
 context(_: Amb, _: Exc, _: Input)
 private suspend fun number(): Int {
   var res = digit()
-  while (true) {
-    if (flip()) {
-      res = res * 10 + digit()
-    } else {
-      return res
-    }
-  }
+  while (flip()) res = res * 10 + digit()
+  return res
 }
 
 context(_: Exc)
@@ -105,7 +89,7 @@ suspend fun <R> nondet(block: suspend context(Amb, Exc) () -> R): List<R> = hand
 suspend fun <R> backtrack2(block: suspend context(Amb, Exc) () -> R): Option<R> = handle {
   val amb = Amb {
     use { resume ->
-      resume(true).recover { resume(false).bind() }
+      resume(true).handleErrorWith { resume(false) }
     }
   }
   Some(block(amb, Maybe(this)))

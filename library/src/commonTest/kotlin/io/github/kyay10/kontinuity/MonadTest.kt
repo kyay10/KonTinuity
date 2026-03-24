@@ -21,7 +21,7 @@ class MonadTest {
     newReset { State.of(body(this)) }
 
   @Test
-  fun stateMonad() = runTest {
+  fun stateMonad() = runTestCC {
     // Usage example
     data class CounterState(val count: Int)
 
@@ -33,13 +33,11 @@ class MonadTest {
       Pair(Unit, state.copy(count = state.count * 2))
     }
 
-    val result = runCC {
-      stateReset {
-        bind(incrementCounter())
-        bind(doubleCounter())
-        bind(doubleCounter())
-      }.run(CounterState(0))
-    }
+    val result = stateReset {
+      bind(incrementCounter())
+      bind(doubleCounter())
+      bind(doubleCounter())
+    }.run(CounterState(0))
 
     result shouldBe incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }.run(CounterState(0))
   }
@@ -61,13 +59,10 @@ class MonadTest {
     newReset { Reader.of(body(this)) }
 
   @Test
-  fun readerMonad() = runTest {
+  fun readerMonad() = runTestCC {
     val one = Reader { input: String -> input.toInt() }
-    val sum = runCC {
-      readerReset {
-        bind(one) + bind(one)
-      }.reader("1")
-    }
-    sum shouldBe 2
+    readerReset {
+      bind(one) + bind(one)
+    }.reader("1") shouldBe 2
   }
 }

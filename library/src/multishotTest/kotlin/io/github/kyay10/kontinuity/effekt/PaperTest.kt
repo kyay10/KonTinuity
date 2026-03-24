@@ -3,8 +3,7 @@ package io.github.kyay10.kontinuity.effekt
 import arrow.core.None
 import arrow.core.Option
 import arrow.core.Some
-import io.github.kyay10.kontinuity.runCC
-import io.github.kyay10.kontinuity.runTest
+import io.github.kyay10.kontinuity.buildListLocally
 import io.github.kyay10.kontinuity.runTestCC
 import io.kotest.matchers.shouldBe
 import kotlin.test.Test
@@ -26,44 +25,33 @@ class PaperTest {
 
   @Suppress("UnusedLambdaExpression")
   @Test
-  fun ex4dot3() = runTest {
-    runCC {
-      val res = collect {
-        var x = 0
-        { x } // we force x to be captured in a closure
+  fun ex4dot3() = runTestCC {
+    collect {
+      var x = 0
+      { x } // we force x to be captured in a closure
+      if (flip()) x = 2
+      x
+    } shouldBe listOf(2, 2)
+    collect {
+      var x = 0
+      if (flip()) x = 2
+      x
+    } shouldBe listOf(2, 0)
+
+    collect {
+      region {
+        var x by field(0)
         if (flip()) x = 2
         x
       }
-      res shouldBe listOf(2, 2)
-    }
-    runCC {
-      val res = collect {
-        var x = 0
+    } shouldBe listOf(2, 0)
+    region {
+      collect {
+        var x by field(0)
         if (flip()) x = 2
         x
       }
-      res shouldBe listOf(2, 0)
-    }
-    runCC {
-      val res = collect {
-        region {
-          var x by field(0)
-          if (flip()) x = 2
-          x
-        }
-      }
-      res shouldBe listOf(2, 0)
-    }
-    runCC {
-      val res = region {
-        collect {
-          var x by field(0)
-          if (flip()) x = 2
-          x
-        }
-      }
-      res shouldBe listOf(2, 2)
-    }
+    } shouldBe listOf(2, 2)
   }
 
   context(f: Fiber, a: Async)
@@ -90,22 +78,18 @@ class PaperTest {
   }
 
   @Test
-  fun ex4dot5dot4() = runTest {
-    runCC {
-      firstResult {
-        drunkFlip()
-      } shouldBe Some("Heads")
-    }
+  fun ex4dot5dot4() = runTestCC {
+    firstResult {
+      drunkFlip()
+    } shouldBe Some("Heads")
   }
 
   @Test
-  fun ex4dot5dot6() = runTest {
-    runCC {
-      region {
-        scheduler {
-          poll {
-            asyncExample()
-          }
+  fun ex4dot5dot6() = runTestCC {
+    region {
+      scheduler {
+        poll {
+          asyncExample()
         }
       }
     }
@@ -156,8 +140,8 @@ interface Async {
 context(async: Async)
 suspend fun <T> async(body: suspend () -> T): Async.Promise<T> = async.async(body)
 
-class Poll(state: StateScope, val fiber: Fiber) : Async, StateScope by state {
-  private class PromiseImpl<T>(val fiber: Fiber, val field: StateScope.OptionalField<T>) : Async.Promise<T> {
+class Poll(state: Region, val fiber: Fiber) : Async, Region by state {
+  private class PromiseImpl<T>(val fiber: Fiber, val field: Region.OptionalField<T>) : Async.Promise<T> {
     override tailrec suspend fun await(): T = field.getOrPut {
       fiber.suspend()
       return await()
@@ -171,35 +155,26 @@ class Poll(state: StateScope, val fiber: Fiber) : Async, StateScope by state {
   }
 }
 
-context(state: StateScope, fiber: Fiber)
+context(state: Region, fiber: Fiber)
 suspend inline fun poll(block: suspend Async.() -> Unit) =
   block(Poll(state, fiber))
 
 suspend fun <R> firstResult(block: suspend context(Amb, Exc) () -> R): Option<R> = backtrack(block)
 
-class Scheduler(prompt: StatefulPrompt<Unit, Queue>) : Fiber, StatefulHandler<Unit, Queue> by prompt {
-  override suspend fun exit(): Nothing = discard {}
-  override suspend fun fork(): Boolean = use { resume ->
-    value.add(0) { resume(false) }
-    value.add(0) { resume(true) }
-    run()
-  }
+suspend fun scheduler(block: suspend Fiber.() -> Unit) = buildListLocally<suspend () -> Unit> {
+  handle {
+    block(object : Fiber {
+      override suspend fun exit(): Nothing = discard {}
+      override suspend fun fork(): Boolean = use { resume ->
+        add { resume(false) }
+        add { resume(true) }
+        removeLastOrNull()?.invoke()
+      }
 
-  override suspend fun suspend() = use { resume ->
-    value.add { resume(Unit) }
-    run()
-  }
-}
-
-suspend fun scheduler(block: suspend Fiber.() -> Unit) = handleStateful(mutableListOf(), Queue::toMutableList) {
-  Scheduler(this).block()
-}
-
-private suspend fun StatefulHandler<Unit, Queue>.run() {
-  val q = value
-  if (q.isNotEmpty()) {
-    q.removeFirst()()
+      override suspend fun suspend() = use { resume ->
+        add(0) { resume(Unit) }
+        removeLastOrNull()?.invoke()
+      }
+    })
   }
 }
-
-typealias Queue = MutableList<suspend () -> Unit>

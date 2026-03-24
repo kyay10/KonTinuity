@@ -7,13 +7,15 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.jvm.internal.CloningUtils
 import kotlin.coroutines.jvm.internal.CoroutineStackFrame
 
-public interface MultishotContinuation<T> : Continuation<T> {
-  public fun copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T>
+// TODO make subclasses of BaseContinuationImpl instead so that `is` and `copy` are faster
+@PublishedApi
+internal interface MultishotContinuation<T> : Continuation<T> {
+  fun copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T>
 }
 
-public actual typealias StackTraceElement = java.lang.StackTraceElement
+internal actual typealias StackTraceElement = java.lang.StackTraceElement
 
-public actual typealias CoroutineStackFrame = CoroutineStackFrame
+internal actual typealias CoroutineStackFrame = CoroutineStackFrame
 
 @Suppress("UNCHECKED_CAST")
 internal actual val <N> Frames<*, N>.completion: Stack<N>?
