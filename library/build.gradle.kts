@@ -1,5 +1,7 @@
 @file:OptIn(ExperimentalWasmDsl::class)
 
+import kotlinx.benchmark.gradle.JsBenchmarkTarget
+import kotlinx.benchmark.gradle.JsBenchmarksExecutor
 import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
@@ -35,6 +37,7 @@ kotlin {
       "-opt-in=kotlin.contracts.ExperimentalContracts",
       "-Xwarning-level=DSL_MARKER_APPLIED_TO_WRONG_TARGET:disabled",
       "-Xwarning-level=ERROR_SUPPRESSION:disabled",
+      "-Xreturn-value-checker=full",
     )
   }
   explicitApi()
@@ -162,17 +165,30 @@ benchmark {
       this as JvmBenchmarkTarget
       jmhVersion = "1.37"
     }
-    register("jsTest")
+    register("jsTest") {
+      this as JsBenchmarkTarget
+      jsBenchmarksExecutor = JsBenchmarksExecutor.BuiltIn
+    }
     register("wasmJsTest")
     register("macosArm64Test")
   }
   configurations {
     register("skynet") {
       include(".*Skynet.*")
+      exclude(".*Coroutines.*")
       mode = "AverageTime"
-      warmups = 10
-      iterations = 10
-      iterationTime = 1
+      warmups = 1
+      iterations = 1
+      iterationTime = 10
+      iterationTimeUnit = TimeUnit.SECONDS.name
+      outputTimeUnit = TimeUnit.MILLISECONDS.name
+    }
+    register("skynetScheduler") {
+      include(".*Skynet.*Scheduler.*")
+      mode = "AverageTime"
+      warmups = 1
+      iterations = 1
+      iterationTime = 10
       iterationTimeUnit = TimeUnit.SECONDS.name
       outputTimeUnit = TimeUnit.MILLISECONDS.name
     }
@@ -187,8 +203,8 @@ benchmark {
     }
   }
 }
-// Plugin
 
+// Plugin
 tasks.withType<KotlinJvmCompile>().configureEach {
   doLast("multishotOptimize") {
     destinationDirectory.asFileTree
@@ -244,7 +260,7 @@ object MultishotTransform {
           name,
           signature,
           superName,
-          interfaces + "io/github/kyay10/kontinuity/MultishotContinuation"
+          interfaces + "io/github/kyay10/kontinuity/internal/MultishotContinuation"
         )
       }
 

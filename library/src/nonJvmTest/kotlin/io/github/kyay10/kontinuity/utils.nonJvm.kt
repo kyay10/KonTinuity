@@ -8,7 +8,7 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.startCoroutine
 
-val EmptyContinuation: Continuation<Any?> = Continuation(EmptyCoroutineContext) { result ->
+val EmptyContinuation: Continuation<Unit> = Continuation(EmptyCoroutineContext) { result ->
   result.getOrThrow()
 }
 

@@ -1,9 +1,7 @@
 package io.github.kyay10.kontinuity
 
-import arrow.core.raise.Raise
-import io.github.kyay10.kontinuity.effekt.HandlerPrompt
-import io.github.kyay10.kontinuity.effekt.discard
-import io.kotest.matchers.shouldBe
+import io.kotest.matchers.equals.beEqual
+import io.kotest.matchers.should
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
@@ -37,11 +35,6 @@ fun runTest(
   else coroutinesRunTest(context, timeout) { block() }
 }
 
-inline fun <Error, R> HandlerPrompt<R>.Raise(crossinline transform: (Error) -> R): Raise<Error> =
-  object : Raise<Error> {
-    override fun raise(r: Error): Nothing = discard { transform(r) }
-  }
-
 expect fun runSuspend(block: suspend () -> Unit)
 
 inline fun repeatIteratorless(
@@ -59,10 +52,17 @@ fun <T> flowOfWithDelay(vararg elements: T) = flowOf(*elements).onEach {
   delay(0.milliseconds)
 }
 
-suspend fun <R> assertNonTerminatingCC(timeout: Duration = 10.milliseconds, block: suspend () -> R) =
-  nonTerminatingCC(timeout, block) shouldBe null
+suspend fun <R> assertNonTerminatingCC(timeout: Duration = 10.milliseconds, block: suspend () -> R) {
+  nonTerminatingCC(timeout, block) shouldEq null
+}
 
 suspend fun <R> nonTerminatingCC(timeout: Duration = 10.milliseconds, block: suspend () -> R) =
   withContext(Dispatchers.Default.limitedParallelism(1)) {
     withTimeoutOrNull(timeout) { runCC(block) }
   }
+
+@Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
+@IgnorableReturnValue
+infix fun <@kotlin.internal.OnlyInputTypes T> T.shouldEq(expected: T) {
+  this should beEqual(expected)
+}

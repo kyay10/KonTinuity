@@ -1,6 +1,5 @@
 package io.github.kyay10.kontinuity
 
-import io.kotest.matchers.shouldBe
 import kotlin.test.Test
 
 class MonadTest {
@@ -15,10 +14,10 @@ class MonadTest {
     }
   }
 
-  suspend fun <S, A, B> Prompt<State<S, A>>.bind(state: State<S, B>): B = shiftOnce { k -> state.flatMap { k(it) } }
+  suspend fun <S, A, B> Handler<State<S, A>>.bind(state: State<S, B>): B = useOnce { k -> state.flatMap { k(it) } }
 
-  suspend fun <S, R> stateReset(body: suspend Prompt<State<S, R>>.() -> R): State<S, R> =
-    newReset { State.of(body(this)) }
+  suspend fun <S, R> stateReset(body: suspend Handler<State<S, R>>.() -> R): State<S, R> =
+    handle { State.of(body(this)) }
 
   @Test
   fun stateMonad() = runTestCC {
@@ -39,7 +38,7 @@ class MonadTest {
       bind(doubleCounter())
     }.run(CounterState(0))
 
-    result shouldBe incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }.run(CounterState(0))
+    result shouldEq incrementCounter().flatMap { doubleCounter().flatMap { doubleCounter() } }.run(CounterState(0))
   }
 
   class Reader<R, A>(val reader: suspend (R) -> A) {
@@ -53,16 +52,16 @@ class MonadTest {
     }
   }
 
-  suspend fun <R, A, B> Prompt<Reader<R, A>>.bind(reader: Reader<R, B>): B = shiftOnce { k -> reader.flatMap { k(it) } }
+  suspend fun <R, A, B> Handler<Reader<R, A>>.bind(reader: Reader<R, B>): B = useOnce { k -> reader.flatMap { k(it) } }
 
-  suspend fun <R, A> readerReset(body: suspend Prompt<Reader<R, A>>.() -> A): Reader<R, A> =
-    newReset { Reader.of(body(this)) }
+  suspend fun <R, A> readerReset(body: suspend Handler<Reader<R, A>>.() -> A): Reader<R, A> =
+    handle { Reader.of(body(this)) }
 
   @Test
   fun readerMonad() = runTestCC {
     val one = Reader { input: String -> input.toInt() }
     readerReset {
       bind(one) + bind(one)
-    }.reader("1") shouldBe 2
+    }.reader("1") shouldEq 2
   }
 }

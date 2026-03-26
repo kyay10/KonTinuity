@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity
 
 import app.cash.turbine.test
-import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flattenConcat
@@ -21,7 +20,7 @@ class FlowTest {
     result.test {
       awaitComplete()
     }
-    counter shouldBe 0
+    counter shouldEq 0
   }
 
   @Test
@@ -35,11 +34,11 @@ class FlowTest {
     }
     result.test {
       for (i in flow1.toList()) {
-        awaitItem() shouldBe i
+        awaitItem() shouldEq i
       }
       awaitComplete()
     }
-    counter shouldBe flow1.toList().size
+    counter shouldEq flow1.toList().size
   }
 
   @Test
@@ -52,7 +51,7 @@ class FlowTest {
     }
     result.test {
       for (i in flow.toList().filter { it != 2 }) {
-        awaitItem() shouldBe i
+        awaitItem() shouldEq i
       }
       awaitComplete()
     }
@@ -62,7 +61,7 @@ class FlowTest {
   fun multiple() = runTest {
     val flow1 = flowOfWithDelay(1, Int.MAX_VALUE, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3)
     val flow2 = flowOfWithDelay(2, 3, Int.MAX_VALUE, 4)
-    val flow3 = flowOfWithDelay(3, 4, 5)
+    val flow3 = flowOfWithDelay(Unit, Unit, Unit)
     var firstCounter = 0
     var secondCounter = 0
     var thirdCounter = 0
@@ -81,15 +80,15 @@ class FlowTest {
       for (i in flow1.toList().filter { it != Int.MAX_VALUE }) {
         for (j in flow2.toList().filter { it != Int.MAX_VALUE }) {
           flow3.toList().forEach { _ ->
-            awaitItem() shouldBe (i to j)
+            awaitItem() shouldEq (i to j)
           }
         }
       }
       awaitComplete()
     }
-    firstCounter shouldBe 3
-    secondCounter shouldBe 9
-    thirdCounter shouldBe 27
+    firstCounter shouldEq 3
+    secondCounter shouldEq 9
+    thirdCounter shouldEq 27
   }
 
   @OptIn(ExperimentalCoroutinesApi::class)
@@ -107,18 +106,18 @@ class FlowTest {
     }
     result.test {
       for (i in flow.flattenConcat().toList()) {
-        awaitItem() shouldBe i
+        awaitItem() shouldEq i
       }
       awaitComplete()
     }
-    innerCount shouldBe flow.toList().size
-    itemCount shouldBe flow.toList().sumOf { it.toList().size }
+    innerCount shouldEq flow.toList().size
+    itemCount shouldEq flow.toList().sumOf { it.toList().size }
   }
 
   @Test
   fun ifElse() = runTest {
     val flow = flowOfWithDelay(1, 2, 2, 3)
-    val twoElements = flowOfWithDelay(0, 0)
+    val twoElements = flowOfWithDelay(Unit, Unit)
     val result = runFlowCC {
       val x = flow.bind()
       if (x == 2) {
@@ -135,12 +134,12 @@ class FlowTest {
       for (i in flow.toList()) {
         if (i == 2) {
           twoElements.toList().forEach { _ ->
-            awaitItem() shouldBe "firstBranch"
+            awaitItem() shouldEq "firstBranch"
           }
         } else {
           twoElements.toList().forEach { _ ->
             twoElements.toList().forEach { _ ->
-              awaitItem() shouldBe "secondBranch"
+              awaitItem() shouldEq "secondBranch"
             }
           }
         }
@@ -152,14 +151,14 @@ class FlowTest {
   @Test
   fun forLoops() = runTest {
     val result = runFlowCC {
-      (1..10).forEachIteratorless { i ->
-        flowOfWithDelay(i, i).bind()
+      repeatIteratorless(10) {
+        flowOfWithDelay(Unit, Unit).bind()
       }
       0
     }
     result.test {
       repeat(1024) {
-        awaitItem() shouldBe 0
+        awaitItem() shouldEq 0
       }
       awaitComplete()
     }
@@ -173,7 +172,7 @@ class FlowTest {
     }
     result.test {
       for (i in numbers.permutations()) {
-        awaitItem() shouldBe i
+        awaitItem() shouldEq i
       }
       awaitComplete()
     }

@@ -1,7 +1,6 @@
 package io.github.kyay10.kontinuity
 
 import io.kotest.matchers.sequences.shouldContainExactly
-import io.kotest.matchers.shouldBe
 import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 
@@ -15,8 +14,8 @@ class ListTest {
       counter++
       item
     }
-    result shouldBe list
-    counter shouldBe 0
+    result shouldEq list
+    counter shouldEq 0
   }
 
   @Test
@@ -28,8 +27,8 @@ class ListTest {
       counter++
       item
     }
-    result shouldBe list
-    counter shouldBe list.size
+    result shouldEq list
+    counter shouldEq list.size
   }
 
   @Test
@@ -40,14 +39,14 @@ class ListTest {
       ensure(item != 2)
       item
     }
-    result shouldBe list.filter { it != 2 }
+    result shouldEq list.filter { it != 2 }
   }
 
   @Test
   fun multiple() = runTestCC {
     val list1 = listOf(1, Int.MAX_VALUE, 2, Int.MAX_VALUE, 3, Int.MAX_VALUE)
     val list2 = listOf(2, 3, Int.MAX_VALUE, 4, Int.MAX_VALUE)
-    val list3 = listOf(3, 4, 5)
+    val list3 = listOf(Unit, Unit, Unit)
     var noObservedCounter = 0
     var firstCounter = 0
     var secondCounter = 0
@@ -64,17 +63,17 @@ class ListTest {
       thirdCounter++
       first to second
     }
-    result shouldBe list1.filter { it != Int.MAX_VALUE }.flatMap { first ->
+    result shouldEq list1.filter { it != Int.MAX_VALUE }.flatMap { first ->
       list2.filter { it != Int.MAX_VALUE }.flatMap { second ->
         list3.map { _ ->
           first to second
         }
       }
     }
-    noObservedCounter shouldBe 1
-    firstCounter shouldBe 3
-    secondCounter shouldBe 9
-    thirdCounter shouldBe 27
+    noObservedCounter shouldEq 1
+    firstCounter shouldEq 3
+    secondCounter shouldEq 9
+    thirdCounter shouldEq 27
   }
 
   @Test
@@ -89,15 +88,15 @@ class ListTest {
       itemCount++
       item
     }
-    result shouldBe list.flatten()
-    innerCount shouldBe list.size
-    itemCount shouldBe list.sumOf { it.size }
+    result shouldEq list.flatten()
+    innerCount shouldEq list.size
+    itemCount shouldEq list.sumOf { it.size }
   }
 
   @Test
   fun ifElse() = runTestCC {
     val list = listOf(1, 2, 2, 3)
-    val twoElements = listOf(0, 0)
+    val twoElements = listOf(Unit, Unit)
     val result = runList {
       val x = list.bind()
       if (x == 2) {
@@ -110,7 +109,7 @@ class ListTest {
         "secondBranch"
       }
     }
-    result shouldBe list.flatMap {
+    result shouldEq list.flatMap {
       if (it == 2) twoElements.map { "firstBranch" } else twoElements.flatMap {
         twoElements.map { "secondBranch" }
       }
@@ -120,12 +119,10 @@ class ListTest {
   @Test
   fun forLoops() = runTestCC {
     val result = runList {
-      (1..10).forEachIteratorless { i ->
-        listOf(i, i).bind()
-      }
+      repeatIteratorless(10) { listOf(Unit, Unit).bind() }
       0
     }
-    result shouldBe List(1024) { 0 }
+    result shouldEq List(1024) { 0 }
   }
 
   @Test
@@ -135,20 +132,18 @@ class ListTest {
         choose(0, 1)
       }
     }
-    result.map { it.joinToString("").toInt(2) } shouldBe (0..255).toList()
+    result.map { it.joinToString("").toInt(2) } shouldEq (0..255).toList()
   }
 
   @Test
   fun allEightBitPatternsWithOnlyChange() = runTestCC {
     val result = buildString {
-      runList {
-        repeatIteratorless(8) {
-          append(choose(0, 1))
-        }
+      val _ = runList {
+        repeatIteratorless(8) { append(choose(0, 1)) }
         appendLine()
       }
     }.lines().drop(1).dropLast(1)
-    result shouldBe List(256) { it.toString(2).padStart(8, '0') }.zipWithNext { a, b ->
+    result shouldEq List(256) { it.toString(2).padStart(8, '0') }.zipWithNext { a, b ->
       b.removePrefix(a.commonPrefixWith(b))
     }
   }

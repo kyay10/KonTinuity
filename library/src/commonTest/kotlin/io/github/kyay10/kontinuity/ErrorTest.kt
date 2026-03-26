@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity
 
+import io.github.kyay10.kontinuity.internal.SEGMENT_ALREADY_USED
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.throwable.shouldHaveMessage
 import kotlin.test.Test
@@ -9,8 +10,8 @@ class ErrorTest {
   fun `multishot nested resumptions fail`() = runTest {
     shouldThrow<IllegalStateException> {
       runCC {
-        newReset {
-          shiftOnce { resume ->
+        handle {
+          useOnce { resume ->
             resume locally {
               resume(Unit)
             }
@@ -23,9 +24,9 @@ class ErrorTest {
   @Test
   fun `multishot fails`() = runTest {
     shouldThrow<IllegalStateException> {
-      runCC {
-        newReset {
-          shiftOnce { resume ->
+      runCC<Unit> {
+        handle {
+          useOnce { resume ->
             resume(Unit)
             resume(Unit)
           }

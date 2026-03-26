@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity
 
+import io.github.kyay10.kontinuity.internal.REENTRANT_NOT_SUPPORTED
 import io.kotest.assertions.throwables.shouldThrow
 import io.kotest.matchers.throwable.shouldHaveMessage
 import kotlin.test.Test
@@ -9,8 +10,8 @@ class ErrorMultishotTest {
   fun `nested resumptions fail`() = runTest {
     shouldThrow<IllegalStateException> {
       runCC {
-        newReset {
-          shift { resume ->
+        handle {
+          use { resume ->
             resume locally {
               resume(Unit)
             }

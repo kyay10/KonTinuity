@@ -15,10 +15,9 @@ suspend fun <T> List<T>.insert(element: T): PersistentList<T> {
 
 fun <T> List<T>.permutations(): Sequence<List<T>> = if (isEmpty()) sequenceOf(toPersistentList())
 else sequence {
-  this@permutations.tail().permutations().forEach { perm ->
+  tail().permutations().forEach { perm ->
     (0..perm.size).forEach { i ->
-      val newPerm = perm.toPersistentList()
-      yield(newPerm.add(i, this@permutations.first()))
+      yield(perm.toPersistentList().add(i, first()))
     }
   }
 }

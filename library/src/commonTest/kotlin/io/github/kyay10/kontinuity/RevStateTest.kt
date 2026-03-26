@@ -1,6 +1,5 @@
 package io.github.kyay10.kontinuity
 
-import io.kotest.matchers.shouldBe
 import kotlinx.coroutines.channels.Channel
 import kotlin.test.Test
 
@@ -22,18 +21,18 @@ class RevStateTest {
       doubleCounter()
       doubleCounter()
       incrementCounter()
-    }.first() shouldBe CounterState(4)
+    }.first() shouldEq CounterState(4)
   }
 }
 
-typealias RevState<S, R> = Prompt<Pair<suspend () -> S, R>>
+typealias RevState<S, R> = Handler<Pair<suspend () -> S, R>>
 
-suspend fun <S, R> RevState<S, R>.modify(f: suspend (S) -> S) = shiftOnce {
+suspend fun <S, R> RevState<S, R>.modify(f: suspend (S) -> S) = useOnce {
   val (s, r) = it(Unit)
   suspend { f(s()) } to r
 }
 
-suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = shiftOnce {
+suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = useOnce {
   val channel = Channel<suspend () -> S>()
   it {
     channel.receive()()
@@ -42,10 +41,10 @@ suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = shiftOnce {
   }
 }
 
-suspend fun <S, R> RevState<S, R>.set(value: S): Unit = shiftOnce {
+suspend fun <S, R> RevState<S, R>.set(value: S): Unit = useOnce {
   val (_, r) = it(Unit)
   suspend { value } to r
 }
 
 suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> =
-  newReset { suspend { value } to body() }
+  handle { suspend { value } to body() }

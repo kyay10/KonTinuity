@@ -15,7 +15,7 @@ publishing {
     // Provide artifacts information required by Maven Central
     pom {
       name.set("KonTinuity")
-      description.set("Provides fully-fledged multishot delimitied continuations in Kotlin with Coroutines")
+      description.set("Provides fully-fledged multishot delimited continuations in Kotlin with Coroutines")
       url.set("https://github.com/kyay10/kontinuity")
 
       licenses {
