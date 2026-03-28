@@ -12,7 +12,7 @@ import kotlin.coroutines.jvm.internal.CoroutineStackFrame
 // TODO make subclasses of BaseContinuationImpl instead so that `is` and `copy` are faster
 @PublishedApi
 internal interface MultishotContinuation<T> : Continuation<T> {
-  fun copy(completion: Continuation<*>, context: CoroutineContext): Continuation<T>
+  fun invokeCopied(completion: Continuation<*>, context: CoroutineContext, result: Result<T>): Any?
 }
 
 internal actual typealias StackTraceElement = StackTraceElement
@@ -52,9 +52,8 @@ private tailrec fun <T> copyDeclaredFields(
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun <S, N> Frames<S, N>.copy(completion: Stack<N>, context: SplitCont<*>): Continuation<S> =
-  if (frames is MultishotContinuation) frames.copy(completion.frames, context)
-  else (UNSAFE.allocateInstance(javaClass) as Continuation<S>).apply {
+private fun <S, N> Frames<S, N>.reflectiveCopy(completion: Stack<N>, context: SplitCont<*>): Continuation<S> =
+  (UNSAFE.allocateInstance(javaClass) as Continuation<S>).apply {
     copyDeclaredFields(frames, this, javaClass)
     CloningUtils.initialize(this, completion.frames, context)
   }
@@ -64,4 +63,8 @@ internal actual fun <S, N> Frames<S, N>.invokeCopied(
   completion: Stack<N>,
   context: SplitCont<*>,
   result: Result<S>
-): N = CloningUtils.invokeSuspend(copy(completion, context), result.getOrElse { CloningUtils.createFailure(it) }) as N
+): N =
+  if (frames is MultishotContinuation) frames.invokeCopied(completion.frames, context, result) as N
+  else CloningUtils.invokeSuspend(
+    reflectiveCopy(completion, context),
+    result.getOrElse { CloningUtils.createFailure(it) }) as N

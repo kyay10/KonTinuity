@@ -217,14 +217,21 @@ tasks.withType<KotlinJvmCompile>().configureEach {
 
 object MultishotTransform {
   private const val COROUTINES_PKG = "kotlin/coroutines/jvm/internal"
+  private const val BASE_CONTINUATION_IMPL = "$COROUTINES_PKG/BaseContinuationImpl"
   private const val CONTINUATION_IMPL = "$COROUTINES_PKG/ContinuationImpl"
   private val lambdaClasses = setOf("$COROUTINES_PKG/SuspendLambda", "$COROUTINES_PKG/RestrictedSuspendLambda")
-  private val continuationClasses = setOf(CONTINUATION_IMPL, "$COROUTINES_PKG/BaseContinuationImpl") + lambdaClasses
+  private val continuationClasses = setOf(CONTINUATION_IMPL, BASE_CONTINUATION_IMPL) + lambdaClasses
 
-  private val copyDescriptor = Type.getMethodDescriptor(
+  private val invokeCopiedDescriptor = Type.getMethodDescriptor(
+    Type.getType(Any::class.java),
     Type.getType(Continuation::class.java),
-    Type.getType(Continuation::class.java),
-    Type.getType(CoroutineContext::class.java)
+    Type.getType(CoroutineContext::class.java),
+    Type.getType(Any::class.java),
+  )
+
+  private val invokeSuspendDescriptor: String = Type.getMethodDescriptor(
+    Type.getType(Any::class.java),
+    Type.getType(Any::class.java),
   )
 
   private val continuationImplConstructor: String = Type.getMethodDescriptor(
@@ -309,10 +316,17 @@ object MultishotTransform {
           visitMaxs(3, 4)
           visitEnd()
         }
-        // add copy method
-        visitMethod(ACC_PUBLIC or ACC_SYNTHETIC or ACC_FINAL, "copy", copyDescriptor, null, null).apply {
+        // add invokeCopied method
+        visitMethod(
+          ACC_PUBLIC or ACC_SYNTHETIC or ACC_FINAL,
+          "invokeCopied",
+          invokeCopiedDescriptor,
+          null,
+          null
+        ).apply {
           visitParameter("completion", 0)
           visitParameter("context", 0)
+          visitParameter("result", 0)
           visitCode()
           // create new instance of this class
           visitTypeInsn(NEW, classNode.name)
@@ -322,8 +336,10 @@ object MultishotTransform {
           visitVarInsn(ALOAD, 1)
           visitVarInsn(ALOAD, 2)
           visitMethodInsn(INVOKESPECIAL, classNode.name, "<init>", copyConstructorDescriptor, false)
+          visitVarInsn(ALOAD, 3)
+          visitMethodInsn(INVOKEVIRTUAL, classNode.name, "invokeSuspend", invokeSuspendDescriptor, false)
           visitInsn(ARETURN)
-          visitMaxs(5, 3)
+          visitMaxs(5, 4)
           visitEnd()
         }
         super.visitEnd()
