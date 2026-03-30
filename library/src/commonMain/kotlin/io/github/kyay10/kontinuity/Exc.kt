@@ -32,10 +32,9 @@ public suspend fun ensure(condition: Boolean) {
 
 @RaiseDSL
 context(_: Exc)
-public suspend fun <T> T.bind(): T & Any {
+public suspend inline fun <T> T.bind(): T & Any {
   contract { returns() implies (this@bind != null) }
-  ensure(this != null)
-  return this
+  return this ?: raise()
 }
 
 @get:JvmName("optionExc")

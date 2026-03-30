@@ -165,7 +165,7 @@ class ExactInfTest {
         }
       }
       yieldToTrampoline()
-      loop(1_000_0)
+      loop(10_000)
     }
     result shouldContainExactlyInAnyOrder listOf(
       Probable(0.5, Value.Leaf(true)),

@@ -6,7 +6,7 @@ import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.jvm.internal.CloningUtils
+import kotlin.coroutines.jvm.internal.*
 import kotlin.coroutines.jvm.internal.CoroutineStackFrame
 
 // TODO make subclasses of BaseContinuationImpl instead so that `is` and `copy` are faster
@@ -53,8 +53,8 @@ private tailrec fun <T> copyDeclaredFields(
 
 @Suppress("UNCHECKED_CAST")
 private fun <S, N> Frames<S, N>.reflectiveCopy(completion: Stack<N>, context: SplitCont<*>): Continuation<S> =
-  (UNSAFE.allocateInstance(javaClass) as Continuation<S>).apply {
-    copyDeclaredFields(frames, this, javaClass)
+  (UNSAFE.allocateInstance(frames.javaClass) as Continuation<S>).apply {
+    copyDeclaredFields(frames, this, frames.javaClass)
     CloningUtils.initialize(this, completion.frames, context)
   }
 
@@ -63,8 +63,12 @@ internal actual fun <S, N> Frames<S, N>.invokeCopied(
   completion: Stack<N>,
   context: SplitCont<*>,
   result: Result<S>
-): N =
-  if (frames is MultishotContinuation) frames.invokeCopied(completion.frames, context, result) as N
-  else CloningUtils.invokeSuspend(
+): N = when (frames) {
+  is MultishotContinuationImpl -> frames.invokeCopied(completion.frames, context, result) as N
+  is MultishotSuspendLambda -> frames.invokeCopied(completion.frames, context, result) as N
+  is MultishotRestrictedContinuationImpl -> frames.invokeCopied(completion.frames, context, result) as N
+  is MultishotRestrictedSuspendLambda -> frames.invokeCopied(completion.frames, context, result) as N
+  else -> CloningUtils.invokeSuspend(
     reflectiveCopy(completion, context),
     result.getOrElse { CloningUtils.createFailure(it) }) as N
+}

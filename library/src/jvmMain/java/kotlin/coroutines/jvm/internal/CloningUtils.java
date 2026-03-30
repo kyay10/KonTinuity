@@ -8,14 +8,9 @@ import org.jetbrains.annotations.Nullable;
 
 import java.lang.reflect.Field;
 
-public class CloningUtils extends ContinuationImpl {
+public abstract class CloningUtils extends ContinuationImpl {
     private CloningUtils() {
         super(null);
-    }
-
-    @Override
-    protected @Nullable Object invokeSuspend(@NotNull Object o) {
-        return null;
     }
 
     public static @Nullable Continuation<?> getParentContinuation(@NotNull Continuation<?> cont) {

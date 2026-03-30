@@ -6,11 +6,8 @@ import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
-import org.jetbrains.org.objectweb.asm.ClassReader
-import org.jetbrains.org.objectweb.asm.ClassVisitor
-import org.jetbrains.org.objectweb.asm.ClassWriter
+import org.jetbrains.org.objectweb.asm.*
 import org.jetbrains.org.objectweb.asm.Opcodes.*
-import org.jetbrains.org.objectweb.asm.Type
 import org.jetbrains.org.objectweb.asm.tree.ClassNode
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
@@ -217,10 +214,15 @@ tasks.withType<KotlinJvmCompile>().configureEach {
 
 object MultishotTransform {
   private const val COROUTINES_PKG = "kotlin/coroutines/jvm/internal"
-  private const val BASE_CONTINUATION_IMPL = "$COROUTINES_PKG/BaseContinuationImpl"
   private const val CONTINUATION_IMPL = "$COROUTINES_PKG/ContinuationImpl"
-  private val lambdaClasses = setOf("$COROUTINES_PKG/SuspendLambda", "$COROUTINES_PKG/RestrictedSuspendLambda")
-  private val continuationClasses = setOf(CONTINUATION_IMPL, BASE_CONTINUATION_IMPL) + lambdaClasses
+  private val lambdaClasses = mapOf(
+    "$COROUTINES_PKG/SuspendLambda" to "$COROUTINES_PKG/MultishotSuspendLambda",
+    "$COROUTINES_PKG/RestrictedSuspendLambda" to "$COROUTINES_PKG/MultishotRestrictedSuspendLambda",
+  )
+  private val continuationClasses = lambdaClasses + mapOf(
+    CONTINUATION_IMPL to "$COROUTINES_PKG/MultishotContinuationImpl",
+    "$COROUTINES_PKG/RestrictedContinuationImpl" to "$COROUTINES_PKG/MultishotRestrictedContinuationImpl"
+  )
 
   private val invokeCopiedDescriptor = Type.getMethodDescriptor(
     Type.getType(Any::class.java),
@@ -243,7 +245,8 @@ object MultishotTransform {
   fun transform(bytes: ByteArray): ByteArray? {
     val classNode = ClassNode()
     val classReader = ClassReader(bytes).apply { accept(classNode, 0) }
-    if (classNode.superName !in continuationClasses) return null
+    if (classNode.name in continuationClasses.values) return null
+    val newSuper = continuationClasses[classNode.superName] ?: return null
     if (classNode.methods.any { it.name == $$$"invokeSuspend$$forInline" }) return null
     val constructor = classNode.methods.single { it.name == "<init>" }
     val fields = classNode.fields.filter { it.access and ACC_STATIC == 0 }
@@ -259,17 +262,37 @@ object MultishotTransform {
         superName: String,
         interfaces: Array<out String?>
       ) {
-        @Suppress("UNCHECKED_CAST")
-        interfaces as Array<String?>
         super.visit(
           version,
           access,
           name,
           signature,
-          superName,
-          interfaces + "io/github/kyay10/kontinuity/internal/MultishotContinuation"
+          newSuper,
+          interfaces,
         )
       }
+
+      override fun visitMethod(
+        access: Int,
+        name: String?,
+        descriptor: String?,
+        signature: String?,
+        exceptions: Array<out String?>?
+      ): MethodVisitor =
+        object : MethodVisitor(ASM5, super.visitMethod(access, name, descriptor, signature, exceptions)) {
+          override fun visitMethodInsn(
+            opcode: Int,
+            owner: String?,
+            name: String?,
+            descriptor: String?,
+            isInterface: Boolean
+          ) = super.visitMethodInsn(
+            opcode,
+            continuationClasses[owner]?.takeIf { name == "<init>" } ?: owner,
+            name,
+            descriptor,
+            isInterface)
+        }
 
       override fun visitEnd() {
         // No chance that this'll be a pre-existing constructor
