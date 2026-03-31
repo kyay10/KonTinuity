@@ -2,8 +2,7 @@ package io.github.kyay10.kontinuity
 
 import kotlinx.collections.immutable.*
 
-public class ListBuilder<T>(private val reader: Reader<MutableList<T>>, private val clear: () -> Unit) :
-  MutableList<T> {
+public open class ListBuilder<T> internal constructor(private val reader: ForkReader<MutableList<T>>) : MutableList<T> {
   public val list: MutableList<T> get() = reader.value
   public val readOnly: List<T> get() = reader.unsafeValue
   override fun add(element: T): Boolean = list.add(element)
@@ -12,9 +11,7 @@ public class ListBuilder<T>(private val reader: Reader<MutableList<T>>, private 
   override fun addAll(index: Int, elements: Collection<T>): Boolean = list.addAll(index, elements)
   override fun removeAll(elements: Collection<T>): Boolean = list.removeAll(elements)
   override fun retainAll(elements: Collection<T>): Boolean = list.retainAll(elements)
-  override fun clear() {
-    clear.invoke()
-  }
+  override fun clear(): Unit = list.clear()
 
   override fun set(index: Int, element: T): T = list.set(index, element)
   override fun add(index: Int, element: T) {
@@ -42,7 +39,11 @@ public class ListBuilder<T>(private val reader: Reader<MutableList<T>>, private 
 
 public suspend fun <T, R> runListBuilder(body: suspend ListBuilder<T>.() -> R): R =
   runState(persistentListOf<T>().builder(), { build().builder() }) {
-    body(ListBuilder(this) { value = persistentListOf<T>().builder() })
+    body(object : ListBuilder<T>(this) {
+      override fun clear() {
+        value = persistentListOf<T>().builder()
+      }
+    })
   }
 
 public suspend fun <T> buildListLocally(body: suspend ListBuilder<T>.() -> Unit): PersistentList<T> =
@@ -86,7 +87,8 @@ private class QueueAsTwoStacks<T>(private val front: MutableList<T>, private val
   }
 }
 
-public class MapBuilder<K, V>(private val reader: Reader<MutableMap<K, V>>) : MutableMap<K, V> {
+public class MapBuilder<K, V> internal constructor(private val reader: ForkReader<MutableMap<K, V>>) :
+  MutableMap<K, V> {
   public val map: MutableMap<K, V> get() = reader.value
   public val readOnly: Map<K, V> get() = reader.unsafeValue
   override fun clear() {

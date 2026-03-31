@@ -38,11 +38,11 @@ public value class SubContFinal<in T, out R> @PublishedApi internal constructor(
 }
 
 @JvmInline
-public value class Handler<Start> internal constructor(internal val prompt: PromptCont<Start>)
+public value class Handler<Start> internal constructor(internal val prompt: Prompt<Start>)
 
 @ResetDsl
 public suspend fun <R> handle(body: suspend Handler<R>.() -> R): R = suspendCoroutineHere { stack, stackRest ->
-  val prompt = PromptCont(stack, stackRest)
+  val prompt = Prompt(stack, stackRest)
   body.startCoroutineUninterceptedOrReturn(Handler(prompt), prompt)
 }
 
@@ -102,6 +102,11 @@ internal inline fun <R> runCatching(block: () -> R, onSuspend: () -> Nothing): R
 public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine { c ->
   body.startCoroutine(EmptyCont(c, Trampoline(c.context)))
 }
+
+public suspend fun <R> Finalize<*>.finalize(body: suspend () -> R): R =
+  suspendCoroutineHere { stack, stackRest ->
+    body.startCoroutineUninterceptedOrReturn(Finalizer(stack, stackRest, this))
+  }
 
 context(p: Handler<P>)
 @PublishedApi

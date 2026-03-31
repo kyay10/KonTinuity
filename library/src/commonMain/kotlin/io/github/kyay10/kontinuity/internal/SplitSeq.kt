@@ -80,7 +80,7 @@ internal value class Frames<in Start, Next> private constructor(val frames: Cont
   }
 }
 
-internal class PromptCont<Start>(
+internal class Prompt<Start>(
   override var frames: Stack<Start>,
   rest: SplitCont<*>,
 ) : Marker<Start>(rest.trampoline) {
@@ -89,32 +89,15 @@ internal class PromptCont<Start>(
   override fun underflow(): Stack<Start> = super.underflow().also { rest = null }
 }
 
-internal class StateCont<Start, S>(
-  private val fork: S.() -> S,
-  var state: S,
-  override val frames: Stack<Start>,
-  val rest: SplitCont<*>,
-) : Marker<Start>(rest.trampoline) {
-  class ForkOnFirstRead(state: Any?) {
-    val state: Any? = if (state is ForkOnFirstRead) state.state else state
-  }
+internal class Finalizer<Start, S>(
+  override val frames: Stack<Start>, val rest: SplitCont<*>, val clauses: Finalize<S>
+) : Marker<Start>(rest.trampoline)
 
-  @Suppress("UNCHECKED_CAST")
-  var value: S
-    get() {
-      val state = state
-      return if (state is ForkOnFirstRead) fork(state.state as S).also { value = it } else state
-    }
-    set(value) {
-      state = value
-    }
-
-  @Suppress("UNCHECKED_CAST")
-  val unsafeValue: S
-    get() {
-      val state = state
-      return if (state is ForkOnFirstRead) state.state as S else state
-    }
+public abstract class Finalize<S> {
+  protected abstract fun onSuspend(): S
+  protected abstract fun onResume(state: S, isFinal: Boolean)
+  internal fun suspend(): S = onSuspend()
+  internal fun resume(state: S, isFinal: Boolean) = onResume(state, isFinal)
 }
 
 internal sealed class Marker<in Start>(trampoline: Trampoline) : SplitCont<Start>(trampoline) {
@@ -141,7 +124,7 @@ internal val SEGMENT_USED = arrayOfNulls<Any?>(0)
 
 @PublishedApi
 internal class Segment<Start, End>(
-  val delimiter: PromptCont<End>,
+  val delimiter: Prompt<End>,
   val start: Stack<Start>,
   val startRest: Marker<*>,
 ) : SplitContOrSegment {

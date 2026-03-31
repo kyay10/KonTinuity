@@ -1,31 +1,61 @@
 package io.github.kyay10.kontinuity
 
-import io.github.kyay10.kontinuity.internal.StateCont
-import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
-import kotlin.jvm.JvmInline
+import io.github.kyay10.kontinuity.internal.Finalize
 
-@JvmInline
-public value class State<S> internal constructor(private val reader: StateCont<*, S>) {
+public interface State<S> {
   public var value: S
-    get() = reader.value
-    set(value) {
-      reader.value = value
-    }
-
-  public val unsafeValue: S get() = reader.unsafeValue
 }
 
-public suspend fun <T, R> runState(value: T, fork: T.() -> T = { this }, body: suspend State<T>.() -> R): R =
-  suspendCoroutineHere { stack, stackRest ->
-    val reader = StateCont(fork, value, stack, stackRest)
-    body.startCoroutineUninterceptedOrReturn(State(reader), reader)
+public class ForkState<S> internal constructor(private var state: S, private val fork: S.() -> S) : State<S>,
+  Finalize<S>() {
+  private class ForkOnFirstRead(val state: Any?)
+
+  override fun onSuspend(): S = state
+
+  @Suppress("UNCHECKED_CAST")
+  override fun onResume(state: S, isFinal: Boolean) {
+    this.state = if (isFinal || state is ForkOnFirstRead) state else ForkOnFirstRead(state) as S
   }
 
+  @Suppress("UNCHECKED_CAST")
+  private inline fun valueOrElse(onFork: S.() -> S): S =
+    state.let { if (it is ForkOnFirstRead) onFork(it.state as S) else it }
+
+  override var value: S
+    get() = valueOrElse { fork().also { value = it } }
+    set(value) {
+      state = value
+    }
+
+  public val unsafeValue: S
+    get() = valueOrElse { this }
+}
+
+private class SimpleState<S>(override var value: S) : State<S>, Finalize<S>() {
+  override fun onSuspend(): S = value
+
+  @Suppress("UNCHECKED_CAST")
+  override fun onResume(state: S, isFinal: Boolean) {
+    value = state
+  }
+}
+
+public suspend fun <T, R> runState(value: T, fork: T.() -> T, body: suspend ForkState<T>.() -> R): R =
+  with(ForkState(value, fork)) { finalize { body() } }
+
+public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R =
+  with(SimpleState(value)) { finalize { body() } }
+
 public typealias Reader<S> = State<out S>
+public typealias ForkReader<S> = ForkState<out S>
 
 @ResetDsl
-public suspend fun <T, R> runReader(value: T, fork: T.() -> T = { this }, body: suspend Reader<T>.() -> R): R =
+public suspend fun <T, R> runReader(value: T, fork: T.() -> T, body: suspend ForkReader<T>.() -> R): R =
   runState(value, fork, body)
+
+@ResetDsl
+public suspend fun <T, R> runReader(value: T, body: suspend Reader<T>.() -> R): R =
+  runState(value, body)
 
 public interface Stateful<S : Stateful<S>> {
   public fun fork(): S
