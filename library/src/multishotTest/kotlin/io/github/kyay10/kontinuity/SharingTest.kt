@@ -179,7 +179,7 @@ private inline fun <A> memo(crossinline block: suspend () -> A): Producer<A> {
 }
 
 suspend fun <R> sharingHonest(block: suspend context(Sharing) () -> R): R =
-  listRegion {
+  intMapRegion {
     block(object : Sharing {
       override fun <A> share(block: Producer<A>): Producer<A> = memoHonest { block().shareArgs() }
     })
