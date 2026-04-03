@@ -10,14 +10,12 @@ private const val SMALL_DATA_BUFFER_SIZE = 6
 
 internal expect val <N> Frames<*, N>.completion: Stack<N>?
 
-internal expect fun <S, N> Frames<S, N>.invokeCopied(
-  completion: Stack<N>,
-  context: SplitCont<*>,
-  result: Result<S>
-): N
+internal expect fun <S, N> Frames<S, N>.invokeCopied(completion: Stack<N>, context: SplitCont<*>, result: Result<S>): N
 
-private fun <Start, End> Under<Start, End>.underflowCopied() =
-  captured.prependTo(stack, rest)
+private fun <Start, End> Under<Start, End>.underflowCopied(): Stack<Start> {
+  val captured = captured
+  return captured.start.also { captured.reattach(false, stack, rest) }
+}
 
 internal actual fun <Start> Stack<Start>.copy(rest: Marker<*, *>): Stack<Start> = Stack(Copied(this, rest))
 
@@ -33,11 +31,7 @@ internal class Copied<Start>(stack: Stack<Start>, val rest: Marker<*, *>) : Spli
     val <S> Stack<S>.unwrapCopied get(): Stack<S> = (frames as? Copied)?.stack ?: this
 
     // Precondition: next.rest === rest
-    tailrec fun <Start, Next> Frames<Start, Next>.resumeCopied(
-      param: Result<Start>,
-      next: Copied<*>,
-      rest: Marker<*, *>,
-    ) {
+    tailrec fun <Start, N> Frames<Start, N>.resumeCopied(param: Result<Start>, next: Copied<*>, rest: Marker<*, *>) {
       when (frames) {
         is Under<Start, *> -> {
           next.stack = Stack(CompletedContinuation)
@@ -63,7 +57,7 @@ internal class Copied<Start>(stack: Stack<Start>, val rest: Marker<*, *>) : Spli
         else underflow.resumeWith(outcome)
       }
       @Suppress("UNCHECKED_CAST")
-      next as Copied<Next>
+      next as Copied<N>
       // Optimized by only setting it upon suspension.
       // This is safe only if no one accesses cont in between
       // That seems to be the case due to trampolining.
@@ -95,7 +89,7 @@ internal actual fun <Start, End> Segment<Start, End>.prependToFinal(stack: Stack
   start.also { reattach(true, stack, rest) }
 
 internal fun <Start, End> Segment<Start, End>.prependTo(stack: Stack<End>, rest: SplitCont<*>) =
-  start.also { reattach(false, stack, rest) }
+  start.copy(startRest).also { reattach(false, stack, rest) }
 
 private fun Segment<*, *>.collectValues() {
   val startRest = startRest
