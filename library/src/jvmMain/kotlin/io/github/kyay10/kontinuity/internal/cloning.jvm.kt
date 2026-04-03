@@ -9,7 +9,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.jvm.internal.*
 import kotlin.coroutines.jvm.internal.CoroutineStackFrame
 
-// TODO make subclasses of BaseContinuationImpl instead so that `is` and `copy` are faster
 @PublishedApi
 internal interface MultishotContinuation<T> : Continuation<T> {
   fun invokeCopied(completion: Continuation<*>, context: CoroutineContext, result: Result<T>): Any?

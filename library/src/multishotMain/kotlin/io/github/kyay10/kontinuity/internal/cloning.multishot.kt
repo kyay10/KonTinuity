@@ -2,9 +2,7 @@ package io.github.kyay10.kontinuity.internal
 
 import io.github.kyay10.kontinuity.internal.Frames.Under
 import io.github.kyay10.kontinuity.runCatching
-import kotlin.coroutines.Continuation
 
-private const val MODIFIED_CONCURRENTLY = " was likely modified concurrently: found "
 private const val NOT_A_COMPILER_CONTINUATION = "Not a compiler generated continuation "
 private const val HANDLER_ALREADY_RESUMED = "Handler was already resumed, so it cannot be invalidated"
 
@@ -19,36 +17,37 @@ internal expect fun <S, N> Frames<S, N>.invokeCopied(
 ): N
 
 private fun <Start, End> Under<Start, End>.underflowCopied() =
-  captured.prependTo(frames, rest)
+  captured.prependTo(stack, rest)
 
-internal fun <Start> Stack<Start>.copy(rest: SplitCont<*>): Stack<Start> = Stack(Copied(this, rest))
+internal actual fun <Start> Stack<Start>.copy(rest: Marker<*, *>): Stack<Start> = Stack(Copied(this, rest))
 
-internal class Copied<Start>(frames: Stack<Start>, val rest: SplitCont<*>) : SplitSeq<Start>() {
-  private var frames: Stack<Start> = frames.unwrapCopied
+internal class Copied<Start>(stack: Stack<Start>, val rest: Marker<*, *>) : SplitSeq<Start>() {
+  private var stack: Stack<Start> = stack.unwrapCopied
 
   override val context get() = rest
-  override val callerFrame: CoroutineStackFrame? get() = frames.frames as? CoroutineStackFrame
+  override val callerFrame: CoroutineStackFrame? get() = stack.frames as? CoroutineStackFrame
 
-  override fun resume(result: Result<Start>) = frames.resumeCopied(result, this, rest)
+  override fun resume(result: Result<Start>) = stack.resumeCopied(result, this, rest)
 
   companion object {
-    val <S> Stack<S>.unwrapCopied get(): Stack<S> = (frames as? Copied)?.frames ?: this
+    val <S> Stack<S>.unwrapCopied get(): Stack<S> = (frames as? Copied)?.stack ?: this
 
+    // Precondition: next.rest === rest
     tailrec fun <Start, Next> Frames<Start, Next>.resumeCopied(
       param: Result<Start>,
       next: Copied<*>,
-      rest: SplitCont<*>
+      rest: Marker<*, *>,
     ) {
       when (frames) {
         is Under<Start, *> -> {
-          next.frames = Stack(CompletedContinuation)
+          next.stack = Stack(CompletedContinuation)
           val underflow = frames.underflowCopied()
           val rest = frames.captured.startRest
           return underflow.resumeCopied(param, Copied(underflow, rest), rest)
         }
 
         is Finalizer<Start, *> -> {
-          next.frames = Stack(CompletedContinuation)
+          next.stack = Stack(CompletedContinuation)
           val underflow = frames.underflow()
           val rest = frames.rest
           return underflow.resumeCopied(param, Copied(underflow, rest), rest)
@@ -56,11 +55,11 @@ internal class Copied<Start>(frames: Stack<Start>, val rest: SplitCont<*>) : Spl
       }
       val completion = completion?.unwrapCopied ?: error("$NOT_A_COMPILER_CONTINUATION$this")
       if (completion.frames is Prompt) { // completion.frames === rest seems to always hold
-        next.frames = Stack(CompletedContinuation)
+        next.stack = Stack(CompletedContinuation)
         val outcome = runCatching({ invokeCopied(completion, completion.frames, param) }) { return }
         // inlined version of completion.resumeWith(outcome)
         val underflow = completion.frames.underflow().frames
-        return if (underflow is Copied) underflow.frames.resumeCopied(outcome, underflow, underflow.rest)
+        return if (underflow is Copied) underflow.stack.resumeCopied(outcome, underflow, underflow.rest)
         else underflow.resumeWith(outcome)
       }
       @Suppress("UNCHECKED_CAST")
@@ -71,7 +70,7 @@ internal class Copied<Start>(frames: Stack<Start>, val rest: SplitCont<*>) : Spl
       // Note to self: if any weird behavior happens, uncomment this line
       //next.frames = completion
       val outcome = runCatching({ invokeCopied(Stack(next), rest, param) }) {
-        next.frames = completion
+        next.stack = completion
         return
       }
       completion.resumeCopied(outcome, next, rest)
@@ -80,7 +79,7 @@ internal class Copied<Start>(frames: Stack<Start>, val rest: SplitCont<*>) : Spl
 }
 
 @Suppress("ARRAY_EQUALITY_OPERATOR_CAN_BE_REPLACED_WITH_CONTENT_EQUALS")
-private fun <Start, End> Segment<Start, End>.reattach(isFinal: Boolean, stack: Stack<End>, stackRest: SplitCont<*>) {
+private fun <Start, End> Segment<Start, End>.reattach(isFinal: Boolean, stack: Stack<End>, rest: SplitCont<*>) {
   when (val values = values) {
     SEGMENT_USED -> error(SEGMENT_ALREADY_USED)
     null -> if (!isFinal) collectValues()
@@ -88,96 +87,70 @@ private fun <Start, End> Segment<Start, End>.reattach(isFinal: Boolean, stack: S
   }
   if (isFinal) values = SEGMENT_USED
   if (delimiter.rest !== this) delimiter.invalidateAndCollectValues()
-  delimiter.frames = stack
-  delimiter.rest = stackRest
+  delimiter.stack = stack
+  delimiter.rest = rest
 }
 
-internal actual fun <Start, End> Segment<Start, End>.prependToFinal(stack: Stack<End>, stackRest: SplitCont<*>) =
-  start.also { reattach(true, stack, stackRest) }
+internal actual fun <Start, End> Segment<Start, End>.prependToFinal(stack: Stack<End>, rest: SplitCont<*>) =
+  start.also { reattach(true, stack, rest) }
 
-internal fun <Start, End> Segment<Start, End>.prependTo(stack: Stack<End>, stackRest: SplitCont<*>) =
-  start.also { reattach(false, stack, stackRest) }
+internal fun <Start, End> Segment<Start, End>.prependTo(stack: Stack<End>, rest: SplitCont<*>) =
+  start.also { reattach(false, stack, rest) }
 
 private fun Segment<*, *>.collectValues() {
   values = startRest.invalidate()
 }
 
 // TODO don't immediately revalidate if unnecessary
-internal fun Marker<*>.invalidateAndCollectValues() {
-  findSegment()?.run { if (values == null) collectValues() }
+internal fun Marker<*, *>.invalidateAndCollectValues() {
+  findSegment { _, _ -> }?.run { if (values == null) collectValues() }
 }
 
-private inline fun Marker<*>.findSegment(
-  onFinalizer: (current: Finalizer<*, *>) -> Unit = {},
-  onPrompt: (current: Prompt<*>, rest: SplitCont<*>) -> Unit = { _, _ -> },
-): Segment<*, *>? {
-  var current: Marker<*> = this
+private inline fun Marker<*, *>.findSegment(action: (current: Marker<*, *>, rest: Marker<*, *>) -> Unit): Segment<*, *>? {
+  var current: Marker<*, *> = this
   while (true) {
     current = when (current) {
-      is Finalizer<*, *> -> current.rest.also { onFinalizer(current) }
-      is Prompt -> current.rest.ifSegment { return it }.also { onPrompt(current, it) }
-    }.errorIfEmptyCont()
+      is Finalizer<*, *> -> current.rest.also { action(current, it) }
+      is Prompt -> {
+        val rest = current.rest.ifSegment { return it }
+        rest as? Marker<*, *> ?: error(REENTRANT_NOT_SUPPORTED)
+        rest.also { action(current, it) }
+      }
+    }
   }
 }
 
 // TODO control immediate revalidation with a parameter
-private fun Marker<*>.invalidate(): Array<Any?> {
+private fun Marker<*, *>.invalidate(): Array<Any?> {
   var buf = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE)
   var size = 0
-  val _ = findSegment(onFinalizer = {
-    val state = it.suspendAndResume()
-    if (buf.size < size + 1) buf = buf.copyOf(buf.size * 2)
-    buf[size++] = state
-  }) { prompt, rest ->
-    val frames = prompt.invalidateFrames(rest).frames
+  val _ = findSegment { current, rest ->
+    val state = current.suspendAndResume(rest)
     if (buf.size < size + 2) buf = buf.copyOf(buf.size * 2)
-    buf[size++] = frames
+    buf[size++] = state
     buf[size++] = rest
   } ?: error(HANDLER_ALREADY_RESUMED)
   return buf
 }
 
-private fun <Start> Prompt<Start>.invalidateFrames(rest: SplitCont<*>) = frames.also { frames = it.copy(rest) }
-
 @Suppress("UNCHECKED_CAST")
-private fun <Start, S> Finalizer<Start, S>.suspendAndResume() = with(clauses) {
-  suspend().also { resume(it, isFinal = false) }
-}
+private fun <Start, S> Marker<Start, S>.suspendAndResume(rest: Marker<*, *>) =
+  onSuspend().also { onResume(it, rest, isFinal = false) }
 
-private tailrec fun Marker<*>.revalidate(
+private tailrec fun <S> Marker<*, S>.revalidate(
   values: Array<Any?>,
   isFinal: Boolean,
   delimiter: Prompt<*>,
   index: Int = 0
 ) {
   if (this === delimiter) return
-  val newIndex: Int
-  when (this) {
-    is Prompt -> {
-      newIndex = index + 2
-      onResume(values, isFinal, index)
-      rest.ifSegment { error("$this$MODIFIED_CONCURRENTLY$it") }
-    }
-
-    is Finalizer<*, *> -> {
-      newIndex = index + 1
-      onResume(values, isFinal, index)
-      rest
-    }
-  }.errorIfEmptyCont().revalidate(values, isFinal, delimiter, newIndex)
-}
-
-@Suppress("UNCHECKED_CAST")
-private fun <Start> Prompt<Start>.onResume(arr: Array<out Any?>, isFinal: Boolean, index: Int) {
-  val frames = Stack(arr[index] as Continuation<Start>)
-  val rest = arr[index + 1] as Marker<*>
-  if (this.rest !== rest) {
+  @Suppress("UNCHECKED_CAST")
+  val state = values[index] as S
+  val rest = values[index + 1] as Marker<*, *>
+  if (this is Prompt && this.rest !== rest) {
     invalidateAndCollectValues()
     this.rest = rest
   }
-  this.frames = if (isFinal) frames else frames.copy(rest)
+  onResume(state, rest, isFinal)
+  rest.revalidate(values, isFinal, delimiter, index + 2)
 }
-
-@Suppress("UNCHECKED_CAST")
-private fun <Start, S> Finalizer<Start, S>.onResume(arr: Array<out Any?>, isFinal: Boolean, index: Int) =
-  clauses.resume(arr[index] as S, isFinal)

@@ -5,13 +5,16 @@ import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
-import kotlin.coroutines.*
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 
 @PublishedApi
-internal fun <T> (suspend () -> T).startCoroutineIntercepted(seq: Stack<T>, trampoline: Trampoline): Unit =
+internal fun <T> (suspend () -> T).startCoroutineIntercepted(stack: Stack<T>, trampoline: Trampoline): Unit =
   with(trampoline) {
-    nextFrames = seq.frames
+    nextFrames = stack.frames
     nextBody = this@startCoroutineIntercepted
   }
 
@@ -25,7 +28,8 @@ internal fun <Start> Stack<Start>.resumeWithIntercepted(result: Result<Start>, t
 }
 
 @OptIn(InternalCoroutinesApi::class)
-internal class Trampoline(
+@PublishedApi
+internal class Trampoline internal constructor(
   context: CoroutineContext,
   interceptor: Interceptor = context[ContinuationInterceptor].let { if (it is Interceptor) it.interceptor else it }
     .let { if (it is Delay) InterceptorWithDelay(it, it) else Interceptor(it) },
@@ -54,19 +58,17 @@ internal class Trampoline(
     override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> =
       trampoline.Cont(continuation).let { interceptor?.interceptContinuation(it) ?: it }
 
-    override fun releaseInterceptedContinuation(continuation: Continuation<*>) = onErrorResume {
+    override fun releaseInterceptedContinuation(continuation: Continuation<*>) = trampoline.emptyCont.onErrorResume {
       interceptor?.releaseInterceptedContinuation(continuation)
     }
   }
-
-  internal fun resumeWithException(exception: Throwable) = emptyCont.resumeWithException(exception)
 
   inner class Cont<T>(val cont: Continuation<T>) : Continuation<T> {
     override val context: CoroutineContext = cont.context
 
     override fun resumeWith(result: Result<T>) = with(this@Trampoline) {
       cont.resumeWith(result)
-      while (true) onErrorResume {
+      while (true) {
         @Suppress("UNCHECKED_CAST")
         val nextFrames = (nextFrames ?: break) as Continuation<Any?>
         this.nextFrames = null
@@ -80,23 +82,15 @@ internal class Trampoline(
 }
 
 @PublishedApi
-internal val CoroutineContext.trampoline: Trampoline
-  get() =
-    (this[ContinuationInterceptor] as? Trampoline.Interceptor ?: error("No trampoline in context: $this")).trampoline
-
-@PublishedApi
-internal fun CoroutineContext.resumeCCWithException(exception: Throwable) {
-  trampoline.resumeWithException(exception)
-}
-
-@PublishedApi
-internal inline fun CoroutineContext.onErrorResume(block: () -> Unit) {
+internal inline fun SplitCont<*>.onErrorResume(block: () -> Unit) {
   contract {
     callsInPlace(block, InvocationKind.AT_MOST_ONCE)
   }
   return try {
     block()
   } catch (exception: Throwable) {
-    resumeCCWithException(exception)
+    trampoline.nextFrames = trampoline.emptyCont
+    trampoline.nextBody = null
+    trampoline.nextResult = Result.failure(exception)
   }
 }

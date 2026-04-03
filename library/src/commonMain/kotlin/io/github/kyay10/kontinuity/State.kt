@@ -1,7 +1,5 @@
 package io.github.kyay10.kontinuity
 
-import io.github.kyay10.kontinuity.internal.Finalize
-
 public interface State<S> {
   public var value: S
 }

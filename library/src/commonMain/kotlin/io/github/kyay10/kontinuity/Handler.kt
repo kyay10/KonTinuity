@@ -19,18 +19,18 @@ public value class SubContFinal<in T, out R> @PublishedApi internal constructor(
   private val init: Segment<T, R>
 ) {
   @ResetDsl
-  public suspend fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, stackRest ->
-    init.prependToFinal(stack, stackRest).resumeWithIntercepted(value, stackRest.trampoline)
+  public suspend fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, rest ->
+    init.prependToFinal(stack, rest).resumeWithIntercepted(value, rest.trampoline)
   }
 
   @ResetDsl
-  public suspend infix fun locally(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, stackRest ->
-    value.startCoroutineIntercepted(init.prependToFinal(stack, stackRest), stackRest.trampoline)
+  public suspend infix fun locally(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, rest ->
+    value.startCoroutineIntercepted(init.prependToFinal(stack, rest), rest.trampoline)
   }
 
   @ResetDsl
-  public suspend infix fun protect(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, stackRest ->
-    value.startCoroutineIntercepted(Frames.Under(init, stack, stackRest).wrapped, stackRest.trampoline)
+  public suspend infix fun protect(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, rest ->
+    value.startCoroutineIntercepted(Frames.Under(init, stack, rest).wrapped, rest.trampoline)
   }
 
   public suspend operator fun invoke(value: T): R = resumeWith(Result.success(value))
@@ -41,23 +41,21 @@ public value class SubContFinal<in T, out R> @PublishedApi internal constructor(
 public value class Handler<Start> internal constructor(internal val prompt: Prompt<Start>)
 
 @ResetDsl
-public suspend fun <R> handle(body: suspend Handler<R>.() -> R): R = suspendCoroutineHere { stack, stackRest ->
-  val prompt = Prompt(stack, stackRest)
+public suspend fun <R> handle(body: suspend Handler<R>.() -> R): R = suspendCoroutineHere { stack, rest ->
+  val prompt = Prompt(stack, rest)
   body.startCoroutineUninterceptedOrReturn(Handler(prompt), prompt)
 }
 
 @ResetDsl
-public suspend fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.resumeWithIntercepted(Result.success(Unit), stackRest.trampoline)
+public suspend fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoline { stack, rest ->
+  stack.resumeWithIntercepted(Result.success(Unit), rest.trampoline)
 }
 
 @ResetDsl
 public suspend inline fun <T, R> Handler<R>.useOnce(
   crossinline body: suspend (SubContFinal<T, R>) -> R
-): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(stackRest) { frames, init ->
-    suspend { body(SubContFinal(init)) }.startCoroutineIntercepted(frames, stackRest.trampoline)
-  }
+): T = split { stack, init, trampoline ->
+  suspend { body(SubContFinal(init)) }.startCoroutineIntercepted(stack, trampoline)
 }
 
 public fun <R> Handler<R>.discardWith(value: Result<R>): Nothing {
@@ -103,31 +101,44 @@ public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine { c ->
   body.startCoroutine(EmptyCont(c, Trampoline(c.context)))
 }
 
+public abstract class Finalize<S> {
+  protected abstract fun onSuspend(): S
+  protected abstract fun onResume(state: S, isFinal: Boolean)
+  internal fun suspend(): S = onSuspend()
+  internal fun resume(state: S, isFinal: Boolean) = onResume(state, isFinal)
+}
+
+internal class ClauseFinalizer<Start, S>(stack: Stack<Start>, rest: Marker<*, *>, val clauses: Finalize<S>) :
+  Finalizer<Start, S>(stack, rest) {
+  override fun onSuspend(): S = clauses.suspend()
+  override fun onResume(state: S, rest: Marker<*, *>, isFinal: Boolean) = clauses.resume(state, isFinal)
+}
+
 public suspend fun <R> Finalize<*>.finalize(body: suspend () -> R): R =
-  suspendCoroutineHere { stack, stackRest ->
-    body.startCoroutineUninterceptedOrReturn(Finalizer(stack, stackRest, this))
+  suspendCoroutineHere { stack, rest ->
+    body.startCoroutineUninterceptedOrReturn(
+      if (rest is Marker<*, *>) ClauseFinalizer(stack, rest, this) else stack.frames
+    )
   }
 
 context(p: Handler<P>)
 @PublishedApi
-internal inline fun <Start, P, R> Stack<Start>.splitAt(
-  rest: SplitCont<*>,
-  block: (Stack<P>, Segment<Start, P>) -> R
-): R = block(p.stack, makeSegment(rest))
+internal suspend inline fun <Start, P> split(crossinline block: (Stack<P>, Segment<Start, P>, Trampoline) -> Unit): Start =
+  suspendCoroutineToTrampoline { stack, rest -> block(p.stack, stack.makeSegment(rest), rest.trampoline) }
 
 @PublishedApi
-internal val <Start> Handler<Start>.stack: Stack<Start> get() = prompt.frames
+internal val <Start> Handler<Start>.stack: Stack<Start> get() = prompt.stack
 
 context(p: Handler<P>)
 @PublishedApi
 internal fun <Start, P> Stack<Start>.makeSegment(rest: SplitCont<*>): Segment<Start, P> =
-  Segment(p.prompt, this, rest.errorIfEmptyCont())
+  Segment(p.prompt, this, rest as? Marker<*, *> ?: error("$p is not present in the stack"))
 
 @PublishedApi
 internal suspend inline fun <T> suspendCoroutineToTrampoline(
   crossinline block: (Stack<T>, SplitCont<*>) -> Unit
-): T = collectStack { stack, stackRest ->
-  stackRest.onErrorResume { block(stack, stackRest) }
+): T = collectStack { stack, rest ->
+  rest.onErrorResume { block(stack, rest) }
   COROUTINE_SUSPENDED
 }
 
@@ -137,10 +148,10 @@ internal suspend inline fun <T> collectStack(crossinline block: (Stack<T>, Split
     block(Stack(it), it.context as SplitCont<*>)
   }
 
-internal suspend inline fun <T> suspendCoroutineHere(crossinline block: (Stack<T>, SplitCont<*>) -> Any?): T =
-  collectStack { stack, stackRest ->
+private suspend inline fun <T> suspendCoroutineHere(crossinline block: (Stack<T>, SplitCont<*>) -> Any?): T =
+  collectStack { stack, rest ->
     try {
-      block(stack, stackRest)
+      block(stack, rest)
     } catch (_: SuspendedException) {
       COROUTINE_SUSPENDED
     }

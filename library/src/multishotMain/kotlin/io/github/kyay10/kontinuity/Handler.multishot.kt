@@ -16,13 +16,13 @@ public value class SubCont<in T, out R> @PublishedApi internal constructor(
   private val init: Segment<T, R>
 ) {
   @ResetDsl
-  public suspend fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, stackRest ->
-    init.prependTo(stack, stackRest).copy(init.startRest).resumeWithIntercepted(value, stackRest.trampoline)
+  public suspend fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, rest ->
+    init.prependTo(stack, rest).copy(init.startRest).resumeWithIntercepted(value, rest.trampoline)
   }
 
   @ResetDsl
-  public suspend infix fun locally(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, stackRest ->
-    value.startCoroutineIntercepted(init.prependTo(stack, stackRest).copy(init.startRest), stackRest.trampoline)
+  public suspend infix fun locally(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, rest ->
+    value.startCoroutineIntercepted(init.prependTo(stack, rest).copy(init.startRest), rest.trampoline)
   }
 
   public suspend operator fun invoke(value: T): R = resumeWith(Result.success(value))
@@ -32,19 +32,15 @@ public value class SubCont<in T, out R> @PublishedApi internal constructor(
 @ResetDsl
 public suspend inline fun <T, R> Handler<R>.use(
   crossinline body: suspend (SubCont<T, R>) -> R
-): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(stackRest) { frames, init ->
-    suspend { body(SubCont(init)) }.startCoroutineIntercepted(frames, stackRest.trampoline)
-  }
+): T = split { stack, init, trampoline ->
+  suspend { body(SubCont(init)) }.startCoroutineIntercepted(stack, trampoline)
 }
 
 @ResetDsl
 public suspend inline fun <T, R> Handler<R>.useWithFinal(
   crossinline body: suspend (SubCont<T, R>, SubContFinal<T, R>) -> R
-): T = suspendCoroutineToTrampoline { stack, stackRest ->
-  stack.splitAt(stackRest) { frames, init ->
-    suspend { body(SubCont(init), SubContFinal(init)) }.startCoroutineIntercepted(frames, stackRest.trampoline)
-  }
+): T = split { stack, init, trampoline ->
+  suspend { body(SubCont(init), SubContFinal(init)) }.startCoroutineIntercepted(stack, trampoline)
 }
 
 // Acts like shift { it(body()) }
@@ -52,10 +48,10 @@ public suspend inline fun <T, R> Handler<R>.useWithFinal(
 @ResetDsl
 public suspend inline fun <T, P> Handler<P>.useTailResumptive(
   crossinline body: suspend (SubCont<T, P>) -> T
-): T = suspendCoroutineToTrampoline { stack, stackRest ->
+): T {
   val rest = rest
-  stack.splitAt(stackRest) { frames, init ->
-    suspend { body(SubCont(init)) }.startCoroutineIntercepted(makeUnder(init, frames, rest), stackRest.trampoline)
+  return split { stack, init, trampoline ->
+    suspend { body(SubCont(init)) }.startCoroutineIntercepted(makeUnder(init, stack, rest), trampoline)
   }
 }
 
@@ -63,5 +59,5 @@ public suspend inline fun <T, P> Handler<P>.useTailResumptive(
 internal val Handler<*>.rest: SplitCont<*> get() = prompt.rest.ifSegment { error("$this is not on the stack") }
 
 @PublishedApi
-internal fun <T, P> makeUnder(init: Segment<T, P>, frames: Stack<P>, rest: SplitCont<*>): Stack<T> =
-  Frames.Under(init, frames, rest).wrapped
+internal fun <T, P> makeUnder(init: Segment<T, P>, stack: Stack<P>, rest: SplitCont<*>): Stack<T> =
+  Frames.Under(init, stack, rest).wrapped
