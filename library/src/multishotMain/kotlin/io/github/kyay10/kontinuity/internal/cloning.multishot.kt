@@ -82,7 +82,7 @@ internal class Copied<Start>(stack: Stack<Start>, val rest: Marker<*, *>) : Spli
 private fun <Start, End> Segment<Start, End>.reattach(isFinal: Boolean, stack: Stack<End>, rest: SplitCont<*>) {
   when (val values = values) {
     SEGMENT_USED -> error(SEGMENT_ALREADY_USED)
-    null -> if (!isFinal) collectValues()
+    null -> if (!isFinal) collectValues(shouldRevalidate = true)
     else -> startRest.revalidate(values, isFinal, delimiter)
   }
   if (isFinal) values = SEGMENT_USED
@@ -97,13 +97,20 @@ internal actual fun <Start, End> Segment<Start, End>.prependToFinal(stack: Stack
 internal fun <Start, End> Segment<Start, End>.prependTo(stack: Stack<End>, rest: SplitCont<*>) =
   start.also { reattach(false, stack, rest) }
 
-private fun Segment<*, *>.collectValues() {
-  values = startRest.invalidate()
+private fun Segment<*, *>.collectValues(shouldRevalidate: Boolean) {
+  var values = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE)
+  var size = 0
+  val _ = startRest.findSegment { current, rest ->
+    val state = if (shouldRevalidate) current.onSuspendAndResume(rest) else current.onSuspend()
+    if (values.size < size + 2) values = values.copyOf(values.size * 2)
+    values[size++] = state
+    values[size++] = rest
+  } ?: error(HANDLER_ALREADY_RESUMED)
+  this@collectValues.values = values
 }
 
-// TODO don't immediately revalidate if unnecessary
 internal fun Marker<*, *>.invalidateAndCollectValues() {
-  findSegment { _, _ -> }?.run { if (values == null) collectValues() }
+  findSegment { _, _ -> }?.run { if (values == null) collectValues(shouldRevalidate = false) }
 }
 
 private inline fun Marker<*, *>.findSegment(action: (current: Marker<*, *>, rest: Marker<*, *>) -> Unit): Segment<*, *>? {
@@ -120,21 +127,8 @@ private inline fun Marker<*, *>.findSegment(action: (current: Marker<*, *>, rest
   }
 }
 
-// TODO control immediate revalidation with a parameter
-private fun Marker<*, *>.invalidate(): Array<Any?> {
-  var buf = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE)
-  var size = 0
-  val _ = findSegment { current, rest ->
-    val state = current.suspendAndResume(rest)
-    if (buf.size < size + 2) buf = buf.copyOf(buf.size * 2)
-    buf[size++] = state
-    buf[size++] = rest
-  } ?: error(HANDLER_ALREADY_RESUMED)
-  return buf
-}
-
 @Suppress("UNCHECKED_CAST")
-private fun <Start, S> Marker<Start, S>.suspendAndResume(rest: Marker<*, *>) =
+private fun <Start, S> Marker<Start, S>.onSuspendAndResume(rest: Marker<*, *>) =
   onSuspend().also { onResume(it, rest, isFinal = false) }
 
 private tailrec fun <S> Marker<*, S>.revalidate(
