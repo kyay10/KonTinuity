@@ -80,11 +80,11 @@ internal class Copied<Start>(stack: Stack<Start>, val rest: Marker<*, *>) : Spli
 
 @Suppress("ARRAY_EQUALITY_OPERATOR_CAN_BE_REPLACED_WITH_CONTENT_EQUALS")
 private fun <Start, End> Segment<Start, End>.reattach(isFinal: Boolean, stack: Stack<End>, rest: SplitCont<*>) {
-  when (val values = values) {
+  when (values) {
     SEGMENT_USED -> error(SEGMENT_ALREADY_USED)
-    null -> if (!isFinal) collectValues(shouldRevalidate = true)
-    else -> revalidate<Any?>(delimiter, values, isFinal, values.lastIndex)
+    null -> if (!isFinal) collectValues()
   }
+  values?.let { revalidate<Any?>(delimiter, it, isFinal, it.lastIndex) }
   if (isFinal) values = SEGMENT_USED
   if (delimiter.rest !== this) delimiter.invalidateAndCollectValues()
   delimiter.stack = stack
@@ -97,13 +97,13 @@ internal actual fun <Start, End> Segment<Start, End>.prependToFinal(stack: Stack
 internal fun <Start, End> Segment<Start, End>.prependTo(stack: Stack<End>, rest: SplitCont<*>) =
   start.also { reattach(false, stack, rest) }
 
-private fun Segment<*, *>.collectValues(shouldRevalidate: Boolean) {
+private fun Segment<*, *>.collectValues() {
   val startRest = startRest
   var values = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE)
   var size = 0
   values[size++] = startRest
   val _ = startRest.findSegment { current, rest ->
-    val state = if (shouldRevalidate) current.onSuspendAndResume(rest) else current.onSuspend()
+    val state = current.onSuspend()
     if (values.size < size + 2) values = values.copyOf(values.size * 2)
     values[size++] = state
     values[size++] = rest
@@ -112,7 +112,7 @@ private fun Segment<*, *>.collectValues(shouldRevalidate: Boolean) {
 }
 
 internal fun Marker<*, *>.invalidateAndCollectValues() {
-  findSegment { _, _ -> }?.run { if (values == null) collectValues(shouldRevalidate = false) }
+  findSegment { _, _ -> }?.run { if (values == null) collectValues() }
 }
 
 private inline fun Marker<*, *>.findSegment(action: (current: Marker<*, *>, rest: Marker<*, *>) -> Unit): Segment<*, *>? {
@@ -128,10 +128,6 @@ private inline fun Marker<*, *>.findSegment(action: (current: Marker<*, *>, rest
     }
   }
 }
-
-@Suppress("UNCHECKED_CAST")
-private fun <Start, S> Marker<Start, S>.onSuspendAndResume(rest: Marker<*, *>) =
-  onSuspend().also { onResume(it, rest, isFinal = false) }
 
 @Suppress("UNCHECKED_CAST")
 private tailrec fun <S> revalidate(rest: Marker<*, *>, values: Array<Any?>, isFinal: Boolean, index: Int) {
