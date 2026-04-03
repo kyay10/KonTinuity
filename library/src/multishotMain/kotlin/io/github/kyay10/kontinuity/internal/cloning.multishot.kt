@@ -83,7 +83,7 @@ private fun <Start, End> Segment<Start, End>.reattach(isFinal: Boolean, stack: S
   when (val values = values) {
     SEGMENT_USED -> error(SEGMENT_ALREADY_USED)
     null -> if (!isFinal) collectValues(shouldRevalidate = true)
-    else -> startRest.revalidate(values, isFinal, delimiter)
+    else -> revalidate<Any?>(delimiter, values, isFinal, values.lastIndex)
   }
   if (isFinal) values = SEGMENT_USED
   if (delimiter.rest !== this) delimiter.invalidateAndCollectValues()
@@ -98,15 +98,17 @@ internal fun <Start, End> Segment<Start, End>.prependTo(stack: Stack<End>, rest:
   start.also { reattach(false, stack, rest) }
 
 private fun Segment<*, *>.collectValues(shouldRevalidate: Boolean) {
+  val startRest = startRest
   var values = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE)
   var size = 0
+  values[size++] = startRest
   val _ = startRest.findSegment { current, rest ->
     val state = if (shouldRevalidate) current.onSuspendAndResume(rest) else current.onSuspend()
     if (values.size < size + 2) values = values.copyOf(values.size * 2)
     values[size++] = state
     values[size++] = rest
   } ?: error(HANDLER_ALREADY_RESUMED)
-  this@collectValues.values = values
+  this@collectValues.values = values.copyOf(size)
 }
 
 internal fun Marker<*, *>.invalidateAndCollectValues() {
@@ -131,20 +133,15 @@ private inline fun Marker<*, *>.findSegment(action: (current: Marker<*, *>, rest
 private fun <Start, S> Marker<Start, S>.onSuspendAndResume(rest: Marker<*, *>) =
   onSuspend().also { onResume(it, rest, isFinal = false) }
 
-private tailrec fun <S> Marker<*, S>.revalidate(
-  values: Array<Any?>,
-  isFinal: Boolean,
-  delimiter: Prompt<*>,
-  index: Int = 0
-) {
-  if (this === delimiter) return
-  @Suppress("UNCHECKED_CAST")
-  val state = values[index] as S
-  val rest = values[index + 1] as Marker<*, *>
-  if (this is Prompt && this.rest !== rest) {
-    invalidateAndCollectValues()
-    this.rest = rest
+@Suppress("UNCHECKED_CAST")
+private tailrec fun <S> revalidate(rest: Marker<*, *>, values: Array<Any?>, isFinal: Boolean, index: Int) {
+  if (index < 2) return
+  val state = values[index - 1] as S
+  val current = values[index - 2] as Marker<*, S>
+  if (current is Prompt && current.rest !== rest) {
+    current.invalidateAndCollectValues()
+    current.rest = rest
   }
-  onResume(state, rest, isFinal)
-  rest.revalidate(values, isFinal, delimiter, index + 2)
+  current.onResume(state, rest, isFinal)
+  revalidate<S>(current, values, isFinal, index - 2)
 }
