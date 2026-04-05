@@ -4,7 +4,6 @@ import io.github.kyay10.kontinuity.internal.Frames
 import io.github.kyay10.kontinuity.internal.Segment
 import io.github.kyay10.kontinuity.internal.SplitCont
 import io.github.kyay10.kontinuity.internal.Stack
-import io.github.kyay10.kontinuity.internal.ifSegment
 import io.github.kyay10.kontinuity.internal.prependTo
 import io.github.kyay10.kontinuity.internal.resumeWithIntercepted
 import io.github.kyay10.kontinuity.internal.startCoroutineIntercepted
@@ -48,7 +47,7 @@ public suspend inline fun <T, P> Handler<P>.useTailResumptive(crossinline body: 
 }
 
 @PublishedApi
-internal val Handler<*>.rest: SplitCont<*> get() = prompt.rest.ifSegment { error("$this is not on the stack") }
+internal val Handler<*>.rest: SplitCont<*> get() = prompt.rest as? SplitCont<*> ?: error("$this is not on the stack")
 
 @PublishedApi
 internal fun <T, P> makeUnder(init: Segment<T, P>, stack: Stack<P>, rest: SplitCont<*>): Stack<T> =

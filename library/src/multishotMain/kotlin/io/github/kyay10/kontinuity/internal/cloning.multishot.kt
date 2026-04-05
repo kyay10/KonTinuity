@@ -5,6 +5,7 @@ import io.github.kyay10.kontinuity.runCatching
 
 private const val NOT_A_COMPILER_CONTINUATION = "Not a compiler generated continuation "
 private const val HANDLER_ALREADY_RESUMED = "Handler was already resumed, so it cannot be invalidated"
+private const val UNEXPECTED_SEGMENT_FOUND = "Handler was connected to an unexpected segment while invalidating: "
 
 private const val SMALL_DATA_BUFFER_SIZE = 6
 
@@ -76,9 +77,9 @@ internal class Copied<Start>(stack: Stack<Start>, val rest: Marker<*, *>) : Spli
 private fun <Start, End> Segment<Start, End>.reattach(isFinal: Boolean, stack: Stack<End>, rest: SplitCont<*>) {
   when (values) {
     SEGMENT_USED -> error(SEGMENT_ALREADY_USED)
-    null -> if (!isFinal) collectValues()
+    null -> if (!isFinal) values = collectValues(startRest, delimiter)
   }
-  values?.let { revalidate<Any?>(delimiter, it, isFinal, it.lastIndex) }
+  values?.let { revalidate<Any?>(delimiter, it, isFinal, it.size) }
   if (isFinal) values = SEGMENT_USED
   if (delimiter.rest !== this) delimiter.invalidateAndCollectValues()
   delimiter.stack = stack
@@ -91,33 +92,32 @@ internal actual fun <Start, End> Segment<Start, End>.prependToFinal(stack: Stack
 internal fun <Start, End> Segment<Start, End>.prependTo(stack: Stack<End>, rest: SplitCont<*>) =
   start.copy(startRest).also { reattach(false, stack, rest) }
 
-private fun Segment<*, *>.collectValues() {
-  val startRest = startRest
+private fun collectValues(from: Marker<*, *>, until: Prompt<*>): Array<Any?> {
   var values = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE)
   var size = 0
-  values[size++] = startRest
-  val _ = startRest.findSegment { current, rest ->
-    val state = current.onSuspend()
+  val segment = from.findSegment {
+    if (it === until) return values.copyOf(size)
     if (values.size < size + 2) values = values.copyOf(values.size * 2)
-    values[size++] = state
-    values[size++] = rest
+    values[size++] = it
+    values[size++] = it.onSuspend()
   } ?: error(HANDLER_ALREADY_RESUMED)
-  this@collectValues.values = values.copyOf(size)
+  error("$UNEXPECTED_SEGMENT_FOUND$segment")
 }
 
 internal fun Marker<*, *>.invalidateAndCollectValues() {
-  findSegment { _, _ -> }?.run { if (values == null) collectValues() }
+  findSegment { }?.run { if (values == null) values = collectValues(startRest, delimiter) }
 }
 
-private inline fun Marker<*, *>.findSegment(action: (current: Marker<*, *>, rest: Marker<*, *>) -> Unit): Segment<*, *>? {
+private inline fun Marker<*, *>.findSegment(action: (Marker<*, *>) -> Unit): Segment<*, *>? {
   var current: Marker<*, *> = this
   while (true) {
+    action(current)
     current = when (current) {
-      is Finalizer<*, *> -> current.rest.also { action(current, it) }
-      is Prompt -> {
-        val rest = current.rest.ifSegment { return it }
-        rest as? Marker<*, *> ?: error(REENTRANT_NOT_SUPPORTED)
-        rest.also { action(current, it) }
+      is Finalizer<*, *> -> current.rest
+      is Prompt -> when (val rest = current.rest) {
+        is Marker<*, *> -> rest
+        is Segment<*, *>? -> return rest
+        is EmptyCont<*> -> error(REENTRANT_NOT_SUPPORTED)
       }
     }
   }

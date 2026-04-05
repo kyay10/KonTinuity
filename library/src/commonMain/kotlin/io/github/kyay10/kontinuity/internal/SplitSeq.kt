@@ -1,7 +1,5 @@
 package io.github.kyay10.kontinuity.internal
 
-import kotlin.contracts.InvocationKind
-import kotlin.contracts.contract
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
@@ -29,15 +27,7 @@ internal abstract class SplitSeq<in Start> : Continuation<Start>, CoroutineStack
   abstract override val context: SplitCont<*>
 }
 
-internal interface SplitContOrSegment
-
-internal inline fun SplitContOrSegment?.ifSegment(block: (Segment<*, *>?) -> Nothing): SplitCont<*> {
-  contract {
-    returns() implies (this@ifSegment is SplitCont<*>)
-    callsInPlace(block, InvocationKind.AT_MOST_ONCE)
-  }
-  return if (this is Segment<*, *>?) block(this) else this as SplitCont<*>
-}
+internal sealed interface SplitContOrSegment
 
 @PublishedApi
 internal sealed class SplitCont<in Start>(val trampoline: Trampoline) :
