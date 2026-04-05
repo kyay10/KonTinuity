@@ -13,11 +13,8 @@ public abstract class CloningUtils extends ContinuationImpl {
         super(null);
     }
 
-    public static @Nullable Continuation<?> getParentContinuation(@NotNull Continuation<?> cont) {
-        if (cont instanceof BaseContinuationImpl) {
-            return ((BaseContinuationImpl) cont).getCompletion();
-        }
-        return null;
+    public static @NotNull Continuation<?> getParentContinuation(@NotNull Continuation<?> cont) {
+        return ((BaseContinuationImpl) cont).getCompletion();
     }
 
     public static Object createFailure(@NotNull Throwable exception) {

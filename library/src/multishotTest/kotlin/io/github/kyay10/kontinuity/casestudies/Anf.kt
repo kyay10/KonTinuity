@@ -1,7 +1,11 @@
 package io.github.kyay10.kontinuity.casestudies
 
 import arrow.core.Either
-import io.github.kyay10.kontinuity.*
+import io.github.kyay10.kontinuity.handle
+import io.github.kyay10.kontinuity.runState
+import io.github.kyay10.kontinuity.runTestCC
+import io.github.kyay10.kontinuity.shouldEq
+import io.github.kyay10.kontinuity.use
 import kotlin.test.Test
 
 class AnfTest {

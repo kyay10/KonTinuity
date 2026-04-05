@@ -5,13 +5,16 @@ import java.lang.StackTraceElement
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
 import kotlin.coroutines.Continuation
-import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.jvm.internal.*
+import kotlin.coroutines.jvm.internal.CloningUtils
 import kotlin.coroutines.jvm.internal.CoroutineStackFrame
+import kotlin.coroutines.jvm.internal.MultishotContinuationImpl
+import kotlin.coroutines.jvm.internal.MultishotRestrictedContinuationImpl
+import kotlin.coroutines.jvm.internal.MultishotRestrictedSuspendLambda
+import kotlin.coroutines.jvm.internal.MultishotSuspendLambda
 
 @PublishedApi
 internal interface MultishotContinuation<T> : Continuation<T> {
-  fun invokeCopied(completion: Continuation<*>, context: CoroutineContext, result: Result<T>): Any?
+  fun invokeCopied(completion: Continuation<*>, result: Result<T>): Any?
 }
 
 internal actual typealias StackTraceElement = StackTraceElement
@@ -19,8 +22,8 @@ internal actual typealias StackTraceElement = StackTraceElement
 internal actual typealias CoroutineStackFrame = CoroutineStackFrame
 
 @Suppress("UNCHECKED_CAST")
-internal actual val <N> Frames<*, N>.completion: Stack<N>?
-  get() = CloningUtils.getParentContinuation(frames)?.let { Stack(it as Continuation<N>) }
+internal actual val <N> Frames<*, N>.completion: Stack<N>
+  get() = Stack(CloningUtils.getParentContinuation(frames) as Continuation<N>)
 
 private val UNSAFE = Unsafe::class.java.getDeclaredField("theUnsafe").apply { isAccessible = true }.get(null) as Unsafe
 
@@ -51,23 +54,18 @@ private tailrec fun <T> copyDeclaredFields(
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun <S, N> Frames<S, N>.reflectiveCopy(completion: Stack<N>, context: SplitCont<*>): Continuation<S> =
+private fun <S, N> Frames<S, N>.reflectiveCopy(completion: Stack<N>): Continuation<S> =
   (UNSAFE.allocateInstance(frames.javaClass) as Continuation<S>).apply {
     copyDeclaredFields(frames, this, frames.javaClass)
-    CloningUtils.initialize(this, completion.frames, context)
+    CloningUtils.initialize(this, completion.frames, frames.context)
   }
 
+// Profiles faster! Likely because it avoids `instanceOf MultishotContinuation` and `INVOKE_INTERFACE`
 @Suppress("UNCHECKED_CAST")
-internal actual fun <S, N> Frames<S, N>.invokeCopied(
-  completion: Stack<N>,
-  context: SplitCont<*>,
-  result: Result<S>
-): N = when (frames) {
-  is MultishotContinuationImpl -> frames.invokeCopied(completion.frames, context, result) as N
-  is MultishotSuspendLambda -> frames.invokeCopied(completion.frames, context, result) as N
-  is MultishotRestrictedContinuationImpl -> frames.invokeCopied(completion.frames, context, result) as N
-  is MultishotRestrictedSuspendLambda -> frames.invokeCopied(completion.frames, context, result) as N
-  else -> CloningUtils.invokeSuspend(
-    reflectiveCopy(completion, context),
-    result.getOrElse { CloningUtils.createFailure(it) }) as N
-}
+internal actual fun <T, N> Frames<T, N>.invokeCopied(completion: Stack<N>, result: Result<T>): N = when (frames) {
+  is MultishotContinuationImpl -> frames.invokeCopied(completion.frames, result)
+  is MultishotSuspendLambda -> frames.invokeCopied(completion.frames, result)
+  is MultishotRestrictedContinuationImpl -> frames.invokeCopied(completion.frames, result)
+  is MultishotRestrictedSuspendLambda -> frames.invokeCopied(completion.frames, result)
+  else -> CloningUtils.invokeSuspend(reflectiveCopy(completion), result.getOrElse(CloningUtils::createFailure))
+} as N

@@ -4,7 +4,13 @@ import arrow.core.Either.Left
 import arrow.core.Either.Right
 import arrow.core.getOrElse
 import arrow.core.raise.context.ensure
-import io.github.kyay10.kontinuity.*
+import io.github.kyay10.kontinuity.Exc
+import io.github.kyay10.kontinuity.backtrack
+import io.github.kyay10.kontinuity.flip
+import io.github.kyay10.kontinuity.forEachIteratorless
+import io.github.kyay10.kontinuity.runState
+import io.github.kyay10.kontinuity.runTestCC
+import io.github.kyay10.kontinuity.shouldEq
 import kotlin.test.Test
 
 class PrettyPrinterTest {

@@ -4,7 +4,14 @@ import arrow.core.raise.Raise
 import arrow.core.raise.context.ensureNotNull
 import arrow.core.raise.ensure
 import arrow.core.raise.recover
-import io.github.kyay10.kontinuity.*
+import io.github.kyay10.kontinuity.Read
+import io.github.kyay10.kontinuity.Stateful
+import io.github.kyay10.kontinuity.handle
+import io.github.kyay10.kontinuity.read
+import io.github.kyay10.kontinuity.runReader
+import io.github.kyay10.kontinuity.runState
+import io.github.kyay10.kontinuity.runTestCC
+import io.github.kyay10.kontinuity.shouldEq
 import kotlin.test.Test
 
 class LexerTest {

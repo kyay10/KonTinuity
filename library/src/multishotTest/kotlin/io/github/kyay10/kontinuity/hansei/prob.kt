@@ -2,7 +2,16 @@ package io.github.kyay10.kontinuity.hansei
 
 import arrow.core.getOrElse
 import arrow.core.getOrNone
-import io.github.kyay10.kontinuity.*
+import io.github.kyay10.kontinuity.Exc
+import io.github.kyay10.kontinuity.exc
+import io.github.kyay10.kontinuity.field
+import io.github.kyay10.kontinuity.getOrPut
+import io.github.kyay10.kontinuity.getValue
+import io.github.kyay10.kontinuity.handle
+import io.github.kyay10.kontinuity.listRegion
+import io.github.kyay10.kontinuity.repeatIteratorless
+import io.github.kyay10.kontinuity.setValue
+import io.github.kyay10.kontinuity.use
 import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.plus
 import kotlin.math.pow
@@ -28,8 +37,7 @@ suspend inline fun <A> reify(crossinline block: suspend context(Probabilistic, M
     }
   }
 
-@PublishedApi
-internal suspend inline fun <A> probabilistic(crossinline block: suspend context(Probabilistic) () -> A): SearchTree<A> =
+suspend inline fun <A> probabilistic(crossinline block: suspend context(Probabilistic) () -> A): SearchTree<A> =
   handle {
     val result = block(object : Probabilistic, Exc by exc {
       override suspend fun <A> Dist<A>.dist(): A = use { resume ->
@@ -41,8 +49,7 @@ internal suspend inline fun <A> probabilistic(crossinline block: suspend context
     listOf(Probable(1.0, Value.Leaf(result)))
   }
 
-@PublishedApi
-internal suspend inline fun <A> memory(crossinline block: suspend context(Memory) () -> A): A = listRegion {
+suspend inline fun <A> memory(crossinline block: suspend context(Memory) () -> A): A = listRegion {
   block(object : Memory {
     override fun <A> letLazy(block: suspend () -> A): suspend () -> A {
       val loc = field<A>()

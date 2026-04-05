@@ -1,6 +1,11 @@
 package io.github.kyay10.kontinuity
 
-import kotlinx.collections.immutable.*
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.PersistentMap
+import kotlinx.collections.immutable.persistentHashMapOf
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toPersistentHashMap
+import kotlinx.collections.immutable.toPersistentList
 
 public open class ListBuilder<T> internal constructor(private val reader: ForkReader<MutableList<T>>) : MutableList<T> {
   public val list: MutableList<T> get() = reader.value

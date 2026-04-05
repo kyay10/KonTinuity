@@ -124,9 +124,9 @@ object LogicDeep : Logic {
             branch()
           }
           block({
-            useWithFinal { resumeCopy, resumeFinal ->
-              add { resumeFinal(false) }
-              resumeCopy(true)
+            use { resume ->
+              add { resume.final(false) }
+              resume(true)
             }
           }, object : Exc {
             override suspend fun raise() = discardFast(discardAction)
@@ -148,12 +148,8 @@ object LogicDeep : Logic {
 
 object LogicTree : Logic {
   override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A) = handle<Stream<A>?> {
-    val res = block({
-      useWithFinal { resumeCopy, resumeFinal ->
-        composeTrees(resumeCopy(true), Producer { resumeFinal(false) })
-      }
-    }, constantExc(null))
-    Stream(res, null)
+    val amb = Amb { use { resume -> composeTrees(resume(true), Producer { resume.final(false) }) } }
+    Stream(block(amb, constantExc(null)), null)
   }
 
   private suspend fun <A> composeTrees(stream: Stream<A>?, next: Producer<Stream<A>?>): Stream<A>? {

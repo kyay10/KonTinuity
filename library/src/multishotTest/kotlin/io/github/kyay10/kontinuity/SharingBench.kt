@@ -1,6 +1,9 @@
 package io.github.kyay10.kontinuity
 
-import kotlinx.benchmark.*
+import kotlinx.benchmark.Benchmark
+import kotlinx.benchmark.Blackhole
+import kotlinx.benchmark.Param
+import kotlinx.benchmark.Scope
 import kotlinx.benchmark.State
 
 @State(Scope.Benchmark)

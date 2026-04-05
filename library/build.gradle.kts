@@ -6,8 +6,12 @@ import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import org.jetbrains.kotlin.gradle.ExperimentalKotlinGradlePluginApi
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
-import org.jetbrains.org.objectweb.asm.*
+import org.jetbrains.org.objectweb.asm.ClassReader
+import org.jetbrains.org.objectweb.asm.ClassVisitor
+import org.jetbrains.org.objectweb.asm.ClassWriter
+import org.jetbrains.org.objectweb.asm.MethodVisitor
 import org.jetbrains.org.objectweb.asm.Opcodes.*
+import org.jetbrains.org.objectweb.asm.Type
 import org.jetbrains.org.objectweb.asm.tree.ClassNode
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
@@ -227,7 +231,6 @@ object MultishotTransform {
   private val invokeCopiedDescriptor = Type.getMethodDescriptor(
     Type.getType(Any::class.java),
     Type.getType(Continuation::class.java),
-    Type.getType(CoroutineContext::class.java),
     Type.getType(Any::class.java),
   )
 
@@ -239,8 +242,10 @@ object MultishotTransform {
   private val continuationImplConstructor: String = Type.getMethodDescriptor(
     Type.VOID_TYPE,
     Type.getType(Continuation::class.java),
-    Type.getType(CoroutineContext::class.java)
+    Type.getType(CoroutineContext::class.java),
   )
+
+  private val getContext: String = Type.getMethodDescriptor(Type.getType(CoroutineContext::class.java))
 
   fun transform(bytes: ByteArray): ByteArray? {
     val classNode = ClassNode()
@@ -301,13 +306,11 @@ object MultishotTransform {
             Type.VOID_TYPE,
             Type.getObjectType(classNode.name),
             Type.getType(Continuation::class.java),
-            Type.getType(CoroutineContext::class.java)
           )
         // add copy constructor
         visitMethod(ACC_PUBLIC or ACC_SYNTHETIC, "<init>", copyConstructorDescriptor, null, null).apply {
           visitParameter("template", 0)
           visitParameter("completion", 0)
-          visitParameter("context", 0)
           visitCode()
           // copy fields from this to created instance
           for (field in fields) {
@@ -327,8 +330,9 @@ object MultishotTransform {
           // load completion
           visitVarInsn(ALOAD, 2)
           if (classNode.superName == CONTINUATION_IMPL) {
-            // load context
-            visitVarInsn(ALOAD, 3)
+            // load context from template
+            visitVarInsn(ALOAD, 1)
+            visitMethodInsn(INVOKEVIRTUAL, classNode.name, "getContext", getContext, false)
             visitMethodInsn(INVOKESPECIAL, CONTINUATION_IMPL, "<init>", continuationImplConstructor, false)
           } else {
             // call super constructor
@@ -348,7 +352,6 @@ object MultishotTransform {
           null
         ).apply {
           visitParameter("completion", 0)
-          visitParameter("context", 0)
           visitParameter("result", 0)
           visitCode()
           // create new instance of this class
@@ -357,12 +360,11 @@ object MultishotTransform {
           // Call copy constructor
           visitVarInsn(ALOAD, 0)
           visitVarInsn(ALOAD, 1)
-          visitVarInsn(ALOAD, 2)
           visitMethodInsn(INVOKESPECIAL, classNode.name, "<init>", copyConstructorDescriptor, false)
-          visitVarInsn(ALOAD, 3)
+          visitVarInsn(ALOAD, 2)
           visitMethodInsn(INVOKEVIRTUAL, classNode.name, "invokeSuspend", invokeSuspendDescriptor, false)
           visitInsn(ARETURN)
-          visitMaxs(5, 4)
+          visitMaxs(4, 3)
           visitEnd()
         }
         super.visitEnd()

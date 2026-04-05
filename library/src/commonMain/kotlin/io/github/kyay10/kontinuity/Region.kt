@@ -1,6 +1,12 @@
 package io.github.kyay10.kontinuity
 
-import arrow.core.*
+import arrow.core.None
+import arrow.core.Option
+import arrow.core.Some
+import arrow.core.getOrElse
+import arrow.core.getOrNone
+import arrow.core.none
+import arrow.core.some
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
 import kotlin.jvm.JvmInline

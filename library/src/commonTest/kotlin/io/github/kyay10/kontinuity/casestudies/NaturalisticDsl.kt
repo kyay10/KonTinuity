@@ -1,6 +1,10 @@
 package io.github.kyay10.kontinuity.casestudies
 
-import io.github.kyay10.kontinuity.*
+import io.github.kyay10.kontinuity.handle
+import io.github.kyay10.kontinuity.runState
+import io.github.kyay10.kontinuity.runTestCC
+import io.github.kyay10.kontinuity.shouldEq
+import io.github.kyay10.kontinuity.useOnce
 import kotlin.reflect.KProperty
 import kotlin.test.Test
 
