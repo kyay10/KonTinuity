@@ -1,5 +1,6 @@
 @file:OptIn(ExperimentalWasmDsl::class)
 
+import kotlinx.benchmark.gradle.BenchmarkConfiguration
 import kotlinx.benchmark.gradle.JsBenchmarkTarget
 import kotlinx.benchmark.gradle.JsBenchmarksExecutor
 import kotlinx.benchmark.gradle.JvmBenchmarkTarget
@@ -156,6 +157,13 @@ publishing {
   }
 }
 
+fun BenchmarkConfiguration.defaults() {
+  mode = "AverageTime"
+  warmups = 10
+  iterations = 10
+  outputTimeUnit = TimeUnit.MILLISECONDS.name
+}
+
 benchmark {
   targets {
     register("jvmTest") {
@@ -173,30 +181,20 @@ benchmark {
     register("skynet") {
       include(".*Skynet.*")
       exclude(".*Coroutines.*")
-      mode = "AverageTime"
-      warmups = 1
-      iterations = 1
-      iterationTime = 10
-      iterationTimeUnit = TimeUnit.SECONDS.name
-      outputTimeUnit = TimeUnit.MILLISECONDS.name
+      defaults()
     }
     register("skynetScheduler") {
       include(".*Skynet.*Scheduler.*")
-      mode = "AverageTime"
-      warmups = 1
-      iterations = 1
-      iterationTime = 10
-      iterationTimeUnit = TimeUnit.SECONDS.name
-      outputTimeUnit = TimeUnit.MILLISECONDS.name
+      defaults()
     }
     register("sharing") {
       include(".*Sharing.*")
-      mode = "AverageTime"
-      warmups = 10
-      iterations = 10
-      iterationTime = 1
-      iterationTimeUnit = TimeUnit.SECONDS.name
-      outputTimeUnit = TimeUnit.MILLISECONDS.name
+      defaults()
+    }
+    register("sharingFast") {
+      include(".*Sharing.*")
+      defaults()
+      param("size", "15")
     }
   }
 }
