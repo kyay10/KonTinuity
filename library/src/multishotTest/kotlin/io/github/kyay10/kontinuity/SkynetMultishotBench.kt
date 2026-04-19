@@ -65,8 +65,8 @@ suspend fun schedulerMultishot(block: suspend SchedulerMultishot.() -> Unit) = r
   handle {
     block(object : SchedulerMultishot {
       override suspend fun exit(): Nothing = discardWithFast(Result.success(Unit))
-      override suspend fun fork(): Boolean = useWithFinal { k, final ->
-        enqueue { final(true) }
+      override suspend fun fork(): Boolean = use { k ->
+        enqueue { k.final(true) }
         k(false)
       }
 

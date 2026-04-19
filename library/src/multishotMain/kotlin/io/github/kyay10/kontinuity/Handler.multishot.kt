@@ -1,16 +1,12 @@
 package io.github.kyay10.kontinuity
 
-import io.github.kyay10.kontinuity.internal.Frames
-import io.github.kyay10.kontinuity.internal.Segment
-import io.github.kyay10.kontinuity.internal.SplitCont
-import io.github.kyay10.kontinuity.internal.Stack
-import io.github.kyay10.kontinuity.internal.prependTo
-import io.github.kyay10.kontinuity.internal.resumeWithIntercepted
-import io.github.kyay10.kontinuity.internal.startCoroutineIntercepted
+import io.github.kyay10.kontinuity.internal.*
 import kotlin.jvm.JvmInline
 
 @JvmInline
-public value class SubCont<in T, out R> @PublishedApi internal constructor(private val init: Segment<T, R>) {
+public value class SubCont<in T, out R> internal constructor(private val init: Segment<T, R>) {
+  public val final: SubContFinal<T, R> get() = SubContFinal(init)
+
   @ResetDsl
   public suspend fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, rest ->
     init.prependTo(stack, rest).resumeWithIntercepted(value, rest.trampoline)
@@ -27,14 +23,7 @@ public value class SubCont<in T, out R> @PublishedApi internal constructor(priva
 
 @ResetDsl
 public suspend inline fun <T, R> Handler<R>.use(crossinline body: suspend (SubCont<T, R>) -> R): T =
-  split { stack, init, trampoline -> suspend { body(SubCont(init)) }.startCoroutineIntercepted(stack, trampoline) }
-
-@ResetDsl
-public suspend inline fun <T, R> Handler<R>.useWithFinal(
-  crossinline body: suspend (SubCont<T, R>, SubContFinal<T, R>) -> R
-): T = split { stack, init, trampoline ->
-  suspend { body(SubCont(init), SubContFinal(init)) }.startCoroutineIntercepted(stack, trampoline)
-}
+  split { stack, init, trampoline -> suspend { body(init) }.startCoroutineIntercepted(stack, trampoline) }
 
 // Acts like shift { it(body()) }
 // guarantees that the continuation will be resumed at least once
@@ -42,7 +31,7 @@ public suspend inline fun <T, R> Handler<R>.useWithFinal(
 public suspend inline fun <T, P> Handler<P>.useTailResumptive(crossinline body: suspend (SubCont<T, P>) -> T): T {
   val rest = rest
   return split { stack, init, trampoline ->
-    suspend { body(SubCont(init)) }.startCoroutineIntercepted(makeUnder(init, stack, rest), trampoline)
+    suspend { body(init) }.startCoroutineIntercepted(makeUnder(init.final, stack, rest), trampoline)
   }
 }
 
@@ -50,5 +39,13 @@ public suspend inline fun <T, P> Handler<P>.useTailResumptive(crossinline body: 
 internal val Handler<*>.rest: SplitCont<*> get() = prompt.rest as? SplitCont<*> ?: error("$this is not on the stack")
 
 @PublishedApi
-internal fun <T, P> makeUnder(init: Segment<T, P>, stack: Stack<P>, rest: SplitCont<*>): Stack<T> =
-  Frames.Under(init, stack, rest).wrapped
+internal fun <T, R> makeUnder(init: SubContFinal<T, R>, stack: Stack<R>, rest: SplitCont<*>): Stack<T> =
+  Stack(Under(init.init, stack, rest))
+
+@PublishedApi
+internal fun <T, R> makeSubCont(init: SubContFinal<T, R>): SubCont<T, R> = SubCont(init.init)
+
+context(p: Handler<R>)
+@PublishedApi
+internal suspend inline fun <T, R> split(crossinline block: (Stack<R>, SubCont<T, R>, Trampoline) -> Unit): T =
+  splitOnce { stack, init, trampoline -> block(stack, makeSubCont(init), trampoline) }

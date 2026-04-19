@@ -14,124 +14,99 @@ internal expect interface CoroutineStackFrame {
   fun getStackTraceElement(): StackTraceElement?
 }
 
-internal expect fun <Start> Stack<Start>.copy(rest: Marker<*, *>): Stack<Start>
+internal expect fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T>
 
-internal abstract class SplitSeq<in Start> : Continuation<Start>, CoroutineStackFrame {
-  final override fun resumeWith(result: Result<Start>) {
+internal abstract class SplitSeq<in T> : Continuation<T>, CoroutineStackFrame {
+  final override fun resumeWith(result: Result<T>) {
     if (result.exceptionOrNull() !== SuspendedException) context.onErrorResume { resume(result) }
   }
 
+  final override val callerFrame: CoroutineStackFrame? get() = stack.frames as? CoroutineStackFrame
   final override fun getStackTraceElement(): StackTraceElement? = null
 
-  protected abstract fun resume(result: Result<Start>)
+  protected abstract fun resume(result: Result<T>)
   abstract override val context: SplitCont<*>
+  protected abstract val stack: Stack<*>
 }
 
 internal sealed interface SplitContOrSegment
 
 @PublishedApi
-internal sealed class SplitCont<in Start>(val trampoline: Trampoline) :
-  CoroutineContext by trampoline, SplitSeq<Start>(), SplitContOrSegment {
-  final override val context: SplitCont<Start> get() = this
+internal sealed class SplitCont<in T>(val trampoline: Trampoline) : CoroutineContext by trampoline, SplitSeq<T>(),
+  SplitContOrSegment {
+  final override val context: SplitCont<T> get() = this
 }
 
-internal class EmptyCont<Start>(val underlying: Continuation<Start>, trampoline: Trampoline) :
-  SplitCont<Start>(trampoline) {
+internal class EmptyCont<T>(override val stack: Stack<T>, trampoline: Trampoline) : SplitCont<T>(trampoline) {
   init {
     trampoline.emptyCont = this
   }
 
-  override val callerFrame: CoroutineStackFrame? get() = underlying as? CoroutineStackFrame
-
-  override fun resume(result: Result<Start>) = underlying.resumeWith(result)
+  override fun resume(result: Result<T>) = stack.frames.resumeWith(result)
 }
 
-internal typealias Stack<Start> = Frames<Start, *>
+internal typealias Stack<T> = Frames<T, *>
 
 @Suppress("unused")
 @PublishedApi
 @JvmInline
-internal value class Frames<in Start, Next> private constructor(val frames: Continuation<Start>) {
-  fun resumeWith(result: Result<Start>) = frames.resumeWith(result)
-
-  class Under<Start, End>(val captured: Segment<Start, End>, val stack: Stack<End>, val rest: SplitCont<*>) :
-    SplitSeq<Start>() {
-    val wrapped: Stack<Start> get() = Companion(this)
-    override val context get() = rest
-
-    override val callerFrame: CoroutineStackFrame? get() = stack.frames as? CoroutineStackFrame
-
-    override fun resume(result: Result<Start>) = captured.prependToFinal(stack, rest).resumeWith(result)
-  }
-
+internal value class Frames<in T, Next> private constructor(val frames: Continuation<T>) {
   companion object {
-    operator fun <Start> invoke(frames: Continuation<Start>): Stack<Start> = Frames<_, Any?>(frames)
+    operator fun <T> invoke(frames: Continuation<T>): Stack<T> = Frames<_, Any?>(frames)
   }
 }
 
-internal sealed class Marker<in Start, S>(trampoline: Trampoline) : SplitCont<Start>(trampoline) {
-  abstract val stack: Stack<Start>
-  final override val callerFrame: CoroutineStackFrame? get() = stack.frames as? CoroutineStackFrame
+internal class Under<T, R>(
+  val captured: Segment<T, R>,
+  public override val stack: Stack<R>,
+  override val context: SplitCont<*>,
+) : SplitSeq<T>() {
+  override fun resume(result: Result<T>) = captured.prependToFinal(stack, context).frames.resumeWith(result)
+}
 
-  open fun underflow(): Stack<Start> = stack
+internal sealed class Marker<T, S>(trampoline: Trampoline) : SplitCont<T>(trampoline) {
+  // TODO make final
+  abstract val rest: SplitContOrSegment?
+  abstract override val stack: Stack<T>
+  open fun underflow(): Stack<T> = stack
 
-  final override fun resume(result: Result<Start>): Unit = underflow().resumeWith(result)
+  final override fun resume(result: Result<T>): Unit = underflow().frames.resumeWith(result)
 
   abstract fun onSuspend(): S
   abstract fun onResume(state: S, rest: Marker<*, *>, isFinal: Boolean)
 }
 
-internal class Prompt<Start>(
-  override var stack: Stack<Start>,
-  rest: SplitCont<*>,
-) : Marker<Start, Continuation<Start>>(rest.trampoline) {
-  var rest: SplitContOrSegment? = rest
-
-  override fun underflow(): Stack<Start> = stack.also { rest = null }
+internal class Prompt<T>(public override var stack: Stack<T>, rest: SplitCont<*>) :
+  Marker<T, Continuation<T>>(rest.trampoline) {
+  override var rest: SplitContOrSegment? = rest
+  override fun underflow(): Stack<T> = stack.also { rest = null }
   override fun onSuspend() = stack.frames
-  override fun onResume(state: Continuation<Start>, rest: Marker<*, *>, isFinal: Boolean) {
+  override fun onResume(state: Continuation<T>, rest: Marker<*, *>, isFinal: Boolean) {
     stack = if (isFinal) Stack(state) else Stack(state).copy(rest)
   }
 }
 
-internal abstract class Finalizer<Start, S>(override val stack: Stack<Start>, val rest: Marker<*, *>) :
-  Marker<Start, S>(rest.trampoline)
-
-internal object CompletedContinuation : Continuation<Any?> {
-  override val context: CoroutineContext
-    get() = error("This continuation is already complete")
-
-  override fun resumeWith(result: Result<Any?>) {
-    error("This continuation is already complete")
-  }
-
-  override fun toString(): String = "This continuation is already complete"
-}
+internal abstract class Finalizer<T, S>(override val stack: Stack<T>, override val rest: Marker<*, *>) :
+  Marker<T, S>(rest.trampoline)
 
 internal val SEGMENT_USED = arrayOfNulls<Any?>(0)
 
-@PublishedApi
-internal class Segment<Start, End>(
-  val delimiter: Prompt<End>,
-  val start: Stack<Start>,
+internal class Segment<in T, out R>(
+  val delimiter: Prompt<out R>,
+  val start: Stack<T>,
   val startRest: Marker<*, *>,
 ) : SplitContOrSegment {
   var values: Array<Any?>? = null
 
   init {
-    delimiter.stack = Stack(CompletedContinuation)
     delimiter.rest = this
   }
 }
 
-internal expect fun <Start, End> Segment<Start, End>.prependToFinal(
-  stack: Stack<End>,
-  rest: SplitCont<*>
-): Stack<Start>
+internal expect fun <T, R> Segment<T, R>.prependToFinal(stack: Stack<R>, rest: SplitCont<*>): Stack<T>
 
 @Suppress("EXPECT_ACTUAL_CLASSIFIERS_ARE_IN_BETA_WARNING")
 internal expect open class NoTrace() : CancellationException
 
 @Suppress("ObjectInheritsException")
-@PublishedApi
 internal data object SuspendedException : NoTrace()

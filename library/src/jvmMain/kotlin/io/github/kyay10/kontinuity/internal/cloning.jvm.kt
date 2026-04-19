@@ -57,17 +57,16 @@ private fun <S, N> Frames<S, N>.reflectiveCopy(completion: Stack<N>, context: Sp
     CloningUtils.initialize(this, completion.frames, context)
   }
 
+// Profiles faster! Likely because it avoids `instanceOf MultishotContinuation` and `INVOKE_INTERFACE`
 @Suppress("UNCHECKED_CAST")
-internal actual fun <S, N> Frames<S, N>.invokeCopied(
+internal actual fun <T, N> Frames<T, N>.invokeCopied(
   completion: Stack<N>,
   context: SplitCont<*>,
-  result: Result<S>
+  result: Result<T>
 ): N = when (frames) {
-  is MultishotContinuationImpl -> frames.invokeCopied(completion.frames, context, result) as N
-  is MultishotSuspendLambda -> frames.invokeCopied(completion.frames, context, result) as N
-  is MultishotRestrictedContinuationImpl -> frames.invokeCopied(completion.frames, context, result) as N
-  is MultishotRestrictedSuspendLambda -> frames.invokeCopied(completion.frames, context, result) as N
-  else -> CloningUtils.invokeSuspend(
-    reflectiveCopy(completion, context),
-    result.getOrElse { CloningUtils.createFailure(it) }) as N
-}
+  is MultishotContinuationImpl -> frames.invokeCopied(completion.frames, context, result)
+  is MultishotSuspendLambda -> frames.invokeCopied(completion.frames, context, result)
+  is MultishotRestrictedContinuationImpl -> frames.invokeCopied(completion.frames, context, result)
+  is MultishotRestrictedSuspendLambda -> frames.invokeCopied(completion.frames, context, result)
+  else -> CloningUtils.invokeSuspend(reflectiveCopy(completion, context), result.getOrElse(CloningUtils::createFailure))
+} as N

@@ -1,10 +1,8 @@
 package io.github.kyay10.kontinuity.internal
 
-internal actual fun <Start> Stack<Start>.copy(rest: Marker<*, *>): Stack<Start> {
-  error("Cloning is not supported")
-}
+internal actual fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T> = error("Cloning is not supported")
 
-internal actual fun <Start, End> Segment<Start, End>.prependToFinal(stack: Stack<End>, rest: SplitCont<*>) =
+internal actual fun <T, R> Segment<T, R>.prependToFinal(stack: Stack<R>, rest: SplitCont<*>) =
   start.also {
     if (values === SEGMENT_USED) error(SEGMENT_ALREADY_USED)
     values = SEGMENT_USED

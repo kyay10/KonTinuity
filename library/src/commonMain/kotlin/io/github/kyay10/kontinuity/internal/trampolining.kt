@@ -18,8 +18,7 @@ internal fun <T> (suspend () -> T).startCoroutineIntercepted(stack: Stack<T>, tr
     nextBody = this@startCoroutineIntercepted
   }
 
-@PublishedApi
-internal fun <Start> Stack<Start>.resumeWithIntercepted(result: Result<Start>, trampoline: Trampoline) {
+internal fun <T> Stack<T>.resumeWithIntercepted(result: Result<T>, trampoline: Trampoline) {
   if (result.exceptionOrNull() !== SuspendedException) with(trampoline) {
     nextFrames = this@resumeWithIntercepted.frames
     nextBody = null
@@ -50,7 +49,6 @@ internal class Trampoline internal constructor(
     delay: Delay,
   ) : Interceptor(interceptor), Delay by delay
 
-  @PublishedApi
   internal open class Interceptor(val interceptor: ContinuationInterceptor?) :
     AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
     lateinit var trampoline: Trampoline

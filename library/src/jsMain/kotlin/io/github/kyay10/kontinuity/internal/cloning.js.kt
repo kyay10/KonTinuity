@@ -4,44 +4,27 @@ package io.github.kyay10.kontinuity.internal
 
 import js.objects.Object
 import js.objects.ObjectLike
-import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.Continuation
-import kotlin.coroutines.ContinuationInterceptor
-import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.intrinsics.intercepted
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 
-private object MyInterceptor : AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
-  override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> = Wrapper(continuation)
-  class Wrapper<T>(val cont: Continuation<T>) : Continuation<T> by cont
-}
+private val myContinuation = Continuation<Unit>(EmptyCoroutineContext) {}
 
-private object MyContinuation : Continuation<Unit> {
-  override val context: CoroutineContext
-    get() = MyInterceptor
+private val sampleCont: ObjectLike =
+  suspend { suspendCoroutineUninterceptedOrReturn<Continuation<*>> { it.intercepted() } }.asDynamic()(myContinuation)
 
-  override fun resumeWith(result: Result<Unit>) {}
-}
+private val resultContinuationName = Object.keys(sampleCont).single { sampleCont[it] === myContinuation }
+private val contextName = Object.keys(sampleCont).single { sampleCont[it] === EmptyCoroutineContext }
+private val interceptedName = Object.keys(sampleCont).single { sampleCont[it] === sampleCont }
 
-private val sampleCont = run {
-  lateinit var cont: Continuation<*>
-  suspend { suspendCoroutineUninterceptedOrReturn<Unit> { cont = it } }.asDynamic()(MyContinuation)
-  val _ = cont.intercepted()
-  cont.unsafeCast<ObjectLike>()
-}
-
-private val resultContinuationName = Object.keys(sampleCont).single { sampleCont[it] === MyContinuation }
-private val contextName = Object.keys(sampleCont).single { sampleCont[it] === MyInterceptor }
-private val interceptedName = Object.keys(sampleCont).single { sampleCont[it] is MyInterceptor.Wrapper<*> }
-
-internal actual val <N> Frames<*, N>.completion: Stack<N>?
-  get() = Stack(frames.asDynamic()[resultContinuationName])
+internal actual val <N> Frames<*, N>.completion: Stack<N>? get() = Stack(frames.asDynamic()[resultContinuationName])
 
 @Suppress("UNCHECKED_CAST", "UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
-internal actual fun <S, N> Frames<S, N>.invokeCopied(
+internal actual fun <T, N> Frames<T, N>.invokeCopied(
   completion: Stack<N>,
   context: SplitCont<*>,
-  result: Result<S>
+  result: Result<T>,
 ): N = Object.create(Object.getPrototypeOf(frames)).apply {
   Object.assign(this, frames)
   this as ObjectLike
