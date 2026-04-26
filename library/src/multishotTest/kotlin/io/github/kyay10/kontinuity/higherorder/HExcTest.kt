@@ -2,8 +2,8 @@ package io.github.kyay10.kontinuity.higherorder
 
 import arrow.core.*
 import io.github.kyay10.kontinuity.*
-import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
+import kotlinx.collections.immutable.persistentListOf
 
 class HExcTest {
   context(_: Exc, state: State<Int>)
@@ -23,38 +23,12 @@ class HExcTest {
 
   @Test
   fun tripleDecrTest() = runTestCC {
-    runHExc {
-      runStatePair(2) {
-        tripleDecr()
-      }
-    } shouldEq Some(0 to Unit)
-    runHExcTransactional {
-      runStatePair(2) {
-        tripleDecr()
-      }
-    } shouldEq Some(1 to Unit)
-    runStatePair(2) {
-      runHExc {
-        tripleDecr()
-      }
-    } shouldEq (0 to Some(Unit))
-    maybe {
-      subJump {
-        runStatePair(2) {
-          with(recover) { tripleDecr() }
-        }
-      }
-    } shouldEq Some(1 to Unit)
-    runStatePair(2) {
-      runHExcTransactional {
-        tripleDecr()
-      }
-    } shouldEq (0 to Some(Unit))
-    runStatePair(2) {
-      subJump {
-        maybe { with(recover) { tripleDecr() } }
-      }
-    } shouldEq (0 to Some(Unit))
+    runHExc { runStatePair(2) { tripleDecr() } } shouldEq Some(0 to Unit)
+    runHExcTransactional { runStatePair(2) { tripleDecr() } } shouldEq Some(1 to Unit)
+    runStatePair(2) { runHExc { tripleDecr() } } shouldEq (0 to Some(Unit))
+    runHExcSubJump { runStatePair(2) { tripleDecr() } } shouldEq Some(1 to Unit)
+    runStatePair(2) { runHExcTransactional { tripleDecr() } } shouldEq (0 to Some(Unit))
+    runStatePair(2) { runHExcSubJump { tripleDecr() } } shouldEq (0 to Some(Unit))
   }
 
   @Test
@@ -64,7 +38,9 @@ class HExcTest {
         recover({
           ensure(!flip())
           true
-        }) { false }
+        }) {
+          false
+        }
       }
     } shouldEq Some(persistentListOf(false, true))
     runHExcTransactional {
@@ -72,40 +48,59 @@ class HExcTest {
         recover({
           ensure(!flip())
           true
-        }) { false }
+        }) {
+          false
+        }
       }
     } shouldEq Some(persistentListOf(false))
-    subJump {
+    recoverSubJump {
       bagOfN {
-        recover.recover({
+        recover({
           ensure(!flip())
           true
-        }) { false }
+        }) {
+          false
+        }
       }
     } shouldEq listOf(false)
   }
 
   @Test
   fun shortCircuitTest() = runTestCC {
-    runHExc { recover({ raise() }) { } } shouldEq Some(Unit)
-    runHExcTransactional { recover({ raise() }) { } } shouldEq Some(Unit)
-    maybe { subJump { recover.recover({ raise() }) {} } } shouldEq Some(Unit)
-    runHExc { recover({ this@runHExc.raise() }) { } } shouldEq None
-    runHExcTransactional { recover({ this@runHExcTransactional.raise() }) { } } shouldEq None
-    maybe { subJump { recover.recover({ this@maybe.raise() }) { } } } shouldEq None
+    runHExc { recover({ raise() }) {} } shouldEq Some(Unit)
+    runHExcTransactional { recover({ raise() }) {} } shouldEq Some(Unit)
+    runHExcSubJump { recover({ raise() }) {} } shouldEq Some(Unit)
+    runHExc {
+      val outer = contextOf<Exc>()
+      recover({ outer.raise() }) {}
+    } shouldEq None
+    runHExcTransactional {
+      val outer = contextOf<Exc>()
+      recover({ outer.raise() }) {}
+    } shouldEq None
+    runHExcSubJump {
+      val outer = contextOf<Exc>()
+      recover({ outer.raise() }) {}
+    } shouldEq None
   }
 
-  context(_: HExc, _: Amb)
-  suspend fun action1() = recover({
-    ensure(flip())
-    true
-  }) { false }
+  context(_: Exc, _: Recover, _: Amb)
+  suspend fun action1() =
+    recover({
+      ensure(flip())
+      true
+    }) {
+      false
+    }
 
-  context(_: HExc, _: Amb)
-  suspend fun action2() = recover({
-    ensure(!flip())
-    true
-  }) { false }
+  context(_: Exc, _: Recover, _: Amb)
+  suspend fun action2() =
+    recover({
+      ensure(!flip())
+      true
+    }) {
+      false
+    }
 
   @Test
   fun nonDetAcidTestTransactional() = runTestCC {
@@ -141,61 +136,66 @@ class HExcTest {
 }
 
 interface Recover {
-  suspend fun <A> recover(block: suspend Exc.() -> A, recover: suspend () -> A): A
+  suspend fun <A> recover(block: suspend context(Exc) () -> A, recover: suspend () -> A): A
 }
 
 context(r: Recover)
-suspend fun <A> recover(block: suspend Exc.() -> A, recover: suspend () -> A): A = r.recover(block, recover)
+suspend fun <A> recover(block: suspend context(Exc) () -> A, recover: suspend () -> A): A = r.recover(block, recover)
 
-interface HExc : Recover, Exc
-
-suspend fun <A> runHExcTransactional(block: suspend HExc.() -> A): Option<A> = handle {
-  block(object : HExc, Exc by exc {
-    override suspend fun <A> recover(block: suspend Exc.() -> A, recover: suspend () -> A): A {
-      val res: Option<HExc> = use { resume ->
-        runHExcTransactional {
-          resume(this.some())
-        }.getOrElse {
-          resume(None)
+suspend fun <A> runHExcTransactional(block: suspend context(Exc, Recover) () -> A): Option<A> = handle {
+  block(
+      exc,
+      object : Recover {
+        override suspend fun <A> recover(block: suspend context(Exc) () -> A, recover: suspend () -> A): A {
+          val res: Option<Exc> = use { resume ->
+            runHExcTransactional { resume(contextOf<Exc>().some()) }.getOrElse { resume(None) }
+          }
+          return res.fold({ recover() }, { block(it) })
         }
-      }
-      return res.fold({ recover() }, { block(it) })
+      },
+    )
+    .some()
+}
+
+suspend fun <A> runHExc(block: suspend context(Exc, Recover) () -> A): Option<A> = handle {
+  block(
+      exc,
+      object : Recover {
+        override suspend fun <A> recover(block: suspend context(Exc) () -> A, recover: suspend () -> A): A =
+          runHExc { block() }.getOrElse { recover() }
+      },
+    )
+    .some()
+}
+
+suspend fun <A> runHExcSubJump(block: suspend context(Exc, Recover) () -> A): Option<A> = maybe {
+  recoverSubJump { block() }
+}
+
+suspend fun <A> recoverSubJump(block: suspend context(Recover) () -> A) = subJump {
+  block(
+    object : Recover {
+      override suspend fun <A> recover(block: suspend context(Exc) () -> A, recover: suspend () -> A): A =
+        sub({ jump -> maybe(block).getOrElse { jump(Unit) } }, { recover() })
     }
-  }).some()
+  )
 }
 
-suspend fun <A> runHExc(block: suspend HExc.() -> A): Option<A> = handle {
-  block(object : HExc, Exc by exc {
-    override suspend fun <A> recover(block: suspend Exc.() -> A, recover: suspend () -> A): A =
-      runHExc(block).getOrElse { recover() }
-  }).some()
+suspend fun <A> hRecover(block: suspend context(Exc, Recover) () -> A): Option<A> = handle {
+  block(
+      exc,
+      object : Recover {
+        override suspend fun <A> recover(block: suspend context(Exc) () -> A, recover: suspend () -> A): A =
+          use { resume ->
+            resume locally { hRecover { block() }.getOrElse { discard { resume locally { recover() } } } }
+          }
+      },
+    )
+    .some()
 }
 
-suspend fun <A> runHExcSubJump(block: suspend HExc.() -> A): Option<A> = maybe {
-  subJump {
-    block(object : HExc, Recover by recover, Exc by this@maybe {})
+suspend fun <T, R> runStatePair(value: T, body: suspend State<T>.() -> R): Pair<T, R> =
+  runState(value) {
+    val res = body()
+    this.value to res
   }
-}
-
-val SubJump.recover: Recover
-  get() = object : Recover {
-    override suspend fun <A> recover(block: suspend Exc.() -> A, recover: suspend () -> A): A =
-      sub({ jump -> maybe(block).getOrElse { jump(Unit) } }, { recover() })
-  }
-
-suspend fun <A> hRecover(block: suspend HExc.() -> A): Option<A> = handle {
-  block(object : HExc, Exc by exc {
-    override suspend fun <A> recover(block: suspend Exc.() -> A, recover: suspend () -> A): A = use { resume ->
-      resume locally {
-        hRecover(block).getOrElse {
-          discard { resume locally { recover() } }
-        }
-      }
-    }
-  }).some()
-}
-
-suspend fun <T, R> runStatePair(value: T, body: suspend State<T>.() -> R): Pair<T, R> = runState(value) {
-  val res = body()
-  this.value to res
-}

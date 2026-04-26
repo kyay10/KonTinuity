@@ -10,13 +10,27 @@ import kotlin.test.Test
 class PrettyPrinterTest {
   context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
   suspend fun example4b() {
-    text("def"); space(); text("foo"); parens {
+    text("def")
+    space()
+    text("foo")
+    parens {
       group {
         nest(2) {
           linebreak()
-          group { text("x"); text(":"); space(); text("Int"); text(",") }
+          group {
+            text("x")
+            text(":")
+            space()
+            text("Int")
+            text(",")
+          }
           line()
-          group { text("y"); text(":"); space(); text("String") }
+          group {
+            text("y")
+            text(":")
+            space()
+            text("String")
+          }
         }
         linebreak()
       }
@@ -31,7 +45,14 @@ class PrettyPrinterTest {
       group {
         nest(2) {
           line()
-          text("var"); space(); text("z"); space(); text("="); space(); text("42"); text(";")
+          text("var")
+          space()
+          text("z")
+          space()
+          text("=")
+          space()
+          text("42")
+          text(";")
         }
         line()
       }
@@ -44,7 +65,13 @@ class PrettyPrinterTest {
       text("this")
       nest(9) {
         line()
-        group { text("takes"); line(); text("many"); line(); text("f") }
+        group {
+          text("takes")
+          line()
+          text("many")
+          line()
+          text("f")
+        }
       }
       line()
       text("l")
@@ -59,7 +86,11 @@ class PrettyPrinterTest {
       text("will")
       nest(9) {
         line()
-        group { text("take"); line(); text("many") }
+        group {
+          text("take")
+          line()
+          text("many")
+        }
       }
       line()
       text("lines")
@@ -68,87 +99,108 @@ class PrettyPrinterTest {
 
   @Test
   fun example() = runTestCC {
-    pretty(5) { example1(listOf(1, 2, 3, 4)) } shouldEq """
+    pretty(5) { example1(listOf(1, 2, 3, 4)) } shouldEq
+      """
       |[1,
       |2, 3,
       |4, ]
-    """.trimMargin()
+      """
+        .trimMargin()
 
-    pretty(10) { example1(listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4)) } shouldEq """
+    pretty(10) { example1(listOf(1, 2, 3, 4, 5, 6, 7, 8, 9, 1, 2, 3, 4)) } shouldEq
+      """
       |[1, 2, 3,
       |4, 5, 6,
       |7, 8, 9,
       |1, 2, 3,
       |4, ]
-    """.trimMargin()
+      """
+        .trimMargin()
 
-    example4() shouldEq """
+    example4() shouldEq
+      """
       |let x =
       |  let y =
       |    2
       |  in 1
       |in 42
-    """.trimMargin()
+      """
+        .trimMargin()
 
     pretty(30) { example4b() } shouldEq """def foo(x: Int, y: String)"""
-    pretty(20) { example4b() } shouldEq """
+    pretty(20) { example4b() } shouldEq
+      """
       |def foo(
       |  x: Int,
       |  y: String
       |)
-    """.trimMargin()
+      """
+        .trimMargin()
 
     pretty(50) { example3b() } shouldEq """def foo(x: Int, y: String) { var z = 42; }"""
-    pretty(15) { example3b() } shouldEq """
+    pretty(15) { example3b() } shouldEq
+      """
       |def foo(
       |  x: Int,
       |  y: String
       |) {
       |  var z = 42;
       |}
-    """.trimMargin()
+      """
+        .trimMargin()
 
-    pretty(6) { example2() } shouldEq """
+    pretty(6) { example2() } shouldEq
+      """
       |Hi
       |you!!!
-    """.trimMargin()
+      """
+        .trimMargin()
 
-    pretty(15) { example3() } shouldEq """
+    pretty(15) { example3() } shouldEq
+      """
       |this
       |         takes
       |         four
       |lines
-    """.trimMargin()
+      """
+        .trimMargin()
 
-    pretty(14) { example6() } shouldEq """
+    pretty(14) { example6() } shouldEq
+      """
       |this takes
       |         many
       |         f l
-    """.trimMargin()
+      """
+        .trimMargin()
 
-    pretty(14) { example7() } shouldEq """
+    pretty(14) { example7() } shouldEq
+      """
       |this
       |will
       |         take
       |         many
       |lines
-    """.trimMargin()
+      """
+        .trimMargin()
   }
 }
 
 enum class Direction {
-  Horizontal, Vertical
+  Horizontal,
+  Vertical,
 }
 
 data class Indent(val indent: Int)
 
 context(indent: Indent)
-val indent get() = indent.indent
+val indent
+  get() = indent.indent
 
 data class DefaultIndent(val defaultIndent: Int)
 
 context(defaultIndent: DefaultIndent)
-val defaultIndent get() = defaultIndent.defaultIndent
+val defaultIndent
+  get() = defaultIndent.defaultIndent
 
 fun interface Flow {
   suspend fun flow(): Direction
@@ -178,13 +230,14 @@ fun spaces(n: Int) {
 }
 
 context(_: Indent, _: Flow, _: Emit)
-suspend fun lineOr(replace: String) = when (flow()) {
-  Direction.Horizontal -> text(replace)
-  Direction.Vertical -> {
-    newline()
-    spaces(indent)
+suspend fun lineOr(replace: String) =
+  when (flow()) {
+    Direction.Horizontal -> text(replace)
+    Direction.Vertical -> {
+      newline()
+      spaces(indent)
+    }
   }
-}
 
 context(_: Indent, _: Flow, _: Emit)
 suspend fun line() = lineOr(" ")
@@ -194,16 +247,25 @@ suspend fun linebreak() = lineOr("")
 
 // Uses `n` as the indentation in the given document
 context(_: Indent)
-suspend inline fun <R> withIndent(n: Int, doc: suspend context(Indent) () -> R): R = doc(Indent(n))
+suspend inline fun <R> withIndent(
+  n: Int,
+  doc: suspend context(Indent) () -> R,
+): R = doc(Indent(n))
 
 context(_: Indent)
-suspend inline fun <R> nest(j: Int, doc: suspend context(Indent) () -> R): R = withIndent(indent + j, doc)
+suspend inline fun <R> nest(
+  j: Int,
+  doc: suspend context(Indent) () -> R,
+): R = withIndent(indent + j, doc)
 
 context(_: Indent, _: DefaultIndent)
 suspend inline fun <R> nested(doc: suspend context(Indent) () -> R): R = nest(defaultIndent, doc)
 
 context(_: Flow)
-suspend inline fun <R> fix(direction: Direction, doc: suspend context(Flow) () -> R): R = doc(Flow { direction })
+suspend inline fun <R> fix(
+  direction: Direction,
+  doc: suspend context(Flow) () -> R,
+): R = doc(Flow { direction })
 
 fun interface LayoutChoice {
   suspend fun choice(): Direction
@@ -255,34 +317,40 @@ suspend fun <R> searchLayout(p: suspend context(LayoutChoice, Exc) () -> R) = ba
   context(LayoutChoice { if (flip()) Direction.Horizontal else Direction.Vertical }) { p() }
 }
 
-suspend fun writer(p: suspend context(Emit) () -> Unit) = runState("") {
-  p { text -> value += text }
-  value
-}
+suspend fun writer(p: suspend context(Emit) () -> Unit) =
+  runState("") {
+    p { text -> value += text }
+    value
+  }
 
 context(_: Emit, _: LayoutChoice, _: Exc)
 suspend fun printer(
-  width: Int, defaultIndent: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit
-) = runState(0) {
-  block(Indent(0), DefaultIndent(defaultIndent), Flow { choice() }, Emit {
-    it.lines().forEachIndexed { i, string ->
-      if (i > 0) value = 0
-      value += string.length
-      ensure(value <= width) {}
-    }
-    text(it)
-  })
-}
+  width: Int,
+  defaultIndent: Int,
+  block: suspend context(Indent, DefaultIndent, Flow, Emit) () -> Unit,
+) =
+  runState(0) {
+    block(
+      Indent(0),
+      DefaultIndent(defaultIndent),
+      Flow { choice() },
+      Emit {
+        it.lines().forEachIndexed { i, string ->
+          if (i > 0) value = 0
+          value += string.length
+          ensure(value <= width) {}
+        }
+        text(it)
+      },
+    )
+  }
 
 suspend fun pretty(
-  width: Int, block: suspend context(Indent, DefaultIndent, Flow, Emit, LayoutChoice) () -> Unit
-): String = searchLayout {
-  writer {
-    printer(width, 2) {
-      block()
-    }
-  }
-}.getOrElse { "Cannot print document, since it would overflow." }
+  width: Int,
+  block: suspend context(Indent, DefaultIndent, Flow, Emit, LayoutChoice) () -> Unit,
+): String =
+  searchLayout { writer { printer(width, 2) { block() } } }
+    .getOrElse { "Cannot print document, since it would overflow." }
 
 context(_: Emit)
 inline fun parens(block: () -> Unit) {
@@ -298,37 +366,51 @@ inline fun braces(block: () -> Unit) {
   text("}")
 }
 
-
 context(_: Indent, _: DefaultIndent, _: Flow, _: Emit, _: LayoutChoice)
-suspend fun Tree.emit(): Unit = when (this) {
-  is Lit -> text(value.toString())
-  is Var -> text(name)
-  is Let -> {
-    text("let"); space(); text(name); space(); text("=")
-    group {
-      nested { line(); binding.emit() }
-      line()
-      text("in")
-    }
-    group { nested { line(); body.emit() } }
-  }
-
-  is App -> {
-    text(name); parens {
+suspend fun Tree.emit(): Unit =
+  when (this) {
+    is Lit -> text(value.toString())
+    is Var -> text(name)
+    is Let -> {
+      text("let")
+      space()
+      text(name)
+      space()
+      text("=")
       group {
         nested {
-          linebreak()
-          arg.emit()
+          line()
+          binding.emit()
         }
-        linebreak()
+        line()
+        text("in")
+      }
+      group {
+        nested {
+          line()
+          body.emit()
+        }
+      }
+    }
+
+    is App -> {
+      text(name)
+      parens {
+        group {
+          nested {
+            linebreak()
+            arg.emit()
+          }
+          linebreak()
+        }
       }
     }
   }
-}
 
-suspend fun parseAndPrint(text: String, width: Int): String = when (val t = parse(text) { parseExpr() }) {
-  is Right -> pretty(width) { t.value.emit() }
-  is Left -> t.value
-}
+suspend fun parseAndPrint(text: String, width: Int): String =
+  when (val t = parse(text) { parseExpr() }) {
+    is Right -> pretty(width) { t.value.emit() }
+    is Left -> t.value
+  }
 
 suspend fun example4() = parseAndPrint("let x = (let y = 2 in 1) in 42", 10)

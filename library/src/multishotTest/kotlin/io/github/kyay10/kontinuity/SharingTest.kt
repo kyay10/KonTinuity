@@ -1,9 +1,9 @@
 package io.github.kyay10.kontinuity
 
-import kotlinx.collections.immutable.PersistentList
-import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
 import kotlin.time.Duration.Companion.minutes
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.persistentListOf
 
 typealias LazyList<T> = LazyCons<T>?
 
@@ -44,9 +44,7 @@ suspend fun <T> Stream<T>?.toPersistentList(): PersistentList<T> {
   return tail().toPersistentList().add(0, value)
 }
 
-fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i ->
-  Stream(i, acc?.let(Producer.Companion::of))
-}
+fun <T> List<T>.toStream(): Stream<T>? = fold(null) { acc, i -> Stream(i, acc?.let(Producer.Companion::of)) }
 
 context(_: Amb, _: Exc)
 private suspend fun <T> insert(mx: Producer<T>, mxs: Producer<LazyList<T>>): LazyList<T> =
@@ -84,42 +82,34 @@ suspend fun <T> LazyList<T>.toPersistentList(): PersistentList<T> {
   return tail().toPersistentList().add(0, x)
 }
 
-fun <T> List<T>.toLazyList(): LazyList<T> = fold(null) { acc, i ->
-  LazyCons(Producer.of(i), Producer.of(acc))
-}
+fun <T> List<T>.toLazyList(): LazyList<T> = fold(null) { acc, i -> LazyCons(Producer.of(i), Producer.of(acc)) }
 
 class SharingTest {
   @Test
-  fun sortingTest() = runTestCC(timeout = 10.minutes) {
-    val numbers = (1..2).toList()
-    bagOfN {
-      sharing {
-        numbers.toLazyList().sort().toPersistentList()
-      }
-    } shouldEq listOf(numbers)
-  }
+  fun sortingTest() =
+    runTestCC(timeout = 10.minutes) {
+      val numbers = (1..2).toList()
+      bagOfN { sharing { numbers.toLazyList().sort().toPersistentList() } } shouldEq listOf(numbers)
+    }
 
   @Test
-  fun streamSortingTest() = runTestCC(timeout = 10.minutes) {
-    val numbers = (1..2).toList()
-    bagOfN {
-      sharing {
-        numbers.toStream().sort().toPersistentList()
-      }
-    } shouldEq listOf(numbers)
-  }
+  fun streamSortingTest() =
+    runTestCC(timeout = 10.minutes) {
+      val numbers = (1..2).toList()
+      bagOfN { sharing { numbers.toStream().sort().toPersistentList() } } shouldEq listOf(numbers)
+    }
 }
 
 private class Field<T> {
   object EmptyValue
 
-  @Suppress("UNCHECKED_CAST")
-  private var value: T = EmptyValue as T
+  @Suppress("UNCHECKED_CAST") private var value: T = EmptyValue as T
 
-  inline fun getOrPut(block: () -> T): T = when (val value = value) {
-    EmptyValue -> block().also { this.value = it }
-    else -> value
-  }
+  inline fun getOrPut(block: () -> T): T =
+    when (val value = value) {
+      EmptyValue -> block().also { this.value = it }
+      else -> value
+    }
 
   @Suppress("UNCHECKED_CAST")
   fun clear() {
@@ -131,9 +121,10 @@ abstract class Producer<out A> {
   abstract suspend operator fun invoke(): A
 
   companion object {
-    inline operator fun <A> invoke(crossinline block: suspend () -> A): Producer<A> = object : Producer<A>() {
-      override suspend fun invoke(): A = block()
-    }
+    inline operator fun <A> invoke(crossinline block: suspend () -> A): Producer<A> =
+      object : Producer<A>() {
+        override suspend fun invoke(): A = block()
+      }
 
     fun <A> of(a: A): Producer<A> = Producer { a }
   }
@@ -155,35 +146,36 @@ interface Shareable<out A : Shareable<A>> {
 }
 
 context(_: Sharing)
-fun <A> A.shareArgs(): A = if (this is Shareable<*>) {
-  // Technically unsafe, but as long as all implementations use a self-type, we're fine
-  @Suppress("UNCHECKED_CAST")
-  shareArgs() as A
-} else this
+fun <A> A.shareArgs(): A =
+  if (this is Shareable<*>) {
+    // Technically unsafe, but as long as all implementations use a self-type, we're fine
+    @Suppress("UNCHECKED_CAST")
+    shareArgs() as A
+  } else this
 
 suspend fun <R> sharing(block: suspend context(Sharing) () -> R): R =
   runReader(null as MutableList<Field<*>>?, { ArrayList(20) }) {
-    block(object : Sharing {
-      override fun <A> share(block: Producer<A>): Producer<A> = memo { block().shareArgs() }
-    }).also {
-      value?.forEach { it.clear() }
-    }
+    block(
+        object : Sharing {
+          override fun <A> share(block: Producer<A>): Producer<A> = memo { block().shareArgs() }
+        }
+      )
+      .also { value?.forEach { it.clear() } }
   }
 
 context(r: Reader<MutableList<in Field<*>>?>)
 private inline fun <A> memo(crossinline block: suspend () -> A): Producer<A> {
   val key = Field<A>()
-  return Producer {
-    key.getOrPut { block().also { r.value?.add(key) } }
-  }
+  return Producer { key.getOrPut { block().also { r.value?.add(key) } } }
 }
 
-suspend fun <R> sharingHonest(block: suspend context(Sharing) () -> R): R =
-  intMapRegion {
-    block(object : Sharing {
+suspend fun <R> sharingHonest(block: suspend context(Sharing) () -> R): R = intMapRegion {
+  block(
+    object : Sharing {
       override fun <A> share(block: Producer<A>): Producer<A> = memoHonest { block().shareArgs() }
-    })
-  }
+    }
+  )
+}
 
 context(_: Region)
 private inline fun <A> memoHonest(crossinline block: suspend () -> A): Producer<A> {

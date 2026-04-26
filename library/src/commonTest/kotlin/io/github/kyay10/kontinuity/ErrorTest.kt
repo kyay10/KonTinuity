@@ -9,15 +9,7 @@ class ErrorTest {
   @Test
   fun `multishot nested resumptions fail`() = runTest {
     shouldThrow<IllegalStateException> {
-      runCC {
-        handle {
-          useOnce { resume ->
-            resume locally {
-              resume(Unit)
-            }
-          }
-        }
-      }
+      runCC { handle { useOnce { resume -> resume locally { resume(Unit) } } } }
     } shouldHaveMessage SEGMENT_ALREADY_USED
   }
 

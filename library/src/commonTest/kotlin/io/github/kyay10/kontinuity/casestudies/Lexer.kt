@@ -8,11 +8,12 @@ import io.github.kyay10.kontinuity.*
 import kotlin.test.Test
 
 class LexerTest {
-  val exampleTokens = listOf(
-    Token(TokenKind.Ident, "foo", Position(1, 1, 0)),
-    Token(TokenKind.Punct, "(", Position(1, 4, 3)),
-    Token(TokenKind.Punct, ")", Position(1, 5, 4))
-  )
+  val exampleTokens =
+    listOf(
+      Token(TokenKind.Ident, "foo", Position(1, 1, 0)),
+      Token(TokenKind.Punct, "(", Position(1, 4, 3)),
+      Token(TokenKind.Punct, ")", Position(1, 5, 4)),
+    )
   val dummyTokens = exampleTokens.map { it.copy(position = dummyPosition) }
 
   @Test
@@ -42,11 +43,12 @@ class LexerTest {
     report {
       lexer("foo (   \n  )") {
         skipWhitespace {
-          for (token in listOf(
-            Token(TokenKind.Ident, "foo", Position(1, 1, 0)),
-            Token(TokenKind.Punct, "(", Position(1, 5, 4)),
-            Token(TokenKind.Punct, ")", Position(2, 2, 11))
-          )) {
+          for (token in
+            listOf(
+              Token(TokenKind.Ident, "foo", Position(1, 1, 0)),
+              Token(TokenKind.Punct, "(", Position(1, 5, 4)),
+              Token(TokenKind.Punct, ")", Position(2, 2, 11)),
+            )) {
             read() shouldEq token
           }
         }
@@ -58,7 +60,10 @@ class LexerTest {
 data class Position(val line: Int, val col: Int, val index: Int)
 
 enum class TokenKind {
-  Number, Ident, Punct, Space
+  Number,
+  Ident,
+  Punct,
+  Space,
 }
 
 data class Token(val kind: TokenKind, val text: String, val position: Position)
@@ -74,30 +79,41 @@ data class LexerError(val msg: String, val pos: Position)
 
 val dummyPosition = Position(0, 0, 0)
 
-suspend fun <R> Raise<LexerError>.lexerFromList(l: List<Token>, block: suspend context(Lexer) () -> R) = runState(0) {
-  handle {
-    block(object : Lexer {
-      override suspend fun peek(): Token? = l.getOrNull(value)
-      override suspend fun read(): Token =
-        l.getOrNull(value++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
-    })
+suspend fun <R> Raise<LexerError>.lexerFromList(
+  l: List<Token>,
+  block: suspend context(Lexer) () -> R,
+) =
+  runState(0) {
+    handle {
+      block(
+        object : Lexer {
+          override suspend fun peek(): Token? = l.getOrNull(value)
+
+          override suspend fun read(): Token =
+            l.getOrNull(value++) ?: raise(LexerError("Unexpected end of input", dummyPosition))
+        }
+      )
+    }
   }
-}
 
-inline fun report(block: Raise<LexerError>.() -> Unit) = recover(block) { (msg, pos) ->
-  error("LexerError: ${pos.line}:${pos.col} $msg")
-}
+inline fun report(block: Raise<LexerError>.() -> Unit) =
+  recover(block) { (msg, pos) -> error("LexerError: ${pos.line}:${pos.col} $msg") }
 
-private val tokenDescriptors = mapOf(
-  TokenKind.Number to "^[0-9]+".toRegex(),
-  TokenKind.Ident to "^[a-zA-Z]+".toRegex(),
-  TokenKind.Punct to "^[=,.()\\[\\]{}:]".toRegex(),
-  TokenKind.Space to "^[ \t\n]+".toRegex()
-)
+private val tokenDescriptors =
+  mapOf(
+    TokenKind.Number to "^[0-9]+".toRegex(),
+    TokenKind.Ident to "^[a-zA-Z]+".toRegex(),
+    TokenKind.Punct to "^[=,.()\\[\\]{}:]".toRegex(),
+    TokenKind.Space to "^[ \t\n]+".toRegex(),
+  )
 
-suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend context(Lexer) () -> R): R {
+suspend fun <R> Raise<LexerError>.lexer(
+  input: String,
+  block: suspend context(Lexer) () -> R,
+): R {
   data class Data(var index: Int, var col: Int, var line: Int) : Stateful<Data> {
     fun toPosition() = Position(line, col, index)
+
     fun consume(text: String) {
       val lines = text.split("\n")
       val offset = lines.last().length
@@ -111,21 +127,21 @@ suspend fun <R> Raise<LexerError>.lexer(input: String, block: suspend context(Le
 
   return runReader(Data(index = 0, col = 1, line = 1)) {
     handle {
-      block(object : Lexer {
-        override suspend fun peek(): Token? = tokenDescriptors.firstNotNullOfOrNull { (kind, regex) ->
-          regex.find(input.substring(value.index))?.let {
-            Token(kind, it.value, value.toPosition())
+      block(
+        object : Lexer {
+          override suspend fun peek(): Token? = tokenDescriptors.firstNotNullOfOrNull { (kind, regex) ->
+            regex.find(input.substring(value.index))?.let { Token(kind, it.value, value.toPosition()) }
+          }
+
+          override suspend fun read(): Token {
+            val position = value.toPosition()
+            ensure(value.index < input.length) { LexerError("Unexpected EOS", position) }
+            val tok = ensureNotNull(peek()) { LexerError("Cannot tokenize input", position) }
+            value.consume(tok.text)
+            return tok
           }
         }
-
-        override suspend fun read(): Token {
-          val position = value.toPosition()
-          ensure(value.index < input.length) { LexerError("Unexpected EOS", position) }
-          val tok = ensureNotNull(peek()) { LexerError("Cannot tokenize input", position) }
-          value.consume(tok.text)
-          return tok
-        }
-      })
+      )
     }
   }
 }
@@ -138,14 +154,19 @@ suspend fun skipSpaces() {
 }
 
 context(outer: Lexer)
-suspend fun <R> skipWhitespace(block: suspend context(Lexer) () -> R): R = block(object : Lexer {
-  override suspend fun read(): Token = with(outer) {
-    skipSpaces()
-    read()
-  }
+suspend fun <R> skipWhitespace(block: suspend context(Lexer) () -> R): R =
+  block(
+    object : Lexer {
+      override suspend fun read(): Token =
+        with(outer) {
+          skipSpaces()
+          read()
+        }
 
-  override suspend fun peek(): Token? = with(outer) {
-    skipSpaces()
-    peek()
-  }
-})
+      override suspend fun peek(): Token? =
+        with(outer) {
+          skipSpaces()
+          peek()
+        }
+    }
+  )

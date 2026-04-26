@@ -3,9 +3,9 @@ package io.github.kyay10.kontinuity.hansei
 import arrow.core.getOrElse
 import arrow.core.getOrNone
 import io.github.kyay10.kontinuity.*
+import kotlin.math.pow
 import kotlinx.collections.immutable.persistentHashMapOf
 import kotlinx.collections.immutable.plus
-import kotlin.math.pow
 
 interface Probabilistic : Exc {
   suspend fun <A> Dist<A>.dist(): A
@@ -14,59 +14,57 @@ interface Probabilistic : Exc {
 interface Memory {
   fun <A> letLazy(block: suspend () -> A): suspend () -> A
 
-  fun <A, B> memo(
-    block: suspend (A) -> B
-  ): suspend (A) -> B
+  fun <A, B> memo(block: suspend (A) -> B): suspend (A) -> B
 }
 
 context(p: Probabilistic)
 suspend inline fun <A> Dist<A>.dist(): A = with(p) { dist() }
+
 suspend inline fun <A> reify(crossinline block: suspend context(Probabilistic, Memory) () -> A): SearchTree<A> =
   probabilistic {
-    memory {
-      block()
-    }
+    memory { block() }
   }
 
 @PublishedApi
-internal suspend inline fun <A> probabilistic(crossinline block: suspend context(Probabilistic) () -> A): SearchTree<A> =
-  handle {
-    val result = block(object : Probabilistic, Exc by exc {
-      override suspend fun <A> Dist<A>.dist(): A = use { resume ->
-        map { (p, v) ->
-          Probable(p, Value.Branch { resume(v) })
+internal suspend inline fun <A> probabilistic(
+  crossinline block: suspend context(Probabilistic) () -> A
+): SearchTree<A> = handle {
+  val result =
+    block(
+      object : Probabilistic, Exc by exc {
+        override suspend fun <A> Dist<A>.dist(): A = use { resume ->
+          map { (p, v) -> Probable(p, Value.Branch { resume(v) }) }
         }
       }
-    })
-    listOf(Probable(1.0, Value.Leaf(result)))
-  }
+    )
+  listOf(Probable(1.0, Value.Leaf(result)))
+}
 
 @PublishedApi
 internal suspend inline fun <A> memory(crossinline block: suspend context(Memory) () -> A): A = listRegion {
-  block(object : Memory {
-    override fun <A> letLazy(block: suspend () -> A): suspend () -> A {
-      val loc = field<A>()
-      return { loc.getOrPut { block() } }
-    }
+  block(
+    object : Memory {
+      override fun <A> letLazy(block: suspend () -> A): suspend () -> A {
+        val loc = field<A>()
+        return { loc.getOrPut { block() } }
+      }
 
-    override fun <A, B> memo(block: suspend (A) -> B): suspend (A) -> B {
-      var map by field(persistentHashMapOf<A, B>())
-      return { a ->
-        map.getOrNone(a).getOrElse {
-          block(a).also { v ->
-            map += a to v // we intentionally fetch `map` again, since it might've been changed by `block`
+      override fun <A, B> memo(block: suspend (A) -> B): suspend (A) -> B {
+        var map by field(persistentHashMapOf<A, B>())
+        return { a ->
+          map.getOrNone(a).getOrElse {
+            block(a).also { v ->
+              map += a to v // we intentionally fetch `map` again, since it might've been changed by `block`
+            }
           }
         }
       }
     }
-  })
+  )
 }
 
 context(_: Probabilistic)
-suspend inline fun flip(p: Prob = 0.5): Boolean = listOf(
-  Probable(p, true),
-  Probable(1 - p, false)
-).dist()
+suspend inline fun flip(p: Prob = 0.5): Boolean = listOf(Probable(p, true), Probable(1 - p, false)).dist()
 
 context(_: Probabilistic)
 suspend inline fun uniform(count: Int): Int {
@@ -75,14 +73,15 @@ suspend inline fun uniform(count: Int): Int {
   val p = 1.0 / count
   var acc = 0.0
   return List(count) { i ->
-    if (i == count - 1) {
-      Probable(1 - acc, i)
-    } else {
-      val prob = Probable(p, i)
-      acc += p
-      prob
+      if (i == count - 1) {
+        Probable(1 - acc, i)
+      } else {
+        val prob = Probable(p, i)
+        acc += p
+        prob
+      }
     }
-  }.dist()
+    .dist()
 }
 
 context(_: Probabilistic)
@@ -93,27 +92,31 @@ suspend inline fun IntRange.uniformly(): Int = start + uniform(endInclusive - st
 
 context(_: Probabilistic)
 suspend fun geometric(p: Prob): Int {
-  fun loop(n: Int): SearchTree<Int> = listOf(
-    Probable(p, Value.Branch { listOf(Probable(1.0, Value.Leaf(n))) }), // Not sure why it's written like this!
-    Probable(1 - p, Value.Branch { loop(n + 1) })
-  )
+  fun loop(n: Int): SearchTree<Int> =
+    listOf(
+      Probable(p, Value.Branch { listOf(Probable(1.0, Value.Leaf(n))) }), // Not sure why it's written like this!
+      Probable(1 - p, Value.Branch { loop(n + 1) }),
+    )
   return loop(0).reflect()
 }
 
 context(_: Probabilistic)
-suspend inline fun geometric(p: Prob, endInclusive: Int): Int = buildList {
-  var pp = p / (1 - (1 - p).pow(endInclusive + 1))
-  for (i in 0..endInclusive) {
-    add(Probable(pp, i))
-    pp *= (1 - p)
-  }
-}.dist()
+suspend inline fun geometric(p: Prob, endInclusive: Int): Int =
+  buildList {
+      var pp = p / (1 - (1 - p).pow(endInclusive + 1))
+      for (i in 0..endInclusive) {
+        add(Probable(pp, i))
+        pp *= (1 - p)
+      }
+    }
+    .dist()
 
 context(_: Probabilistic)
-tailrec suspend fun <A> SearchTree<A>.reflect(): A = when (val v = dist()) {
-  is Value.Leaf -> v.value
-  is Value.Branch -> v.searchTree().reflect()
-}
+tailrec suspend fun <A> SearchTree<A>.reflect(): A =
+  when (val v = dist()) {
+    is Value.Leaf -> v.value
+    is Value.Branch -> v.searchTree().reflect()
+  }
 
 context(_: Probabilistic)
 suspend fun <B> variableElimination(block: suspend context(Probabilistic, Memory) () -> B): B =
@@ -146,22 +149,26 @@ suspend fun <A> exactReify(block: suspend context(Probabilistic, Memory) () -> A
 suspend fun <A> sampleRejection(
   selector: Selector<Value<A>>,
   samples: Int,
-  block: suspend context(Probabilistic, Memory) () -> A
+  block: suspend context(Probabilistic, Memory) () -> A,
 ): SearchTree<A> = reify(block).rejectionSampleDist(selector, samples)
 
 suspend fun <A> sampleImportance(
   selector: Selector<SearchTree<A>>,
   samples: Int,
-  block: suspend context(Probabilistic, Memory) () -> A
-): SearchTree<A> = reify(block).shallowExplore(3).sampleDist(selector, object : SampleRunner {
-  override suspend fun <Seed> run(seed: Seed, sampler: suspend (Seed) -> Seed): Pair<Seed, Int> {
-    var s = seed
-    repeatIteratorless(samples) {
-      s = sampler(s)
-    }
-    return s to samples
-  }
-})
+  block: suspend context(Probabilistic, Memory) () -> A,
+): SearchTree<A> =
+  reify(block)
+    .shallowExplore(3)
+    .sampleDist(
+      selector,
+      object : SampleRunner {
+        override suspend fun <Seed> run(seed: Seed, sampler: suspend (Seed) -> Seed): Pair<Seed, Int> {
+          var s = seed
+          repeatIteratorless(samples) { s = sampler(s) }
+          return s to samples
+        }
+      },
+    )
 
 context(m: Memory)
 fun <A> letLazy(block: suspend () -> A): suspend () -> A = m.letLazy(block)

@@ -10,14 +10,15 @@ import kotlin.jvm.JvmName
 
 // Basically a suspending version of Raise<Unit>
 public interface Exc : Raise<Unit> {
-  @RaiseDSL
-  public suspend fun raise(): Nothing
+  @RaiseDSL public suspend fun raise(): Nothing
 }
 
-public fun <R> Handler<R>.constantExc(value: R): Exc = object : Exc {
-  override suspend fun raise(): Nothing = discardWithFast(Result.success(value))
-  override fun raise(r: Unit) = discardWith(Result.success(value))
-}
+public fun <R> Handler<R>.constantExc(value: R): Exc =
+  object : Exc {
+    override suspend fun raise(): Nothing = discardWithFast(Result.success(value))
+
+    override fun raise(r: Unit) = discardWith(Result.success(value))
+  }
 
 @RaiseDSL
 context(exc: Exc)
@@ -38,19 +39,20 @@ public suspend inline fun <T> T.bind(): T & Any {
 }
 
 @get:JvmName("optionExc")
-public val <R> Handler<Option<R>>.exc: Exc get() = constantExc(None)
+public val <R> Handler<Option<R>>.exc: Exc
+  get() = constantExc(None)
 
 @get:JvmName("listExc")
-public val <R> Handler<List<R>>.exc: Exc get() = constantExc(emptyList())
+public val <R> Handler<List<R>>.exc: Exc
+  get() = constantExc(emptyList())
 
 @get:JvmName("unitExc")
-public val Handler<Unit>.exc: Exc get() = constantExc(Unit)
+public val Handler<Unit>.exc: Exc
+  get() = constantExc(Unit)
 
 public inline fun <Error, R> Handler<R>.Raise(crossinline transform: (Error) -> R): Raise<Error> =
   object : Raise<Error> {
     override fun raise(r: Error): Nothing = discard { transform(r) }
   }
 
-public suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle {
-  block(exc).some()
-}
+public suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle { block(exc).some() }

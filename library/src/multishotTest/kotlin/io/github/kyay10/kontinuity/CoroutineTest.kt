@@ -69,37 +69,38 @@ class CoroutineTest {
 
 interface Coroutine<In, Out, Result> {
   suspend fun resume(input: In): Boolean
+
   val isDone: Boolean
   val value: Out
   val result: Result
+
   fun snapshot(): Coroutine<In, Out, Result>
 }
 
-suspend fun <In, Out, Result> coroutine(
-  body: CoroutineBody<In, Out, Result>
-): Coroutine<In, Out, Result> = handle {
-  CoroutineState.Done(body { use { k -> CoroutineState.Paused(k, it) } })
-}.let(::CoroutineInstance)
+suspend fun <In, Out, Result> coroutine(body: CoroutineBody<In, Out, Result>): Coroutine<In, Out, Result> =
+  handle { CoroutineState.Done(body { use { k -> CoroutineState.Paused(k, it) } }) }.let(::CoroutineInstance)
 
 suspend fun Coroutine<Unit, *, *>.resume(): Boolean = resume(Unit)
 
-data class CoroutineInstance<In, Out, Result>(
-  var state: CoroutineState<In, Out, Result>
-) : Coroutine<In, Out, Result> {
+data class CoroutineInstance<In, Out, Result>(var state: CoroutineState<In, Out, Result>) : Coroutine<In, Out, Result> {
   override val isDone: Boolean
     get() = state is CoroutineState.Done
+
   override val result: Result
-    get() = when (val s = state) {
-      is CoroutineState.Done -> s.result
-      else -> error("This coroutine is not yet done, can't get result")
-    }
+    get() =
+      when (val s = state) {
+        is CoroutineState.Done -> s.result
+        else -> error("This coroutine is not yet done, can't get result")
+      }
 
   override fun snapshot(): Coroutine<In, Out, Result> = copy()
+
   override val value: Out
-    get() = when (val s = state) {
-      is CoroutineState.Paused -> s.yieldValue
-      else -> error("Coroutine is done, doesn't have a value, but a result")
-    }
+    get() =
+      when (val s = state) {
+        is CoroutineState.Paused -> s.yieldValue
+        else -> error("Coroutine is done, doesn't have a value, but a result")
+      }
 
   override suspend fun resume(input: In): Boolean {
     val s = state as? CoroutineState.Paused ?: error("Can't resume this coroutine anymore")
@@ -111,7 +112,7 @@ data class CoroutineInstance<In, Out, Result>(
 sealed interface CoroutineState<in In, out Out, out Result> {
   data class Paused<in In, out Out, out Result>(
     val k: SubCont<In, CoroutineState<In, Out, Result>>,
-    val yieldValue: Out
+    val yieldValue: Out,
   ) : CoroutineState<In, Out, Result>
 
   data class Done<Result>(val result: Result) : CoroutineState<Any?, Nothing, Result>

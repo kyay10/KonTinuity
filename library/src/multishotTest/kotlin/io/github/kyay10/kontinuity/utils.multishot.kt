@@ -2,10 +2,10 @@ package io.github.kyay10.kontinuity
 
 import arrow.core.Option
 import arrow.core.tail
-import kotlinx.collections.immutable.PersistentList
-import kotlinx.collections.immutable.toPersistentList
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
+import kotlinx.collections.immutable.PersistentList
+import kotlinx.collections.immutable.toPersistentList
 
 context(_: Choose)
 suspend fun <T> List<T>.insert(element: T): PersistentList<T> {
@@ -13,16 +13,18 @@ suspend fun <T> List<T>.insert(element: T): PersistentList<T> {
   return toPersistentList().add(index, element)
 }
 
-fun <T> List<T>.permutations(): Sequence<List<T>> = if (isEmpty()) sequenceOf(toPersistentList())
-else sequence {
-  tail().permutations().forEach { perm ->
-    (0..perm.size).forEach { i ->
-      yield(perm.toPersistentList().add(i, first()))
+fun <T> List<T>.permutations(): Sequence<List<T>> =
+  if (isEmpty()) sequenceOf(toPersistentList())
+  else
+    sequence {
+      tail().permutations().forEach { perm ->
+        (0..perm.size).forEach { i -> yield(perm.toPersistentList().add(i, first())) }
+      }
     }
-  }
-}
 
 inline fun <A> Option<A>.handleErrorWith(f: () -> Option<A>): Option<A> {
   contract { callsInPlace(f, InvocationKind.AT_MOST_ONCE) }
-  return onNone { return f() }
+  return onNone {
+    return f()
+  }
 }

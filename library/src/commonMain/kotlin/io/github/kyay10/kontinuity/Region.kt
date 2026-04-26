@@ -9,9 +9,12 @@ import kotlin.reflect.KProperty
 
 public interface Region {
   public fun <T> field(): OptionalField<T>
+
   public interface NonEmptyField
+
   public sealed interface Field<T> : NonEmptyField, OptionalField<T> {
     public var value: T
+
     override fun set(value: T) {
       this.value = value
     }
@@ -19,6 +22,7 @@ public interface Region {
 
   public sealed interface OptionalField<T> {
     public fun getOrNone(): Option<T>
+
     public fun set(value: T)
   }
 }
@@ -38,17 +42,10 @@ public inline fun <T> Region.Field<T>.update(f: (T) -> T) {
 }
 
 @Suppress("NOTHING_TO_INLINE")
-public inline operator fun <T> Region.Field<T>.getValue(
-  thisRef: Any?,
-  property: KProperty<*>
-): T = value
+public inline operator fun <T> Region.Field<T>.getValue(thisRef: Any?, property: KProperty<*>): T = value
 
 @Suppress("NOTHING_TO_INLINE")
-public inline operator fun <T> Region.Field<T>.setValue(
-  thisRef: Any?,
-  property: KProperty<*>,
-  value: T
-) {
+public inline operator fun <T> Region.Field<T>.setValue(thisRef: Any?, property: KProperty<*>, value: T) {
   this.value = value
 }
 
@@ -86,18 +83,19 @@ public suspend inline fun <R> listRegion(crossinline body: suspend Region.() -> 
   body(ListRegion(this))
 }
 
-public suspend inline fun <R> intMapRegion(crossinline body: suspend Region.() -> R): R = runState(Store()) {
-  body(IntMapRegion(this))
-}
+public suspend inline fun <R> intMapRegion(crossinline body: suspend Region.() -> R): R =
+  runState(Store()) { body(IntMapRegion(this)) }
 
 @PublishedApi
 internal class MapRegion(private val map: MutableMap<Region.Field<*>, Any?>) : Region {
   override fun <T> field(): Region.OptionalField<T> = FieldImpl()
+
   private var index = 0
 
   @Suppress("UNCHECKED_CAST", "EqualsOrHashCode")
   private inner class FieldImpl<T> : Region.Field<T> {
     private val id = index++
+
     override fun getOrNone(): Option<T> = map.getOrNone(this) as Option<T>
 
     override var value: T
@@ -136,48 +134,51 @@ internal class ListRegion(private val list: MutableList<Any?>) : Region {
   }
 }
 
-@JvmInline
-internal value class Prefix(val prefix: Int)
+@JvmInline internal value class Prefix(val prefix: Int)
 
 internal sealed class IntMap<out A> {
   data class Leaf<A>(val key: Int, val value: A) : IntMap<A>()
+
   data class Branch<A>(val prefix: Prefix, val left: IntMap<A>, val right: IntMap<A>) : IntMap<A>()
 }
 
 private fun Int.left(prefix: Prefix): Boolean = this < prefix.prefix
 
-internal tailrec operator fun <A> IntMap<A>?.get(key: Int): A = when (this) {
-  is IntMap.Branch -> (if (key.left(prefix)) left else right)[key]
-  is IntMap.Leaf -> if (key == this.key) value else throw NoSuchElementException("Key $key not found")
-  null -> throw NoSuchElementException("Key $key not found")
-}
+internal tailrec operator fun <A> IntMap<A>?.get(key: Int): A =
+  when (this) {
+    is IntMap.Branch -> (if (key.left(prefix)) left else right)[key]
+    is IntMap.Leaf -> if (key == this.key) value else throw NoSuchElementException("Key $key not found")
+    null -> throw NoSuchElementException("Key $key not found")
+  }
 
-internal tailrec fun <A> IntMap<A>?.getOrNone(key: Int): Option<A> = when (this) {
-  is IntMap.Branch -> (if (key.left(prefix)) left else right).getOrNone(key)
-  is IntMap.Leaf -> if (key == this.key) value.some() else none()
-  null -> none()
-}
+internal tailrec fun <A> IntMap<A>?.getOrNone(key: Int): Option<A> =
+  when (this) {
+    is IntMap.Branch -> (if (key.left(prefix)) left else right).getOrNone(key)
+    is IntMap.Leaf -> if (key == this.key) value.some() else none()
+    null -> none()
+  }
 
 private fun Int.noMatch(prefix: Prefix): Boolean = (this xor prefix.prefix) and (prefix.prefix xor -prefix.prefix) != 0
 
-internal fun <A> IntMap<A>?.put(key: Int, value: A): IntMap<A> = when (this) {
-  is IntMap.Branch -> {
-    val prefix = prefix
-    when {
-      key.noMatch(prefix) -> link(key, IntMap.Leaf(key, value), prefix.prefix, this)
-      key.left(prefix) -> copy(left = left.put(key, value))
-      else -> copy(right = right.put(key, value))
+internal fun <A> IntMap<A>?.put(key: Int, value: A): IntMap<A> =
+  when (this) {
+    is IntMap.Branch -> {
+      val prefix = prefix
+      when {
+        key.noMatch(prefix) -> link(key, IntMap.Leaf(key, value), prefix.prefix, this)
+        key.left(prefix) -> copy(left = left.put(key, value))
+        else -> copy(right = right.put(key, value))
+      }
     }
-  }
 
-  is IntMap.Leaf -> {
-    val curKey = this.key
-    val newLeaf = IntMap.Leaf(key, value)
-    if (curKey == key) newLeaf else link(key, newLeaf, curKey, this)
-  }
+    is IntMap.Leaf -> {
+      val curKey = this.key
+      val newLeaf = IntMap.Leaf(key, value)
+      if (curKey == key) newLeaf else link(key, newLeaf, curKey, this)
+    }
 
-  null -> IntMap.Leaf(key, value)
-}
+    null -> IntMap.Leaf(key, value)
+  }
 
 private fun <A> link(key1: Int, tree1: IntMap<A>, key2: Int, tree2: IntMap<A>): IntMap<A> {
   val m = 1 shl (Int.SIZE_BITS - 1 - (key1 xor key2).countLeadingZeroBits())
@@ -185,8 +186,7 @@ private fun <A> link(key1: Int, tree1: IntMap<A>, key2: Int, tree2: IntMap<A>): 
   return if (key1 < key2) IntMap.Branch(p, tree1, tree2) else IntMap.Branch(p, tree2, tree1)
 }
 
-@PublishedApi
-internal data class Store<out A>(val heap: IntMap<A>? = null, val nextLabel: Int = 0)
+@PublishedApi internal data class Store<out A>(val heap: IntMap<A>? = null, val nextLabel: Int = 0)
 
 @PublishedApi
 internal class IntMapRegion(private val state: State<Store<Any?>>) : Region {
@@ -195,8 +195,7 @@ internal class IntMapRegion(private val state: State<Store<Any?>>) : Region {
   private inner class FieldImpl<T> : Region.Field<T> {
     private val id = state.value.nextLabel.also { state.value = state.value.copy(nextLabel = it + 1) }
 
-    @Suppress("UNCHECKED_CAST")
-    override fun getOrNone(): Option<T> = state.value.heap.getOrNone(id) as Option<T>
+    @Suppress("UNCHECKED_CAST") override fun getOrNone(): Option<T> = state.value.heap.getOrNone(id) as Option<T>
 
     @Suppress("UNCHECKED_CAST")
     override var value: T

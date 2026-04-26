@@ -5,6 +5,7 @@ import kotlin.test.Test
 
 class FibersTest {
   private val printed = StringBuilder()
+
   suspend fun Scheduler2.user1() {
     fastFork {
       printed.appendLine("Hello from fork")
@@ -37,30 +38,33 @@ class FibersTest {
   @Test
   fun example() = runTestCC {
     user2()
-    printed.toString() shouldEq """
+    printed.toString() shouldEq
+      """
       |Hello from fiber
       |In our main thread
       |back again
       |Again in our main thread
       |Fiber is done: true
       |Result is: 42
-      |
-    """.trimMargin()
+      |"""
+        .trimMargin()
     printed.clear()
     scheduler2 { user1() }
-    printed.toString() shouldEq """
+    printed.toString() shouldEq
+      """
       |Hello from main
       |Hello from fork
       |Hello from main 2
       |World from fork 2
       |Hello from main 3
-      |
-    """.trimMargin()
+      |"""
+        .trimMargin()
   }
 }
 
 interface Fibre<A> {
   suspend fun resume()
+
   val isDone: Boolean
 
   companion object {
@@ -68,15 +72,7 @@ interface Fibre<A> {
       // set up the communication channel between the two components
       val fiber = CanResume<A>()
       // create first continuation by installing a ScheduledSuspendable handler
-      fiber.next {
-        handle {
-          fiber.returnWith(block {
-            useOnce { k ->
-              fiber.next { k(Unit) }
-            }
-          })
-        }
-      }
+      fiber.next { handle { fiber.returnWith(block { useOnce { k -> fiber.next { k(Unit) } } }) } }
       return fiber
     }
   }
@@ -94,10 +90,10 @@ fun <A> Fibre<A>.isDone(): Boolean {
 class CanResume<A> : Fibre<A>, Fibre.HasResult<A> {
   private data object EmptyResult
 
-  override val isDone get() = res != EmptyResult
+  override val isDone
+    get() = res != EmptyResult
 
-  @Suppress("UNCHECKED_CAST")
-  private var res: A = EmptyResult as A
+  @Suppress("UNCHECKED_CAST") private var res: A = EmptyResult as A
   override val result: A
     get() {
       check(isDone) { "This fiber is not yet done, can't get result" }
@@ -109,6 +105,7 @@ class CanResume<A> : Fibre<A>, Fibre.HasResult<A> {
   }
 
   private var k: (suspend () -> Unit)? = null
+
   override suspend fun resume() {
     check(!isDone) { "Can't resume this fiber anymore" }
     val k = checkNotNull(k) { "This fiber is not yet set up" }
@@ -128,21 +125,23 @@ interface Scheduler2 {
   suspend fun yield()
 }
 
-suspend fun scheduler2(block: suspend Scheduler2.() -> Unit) = runQueue<Task, _> {
-  fun Handler<Unit>.scheduler(): Scheduler2 = object : Scheduler2 {
-    override fun fastFork(task: suspend Scheduler2.() -> Unit) {
-      enqueue { handle { task(scheduler()) } }
-    }
+suspend fun scheduler2(block: suspend Scheduler2.() -> Unit) =
+  runQueue<Task, _> {
+    fun Handler<Unit>.scheduler(): Scheduler2 =
+      object : Scheduler2 {
+        override fun fastFork(task: suspend Scheduler2.() -> Unit) {
+          enqueue { handle { task(scheduler()) } }
+        }
 
-    override suspend fun yield() = useOnce { enqueue { it(Unit) } }
+        override suspend fun yield() = useOnce { enqueue { it(Unit) } }
+      }
+    // we can't run the scheduler in pure since the continuation that contains
+    // the call to pure might be discarded by one fork, while another one
+    // is still alive.
+    handle { block(scheduler()) }
+    // this is safe since all tasks container the scheduler prompt marker
+    dequeueAll { it() }
   }
-  // we can't run the scheduler in pure since the continuation that contains
-  // the call to pure might be discarded by one fork, while another one
-  // is still alive.
-  handle { block(scheduler()) }
-  // this is safe since all tasks container the scheduler prompt marker
-  dequeueAll { it() }
-}
 
 fun interface Suspendable {
   suspend fun suspend()

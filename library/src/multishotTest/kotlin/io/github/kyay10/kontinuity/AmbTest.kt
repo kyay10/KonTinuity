@@ -22,13 +22,14 @@ class AmbTest {
         }
       }
     } shouldEq listOf(0, 1, -1)
-    printed.toString() shouldEq """
+    printed.toString() shouldEq
+      """
       |Trying to flip a coin...
       |We caught the coin
       |That's heads
       |That's tails
       |We dropped the coin
-      |
-    """.trimMargin()
+      |"""
+        .trimMargin()
   }
 }

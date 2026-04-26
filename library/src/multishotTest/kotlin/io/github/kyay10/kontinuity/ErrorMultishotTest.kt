@@ -9,15 +9,7 @@ class ErrorMultishotTest {
   @Test
   fun `nested resumptions fail`() = runTest {
     shouldThrow<IllegalStateException> {
-      runCC {
-        handle {
-          use { resume ->
-            resume locally {
-              resume(Unit)
-            }
-          }
-        }
-      }
+      runCC { handle { use { resume -> resume locally { resume(Unit) } } } }
     } shouldHaveMessage REENTRANT_NOT_SUPPORTED
   }
 }

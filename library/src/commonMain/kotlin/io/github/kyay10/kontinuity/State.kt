@@ -4,8 +4,8 @@ public interface State<S> {
   public var value: S
 }
 
-public class ForkState<S> internal constructor(private var state: S, private val fork: S.() -> S) : State<S>,
-  Finalize<S>() {
+public class ForkState<S> internal constructor(private var state: S, private val fork: S.() -> S) :
+  State<S>, Finalize<S>() {
   private class ForkOnFirstRead(val state: Any?)
 
   override fun onSuspend(): S = state
@@ -16,8 +16,9 @@ public class ForkState<S> internal constructor(private var state: S, private val
   }
 
   @Suppress("UNCHECKED_CAST")
-  private inline fun valueOrElse(onFork: S.() -> S): S =
-    state.let { if (it is ForkOnFirstRead) onFork(it.state as S) else it }
+  private inline fun valueOrElse(onFork: S.() -> S): S = state.let {
+    if (it is ForkOnFirstRead) onFork(it.state as S) else it
+  }
 
   override var value: S
     get() = valueOrElse { fork().also { value = it } }
@@ -45,15 +46,14 @@ public suspend fun <T, R> runState(value: T, body: suspend State<T>.() -> R): R 
   with(SimpleState(value)) { finalize { body() } }
 
 public typealias Reader<S> = State<out S>
+
 public typealias ForkReader<S> = ForkState<out S>
 
 @ResetDsl
 public suspend fun <T, R> runReader(value: T, fork: T.() -> T, body: suspend ForkReader<T>.() -> R): R =
   runState(value, fork, body)
 
-@ResetDsl
-public suspend fun <T, R> runReader(value: T, body: suspend Reader<T>.() -> R): R =
-  runState(value, body)
+@ResetDsl public suspend fun <T, R> runReader(value: T, body: suspend Reader<T>.() -> R): R = runState(value, body)
 
 public interface Stateful<S : Stateful<S>> {
   public fun fork(): S

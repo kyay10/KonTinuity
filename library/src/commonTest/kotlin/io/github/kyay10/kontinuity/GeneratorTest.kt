@@ -7,9 +7,7 @@ class GeneratorTest {
 
   @Test
   fun countTo10() = runTestCC {
-    val ints = effectfulIterable {
-      numbers(10)
-    }
+    val ints = effectfulIterable { numbers(10) }
     buildList {
       for (i in ints) {
         add(i)
@@ -20,6 +18,7 @@ class GeneratorTest {
 
 interface EffectfulIterator<A> {
   suspend operator fun next(): A
+
   suspend operator fun hasNext(): Boolean
 }
 
@@ -41,6 +40,7 @@ fun <A> effectfulIterable(block: suspend Generator<A>.() -> Unit) = EffectfulIte
     }
     object : EffectfulIterator<A> {
       override suspend fun hasNext() = value != null
+
       override suspend fun next() = value!!.also { value = null }(Unit)
     }
   }
@@ -48,10 +48,10 @@ fun <A> effectfulIterable(block: suspend Generator<A>.() -> Unit) = EffectfulIte
 
 operator fun <A> EffectfulIterator<A>.iterator() = this
 
-
 fun interface Yield<out In, in Out> {
   suspend fun yield(value: Out): In
 }
+
 typealias Generator<Out> = Yield<Unit, Out>
 
 context(yield: Yield<In, Out>)

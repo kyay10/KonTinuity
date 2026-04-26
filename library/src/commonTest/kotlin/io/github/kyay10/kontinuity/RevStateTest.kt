@@ -1,7 +1,7 @@
 package io.github.kyay10.kontinuity
 
-import kotlinx.coroutines.channels.Channel
 import kotlin.test.Test
+import kotlinx.coroutines.channels.Channel
 
 class RevStateTest {
   @Test
@@ -18,10 +18,11 @@ class RevStateTest {
     }
 
     runRevState(CounterState(0)) {
-      doubleCounter()
-      doubleCounter()
-      incrementCounter()
-    }.first() shouldEq CounterState(4)
+        doubleCounter()
+        doubleCounter()
+        incrementCounter()
+      }
+      .first() shouldEq CounterState(4)
   }
 }
 
@@ -34,11 +35,7 @@ suspend fun <S, R> RevState<S, R>.modify(f: suspend (S) -> S) = useOnce {
 
 suspend fun <S, R> RevState<S, R>.get(): suspend () -> S = useOnce {
   val channel = Channel<suspend () -> S>()
-  it {
-    channel.receive()()
-  }.also { (s, _) ->
-    channel.send(s)
-  }
+  it { channel.receive()() }.also { (s, _) -> channel.send(s) }
 }
 
 suspend fun <S, R> RevState<S, R>.set(value: S): Unit = useOnce {
@@ -46,5 +43,6 @@ suspend fun <S, R> RevState<S, R>.set(value: S): Unit = useOnce {
   suspend { value } to r
 }
 
-suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> =
-  handle { suspend { value } to body() }
+suspend fun <S, R> runRevState(value: S, body: suspend RevState<S, R>.() -> R): Pair<suspend () -> S, R> = handle {
+  suspend { value } to body()
+}

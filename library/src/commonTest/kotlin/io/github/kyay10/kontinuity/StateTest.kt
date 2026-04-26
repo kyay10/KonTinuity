@@ -6,21 +6,26 @@ private interface MyState<T> {
   var value: T
 }
 
-private suspend fun <T, R> runMyState(value: T, block: suspend MyState<T>.() -> R): R = runState(value) {
-  block(object : MyState<T> {
-    override var value by this@runState::value;
-  })
-}
+private suspend fun <T, R> runMyState(value: T, block: suspend MyState<T>.() -> R): R =
+  runState(value) {
+    block(
+      object : MyState<T> {
+        override var value by this@runState::value
+      }
+    )
+  }
 
 private suspend fun <T> runStackState(value: T, block: suspend MyState<T>.() -> Unit): List<T> = buildListLocally {
   add(value)
-  block(object : MyState<T> {
-    override var value: T
-      get() = last()
-      set(value) {
-        add(value)
-      }
-  })
+  block(
+    object : MyState<T> {
+      override var value: T
+        get() = last()
+        set(value) {
+          add(value)
+        }
+    }
+  )
 }
 
 class StateTest {

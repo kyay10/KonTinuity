@@ -25,7 +25,8 @@ internal class Copied<T>(override var stack: Stack<T>, override val context: Mar
   override fun resume(result: Result<T>) = stack.resumeCopied(result, this, context)
 
   companion object {
-    val <S> Stack<S>.unwrapCopied get(): Stack<S> = (frames as? Copied)?.stack ?: this
+    val <S> Stack<S>.unwrapCopied
+      get(): Stack<S> = (frames as? Copied)?.stack ?: this
 
     tailrec fun <T, N> Frames<T, N>.resumeCopied(param: Result<T>, next: Copied<T>, rest: Marker<*, *>) {
       when (frames) {
@@ -43,7 +44,10 @@ internal class Copied<T>(override var stack: Stack<T>, override val context: Mar
       }
       val completion = completion?.unwrapCopied ?: error("$NOT_A_COMPILER_CONTINUATION$this")
       if (completion.frames is Prompt) { // completion.frames === rest seems to always hold
-        val outcome = runCatching({ invokeCopied(completion, completion.frames, param) }) { return }
+        val outcome =
+          runCatching({ invokeCopied(completion, completion.frames, param) }) {
+            return
+          }
         // inlined version of completion.resumeWith(outcome)
         val underflow = completion.frames.underflow().frames
         return if (underflow is Copied) underflow.stack.resumeCopied(outcome, underflow, underflow.context)
@@ -55,11 +59,12 @@ internal class Copied<T>(override var stack: Stack<T>, override val context: Mar
       // This is safe only if no one accesses next.stack in between
       // That seems to be the case due to trampolining.
       // Note to self: if any weird behavior happens, uncomment this line
-      //next.stack = completion
-      val outcome = runCatching({ invokeCopied(Stack(next), rest, param) }) {
-        next.stack = completion
-        return
-      }
+      // next.stack = completion
+      val outcome =
+        runCatching({ invokeCopied(Stack(next), rest, param) }) {
+          next.stack = completion
+          return
+        }
       completion.resumeCopied(outcome, next, rest)
     }
   }
@@ -78,8 +83,9 @@ private fun <T, R> Segment<T, R>.reattach(isFinal: Boolean, stack: Stack<R>, res
   delimiter.rest = rest
 }
 
-internal actual fun <T, R> Segment<T, R>.prependToFinal(stack: Stack<R>, rest: SplitCont<*>) =
-  start.also { reattach(true, stack, rest) }
+internal actual fun <T, R> Segment<T, R>.prependToFinal(stack: Stack<R>, rest: SplitCont<*>) = start.also {
+  reattach(true, stack, rest)
+}
 
 internal fun <T, R> Segment<T, R>.prependTo(stack: Stack<R>, rest: SplitCont<*>) =
   start.copy(startRest).also { reattach(false, stack, rest) }
@@ -92,12 +98,13 @@ private fun collectValues(from: Marker<*, *>, until: Prompt<*>): Array<Any?> {
     if (values.size < size + 2) values = values.copyOf(values.size * 2)
     values[size++] = it
     values[size++] = it.onSuspend()
-  } ?: error(HANDLER_ALREADY_RESUMED)
+  }
+  if (segment == null) error(HANDLER_ALREADY_RESUMED)
   error("$UNEXPECTED_SEGMENT_FOUND$segment")
 }
 
 internal fun Marker<*, *>.invalidateAndCollectValues() {
-  findSegment { }?.run { if (values == null) values = collectValues(startRest, delimiter) }
+  findSegment {}?.run { if (values == null) values = collectValues(startRest, delimiter) }
 }
 
 private inline fun SplitContOrSegment?.findSegment(action: (Marker<*, *>) -> Unit): Segment<*, *>? {

@@ -58,6 +58,7 @@ class BuildSystemTest {
 }
 
 typealias Key = String
+
 typealias Val = Int
 
 fun interface Need {
@@ -75,11 +76,12 @@ context(needInput: NeedInput)
 fun needInput(key: Key): Val = needInput.needInput(key)
 
 context(_: Need, _: NeedInput)
-suspend fun example1(key: Key): Val = when (key) {
-  "B1" -> need("A1") + need("A2")
-  "B2" -> need("B1") * 2
-  else -> needInput(key)
-}
+suspend fun example1(key: Key): Val =
+  when (key) {
+    "B1" -> need("A1") + need("A2")
+    "B2" -> need("B1") * 2
+    else -> needInput(key)
+  }
 
 suspend fun build(target: Key, tasks: suspend Need.(Key) -> Val): Val = Need { build(it, tasks) }.tasks(target)
 
@@ -88,13 +90,16 @@ suspend fun <R> Need.memo(block: suspend Need.() -> R): R = runMapBuilder {
 }
 
 context(_: Need, _: NeedInput)
-suspend fun example2(key: Key): Val = when (key) {
-  "B1" -> need("A1") + need("A2")
-  "B2" -> need("B1") * need("B1")
-  else -> needInput(key)
-}
+suspend fun example2(key: Key): Val =
+  when (key) {
+    "B1" -> need("A1") + need("A2")
+    "B2" -> need("B1") * need("B1")
+    else -> needInput(key)
+  }
 
 data class KeyNotFound(val key: Key)
 
 suspend fun <R> Raise<KeyNotFound>.supplyInput(store: Map<Key, Val>, block: suspend NeedInput.() -> R): R =
-  block { key -> ensureNotNull(store[key]) { KeyNotFound(key) } }
+  block { key ->
+    ensureNotNull(store[key]) { KeyNotFound(key) }
+  }

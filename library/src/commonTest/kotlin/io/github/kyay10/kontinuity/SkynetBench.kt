@@ -1,31 +1,29 @@
 package io.github.kyay10.kontinuity
 
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.benchmark.*
 import kotlinx.benchmark.State
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.yield
-import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.test.runTest as coroutinesRunTest
+import kotlinx.coroutines.yield
 
 // skynet benchmark:
 //    https://github.com/atemerev/skynet
 @State(Scope.Benchmark)
 open class SkynetBench {
-  @Param("100000", "1000000")
-  var n = 0
+  @Param("100000", "1000000") var n = 0
 
   @Benchmark
   fun skynetNoEffects(bh: Blackhole) = runSuspendCC {
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
-      val children = Array(div) {
-        val subNum = num + it * (size / div)
-        Fibre.create {
-          skynet(subNum, size / div, div)
+      val children =
+        Array(div) {
+          val subNum = num + it * (size / div)
+          Fibre.create { skynet(subNum, size / div, div) }
         }
-      }
       return children.sumOf {
         it.resume()
         check(it.isDone())
@@ -43,10 +41,11 @@ open class SkynetBench {
   fun skynetOverhead(bh: Blackhole) = runSuspendCC {
     suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
-      val children = Array<suspend () -> Long>(div) {
-        val subNum = num + it * (size / div)
-        { skynet(subNum, size / div, div) }
-      }
+      val children =
+        Array<suspend () -> Long>(div) {
+          val subNum = num + it * (size / div)
+          { skynet(subNum, size / div, div) }
+        }
       return children.sumOf { it() }
     }
     bh.consume(skynet(0, n, 10))
@@ -93,18 +92,19 @@ open class SkynetBench {
   fun skynetSuspend(bh: Blackhole) = runSuspendCC {
     suspend fun Suspendable.skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong().also { suspend() }
-      val children = Array(div) {
-        val subNum = num + it * (size / div)
-        Fibre.create {
-          skynet(subNum, size / div, div)
+      val children =
+        Array(div) {
+          val subNum = num + it * (size / div)
+          Fibre.create { skynet(subNum, size / div, div) }
         }
-      }
       children.forEach { it.resume() }
-      return children.sumOf {
-        it.resume()
-        check(it.isDone())
-        it.result
-      }.also { suspend() }
+      return children
+        .sumOf {
+          it.resume()
+          check(it.isDone())
+          it.result
+        }
+        .also { suspend() }
     }
 
     val f = Fibre.create { skynet(0, n, 10) }
@@ -138,32 +138,35 @@ open class SkynetBench {
   }
 
   @Benchmark
-  fun skynetCoroutinesAwaitAll(bh: Blackhole) = coroutinesRunTest(timeout = 10.minutes) {
-    suspend fun skynet(num: Int, size: Int, div: Int): Long {
-      if (size <= 1) return num.toLong()
-      return (0..<div).map {
-        val subNum = num + it * (size / div)
-        async {
-          skynet(subNum, size / div, div)
-        }
-      }.awaitAll().sum()
-    }
+  fun skynetCoroutinesAwaitAll(bh: Blackhole) =
+    coroutinesRunTest(timeout = 10.minutes) {
+      suspend fun skynet(num: Int, size: Int, div: Int): Long {
+        if (size <= 1) return num.toLong()
+        return (0..<div)
+          .map {
+            val subNum = num + it * (size / div)
+            async { skynet(subNum, size / div, div) }
+          }
+          .awaitAll()
+          .sum()
+      }
 
-    bh.consume(skynet(0, n, 10))
-  }
+      bh.consume(skynet(0, n, 10))
+    }
 
   @Benchmark
-  fun skynetCoroutinesAwaitEach(bh: Blackhole) = coroutinesRunTest(timeout = 10.minutes) {
-    suspend fun skynet(num: Int, size: Int, div: Int): Long {
-      if (size <= 1) return num.toLong()
-      return (0..<div).map {
-        val subNum = num + it * (size / div)
-        async {
-          skynet(subNum, size / div, div)
-        }
-      }.sumOf { it.await() }
-    }
+  fun skynetCoroutinesAwaitEach(bh: Blackhole) =
+    coroutinesRunTest(timeout = 10.minutes) {
+      suspend fun skynet(num: Int, size: Int, div: Int): Long {
+        if (size <= 1) return num.toLong()
+        return (0..<div)
+          .map {
+            val subNum = num + it * (size / div)
+            async { skynet(subNum, size / div, div) }
+          }
+          .sumOf { it.await() }
+      }
 
-    bh.consume(skynet(0, n, 10))
-  }
+      bh.consume(skynet(0, n, 10))
+    }
 }

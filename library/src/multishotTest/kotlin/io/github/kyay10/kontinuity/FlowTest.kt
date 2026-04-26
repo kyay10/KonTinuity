@@ -1,11 +1,11 @@
 package io.github.kyay10.kontinuity
 
 import app.cash.turbine.test
+import kotlin.test.Test
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flattenConcat
 import kotlinx.coroutines.flow.toList
-import kotlin.test.Test
 
 class FlowTest {
   @Test
@@ -17,9 +17,7 @@ class FlowTest {
       counter++
       item
     }
-    result.test {
-      awaitComplete()
-    }
+    result.test { awaitComplete() }
     counter shouldEq 0
   }
 
@@ -79,9 +77,7 @@ class FlowTest {
     result.test {
       for (i in flow1.toList().filter { it != Int.MAX_VALUE }) {
         for (j in flow2.toList().filter { it != Int.MAX_VALUE }) {
-          flow3.toList().forEach { _ ->
-            awaitItem() shouldEq (i to j)
-          }
+          flow3.toList().forEach { _ -> awaitItem() shouldEq (i to j) }
         }
       }
       awaitComplete()
@@ -124,23 +120,17 @@ class FlowTest {
         twoElements.bind()
         "firstBranch"
       } else {
-        repeatIteratorless(2) {
-          twoElements.bind()
-        }
+        repeatIteratorless(2) { twoElements.bind() }
         "secondBranch"
       }
     }
     result.test {
       for (i in flow.toList()) {
         if (i == 2) {
-          twoElements.toList().forEach { _ ->
-            awaitItem() shouldEq "firstBranch"
-          }
+          twoElements.toList().forEach { _ -> awaitItem() shouldEq "firstBranch" }
         } else {
           twoElements.toList().forEach { _ ->
-            twoElements.toList().forEach { _ ->
-              awaitItem() shouldEq "secondBranch"
-            }
+            twoElements.toList().forEach { _ -> awaitItem() shouldEq "secondBranch" }
           }
         }
       }
@@ -151,15 +141,11 @@ class FlowTest {
   @Test
   fun forLoops() = runTest {
     val result = runFlowCC {
-      repeatIteratorless(10) {
-        flowOfWithDelay(Unit, Unit).bind()
-      }
+      repeatIteratorless(10) { flowOfWithDelay(Unit, Unit).bind() }
       0
     }
     result.test {
-      repeat(1024) {
-        awaitItem() shouldEq 0
-      }
+      repeat(1024) { awaitItem() shouldEq 0 }
       awaitComplete()
     }
   }
@@ -167,9 +153,7 @@ class FlowTest {
   @Test
   fun permutations() = runTest {
     val numbers = (1..5).toList()
-    val result = runFlowCC {
-      numbers.foldRightIteratorless(emptyList<Int>()) { i, acc -> acc.insert(i) }
-    }
+    val result = runFlowCC { numbers.foldRightIteratorless(emptyList<Int>()) { i, acc -> acc.insert(i) } }
     result.test {
       for (i in numbers.permutations()) {
         awaitItem() shouldEq i

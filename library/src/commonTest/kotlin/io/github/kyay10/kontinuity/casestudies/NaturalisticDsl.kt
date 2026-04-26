@@ -27,15 +27,20 @@ val Peter by Person
 val Mary by Person
 
 sealed interface Sentence
+
 data class Say(val person: Person, val sentence: Sentence) : Sentence
+
 data class Is(val person: Person, val predicate: Predicate) : Sentence
 
 // used later:
 data class ForAll(val individual: Person, val sentence: Sentence) : Sentence
+
 data class Implies(val antecedent: Sentence, val consequent: Sentence) : Sentence
 
 sealed interface Predicate
+
 data class InLoveWith(val p: Person) : Predicate
+
 data object Woman : Predicate
 
 infix fun Person.loves(loved: Person) = Is(this, InLoveWith(loved))
@@ -46,9 +51,11 @@ val s1 = Say(John, Mary loves John)
 data class Speaker(val person: Person)
 
 context(s: Speaker)
-val me get() = s.person
+val me
+  get() = s.person
 
 inline infix fun Person.said(s: context(Speaker) () -> Sentence): Sentence = Say(this, s(Speaker(this)))
+
 infix fun Person.said(s: Sentence): Sentence = Say(this, s)
 
 fun s1a() = John said { Mary loves me }
@@ -67,13 +74,14 @@ suspend fun Quantification.every(who: Predicate) = quantify(who)
 
 suspend fun s2() = scoped { John said { every(Woman) loves me } }
 
-suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence = runState(0) {
-  handle {
-    s { who ->
-      useOnce { resume ->
-        val x = Person("x${value++}")
-        ForAll(x, Implies(Is(x, who), resume(x)))
+suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence =
+  runState(0) {
+    handle {
+      s { who ->
+        useOnce { resume ->
+          val x = Person("x${value++}")
+          ForAll(x, Implies(Is(x, who), resume(x)))
+        }
       }
     }
   }
-}

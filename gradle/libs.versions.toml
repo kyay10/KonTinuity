@@ -4,9 +4,11 @@ kotest = "5.9.1"
 kotlin = "2.3.20-RC"
 kotlinxCoroutinesCore = "1.10.1"
 kotlinxImmutable = "0.3.8"
+ktfmt = "0.63-SNAPSHOT"
 nexus-publish = "2.0.0"
 turbine = "1.2.0"
-kotlinxBenchmark = "0.4.14"
+kotlinxBenchmark = "0.4.16"
+spotless = "8.4.0"
 [libraries]
 arrow-core = { module = "io.arrow-kt:arrow-core", version.ref = "arrow" }
 arrow-fx-coroutines = { module = "io.arrow-kt:arrow-fx-coroutines", version.ref = "arrow" }
@@ -22,3 +24,5 @@ turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlinxBenchmark = { id = "org.jetbrains.kotlinx.benchmark", version.ref = "kotlinxBenchmark" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }

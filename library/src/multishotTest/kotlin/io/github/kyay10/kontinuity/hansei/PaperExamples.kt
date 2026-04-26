@@ -21,14 +21,10 @@ class PaperExamples {
       ensure(wetGrass)
       rain
     }
-    t1exact shouldContainExactlyInAnyOrder listOf(
-      Probable(0.4581, Value.Leaf(true)),
-      Probable(0.188999999999999974, Value.Leaf(false))
-    )
-    t1exact.normalize() shouldContainExactlyInAnyOrder listOf(
-      Probable(0.707927677329624472, Value.Leaf(true)),
-      Probable(0.292072322670375473, Value.Leaf(false))
-    )
+    t1exact shouldContainExactlyInAnyOrder
+      listOf(Probable(0.4581, Value.Leaf(true)), Probable(0.188999999999999974, Value.Leaf(false)))
+    t1exact.normalize() shouldContainExactlyInAnyOrder
+      listOf(Probable(0.707927677329624472, Value.Leaf(true)), Probable(0.292072322670375473, Value.Leaf(false)))
   }
 
   @Test
@@ -42,11 +38,8 @@ class PaperExamples {
       ensure(wetGrass())
       rain()
     }
-    t2exact shouldContainExactlyInAnyOrder listOf(
-      Probable(0.458100000000000063, Value.Leaf(true)),
-      Probable(0.189000000000000029, Value.Leaf(false))
-    )
-
+    t2exact shouldContainExactlyInAnyOrder
+      listOf(Probable(0.458100000000000063, Value.Leaf(true)), Probable(0.189000000000000029, Value.Leaf(false)))
   }
 
   @Test
@@ -65,10 +58,7 @@ class PaperExamples {
       sampleRejection(distSelector(), 2) { flip() || biased }.atLeast(0.3, true)
     }
 
-    result shouldContainExactlyInAnyOrder listOf(
-      Probable(0.875, Value.Leaf(true)),
-      Probable(0.125, Value.Leaf(false))
-    )
+    result shouldContainExactlyInAnyOrder listOf(Probable(0.875, Value.Leaf(true)), Probable(0.125, Value.Leaf(false)))
   }
 
   @Test
@@ -77,10 +67,7 @@ class PaperExamples {
       val biased = letLazy { flip() }
       sampleRejection(distSelector(), 2) { flip() || biased() }.atLeast(0.3, true)
     }
-    result shouldContainExactlyInAnyOrder listOf(
-      Probable(0.875, Value.Leaf(true)),
-      Probable(0.125, Value.Leaf(false))
-    )
+    result shouldContainExactlyInAnyOrder listOf(Probable(0.875, Value.Leaf(true)), Probable(0.125, Value.Leaf(false)))
   }
 }
 

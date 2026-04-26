@@ -12,9 +12,10 @@ class HandlerMultishotTest {
 }
 
 context(_: Exc)
-suspend fun <R> stringInput(input: String, block: suspend Input.() -> R): R = runState(0) {
-  block {
-    ensure(value < input.length)
-    input[value++]
+suspend fun <R> stringInput(input: String, block: suspend Input.() -> R): R =
+  runState(0) {
+    block {
+      ensure(value < input.length)
+      input[value++]
+    }
   }
-}

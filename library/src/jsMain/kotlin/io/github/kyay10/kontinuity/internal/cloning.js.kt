@@ -18,18 +18,22 @@ private val resultContinuationName = Object.keys(sampleCont).single { sampleCont
 private val contextName = Object.keys(sampleCont).single { sampleCont[it] === EmptyCoroutineContext }
 private val interceptedName = Object.keys(sampleCont).single { sampleCont[it] === sampleCont }
 
-internal actual val <N> Frames<*, N>.completion: Stack<N>? get() = Stack(frames.asDynamic()[resultContinuationName])
+internal actual val <N> Frames<*, N>.completion: Stack<N>?
+  get() = Stack(frames.asDynamic()[resultContinuationName])
 
 @Suppress("UNCHECKED_CAST", "UNCHECKED_CAST_TO_EXTERNAL_INTERFACE")
 internal actual fun <T, N> Frames<T, N>.invokeCopied(
   completion: Stack<N>,
   context: SplitCont<*>,
   result: Result<T>,
-): N = Object.create(Object.getPrototypeOf(frames)).apply {
-  Object.assign(this, frames)
-  this as ObjectLike
-  // mimicking the constructor
-  this[resultContinuationName] = completion.frames
-  this[contextName] = context
-  this[interceptedName] = null
-}.invokeSuspend(result) as N
+): N =
+  Object.create(Object.getPrototypeOf(frames))
+    .apply {
+      Object.assign(this, frames)
+      this as ObjectLike
+      // mimicking the constructor
+      this[resultContinuationName] = completion.frames
+      this[contextName] = context
+      this[interceptedName] = null
+    }
+    .invokeSuspend(result) as N

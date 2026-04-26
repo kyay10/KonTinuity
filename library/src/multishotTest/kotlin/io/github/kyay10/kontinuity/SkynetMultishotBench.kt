@@ -5,8 +5,7 @@ import kotlinx.benchmark.State
 
 @State(Scope.Benchmark)
 open class SkynetMultishotBench {
-  @Param("100000", "1000000")
-  var n = 0
+  @Param("100000", "1000000") var n = 0
 
   @Benchmark
   fun skynetScheduler(bh: Blackhole) = runSuspendCC {
@@ -57,24 +56,30 @@ open class SkynetMultishotBench {
 
 interface SchedulerMultishot {
   suspend fun fork(): Boolean
+
   suspend fun exit(): Nothing
+
   suspend fun yield()
 }
 
-suspend fun schedulerMultishot(block: suspend SchedulerMultishot.() -> Unit) = runQueue<Task, _> {
-  handle {
-    block(object : SchedulerMultishot {
-      override suspend fun exit(): Nothing = discardWithFast(Result.success(Unit))
-      override suspend fun fork(): Boolean = use { k ->
-        enqueue { k.final(true) }
-        k(false)
-      }
+suspend fun schedulerMultishot(block: suspend SchedulerMultishot.() -> Unit) =
+  runQueue<Task, _> {
+    handle {
+      block(
+        object : SchedulerMultishot {
+          override suspend fun exit(): Nothing = discardWithFast(Result.success(Unit))
 
-      override suspend fun yield() = useOnce { enqueue { it(Unit) } }
-    })
+          override suspend fun fork(): Boolean = use { k ->
+            enqueue { k.final(true) }
+            k(false)
+          }
+
+          override suspend fun yield() = useOnce { enqueue { it(Unit) } }
+        }
+      )
+    }
+    dequeueAll { it() }
   }
-  dequeueAll { it() }
-}
 
 suspend inline fun SchedulerMultishot.forkFlipped(task: Task) {
   if (!fork()) {

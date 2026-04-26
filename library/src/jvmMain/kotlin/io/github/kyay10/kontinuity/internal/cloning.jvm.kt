@@ -1,6 +1,5 @@
 package io.github.kyay10.kontinuity.internal
 
-import sun.misc.Unsafe
 import java.lang.StackTraceElement
 import java.lang.reflect.Field
 import java.lang.reflect.Modifier
@@ -8,6 +7,7 @@ import kotlin.coroutines.Continuation
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.jvm.internal.*
 import kotlin.coroutines.jvm.internal.CoroutineStackFrame
+import sun.misc.Unsafe
 
 @PublishedApi
 internal interface MultishotContinuation<T> : Continuation<T> {
@@ -26,12 +26,9 @@ private val UNSAFE = Unsafe::class.java.getDeclaredField("theUnsafe").apply { is
 
 private val cache = hashMapOf<Class<*>, Array<Field>>()
 
-private tailrec fun <T> copyDeclaredFields(
-  from: T, to: T, clazz: Class<out T>
-) {
-  val fields = cache.getOrPut(clazz) {
-    clazz.declaredFields.also { fields -> fields.forEach { it.isAccessible = true } }
-  }
+private tailrec fun <T> copyDeclaredFields(from: T, to: T, clazz: Class<out T>) {
+  val fields =
+    cache.getOrPut(clazz) { clazz.declaredFields.also { fields -> fields.forEach { it.isAccessible = true } } }
   for (i in fields.indices) {
     val field = fields[i]
     if (Modifier.isStatic(field.modifiers)) continue
@@ -62,11 +59,14 @@ private fun <S, N> Frames<S, N>.reflectiveCopy(completion: Stack<N>, context: Sp
 internal actual fun <T, N> Frames<T, N>.invokeCopied(
   completion: Stack<N>,
   context: SplitCont<*>,
-  result: Result<T>
-): N = when (frames) {
-  is MultishotContinuationImpl -> frames.invokeCopied(completion.frames, context, result)
-  is MultishotSuspendLambda -> frames.invokeCopied(completion.frames, context, result)
-  is MultishotRestrictedContinuationImpl -> frames.invokeCopied(completion.frames, context, result)
-  is MultishotRestrictedSuspendLambda -> frames.invokeCopied(completion.frames, context, result)
-  else -> CloningUtils.invokeSuspend(reflectiveCopy(completion, context), result.getOrElse(CloningUtils::createFailure))
-} as N
+  result: Result<T>,
+): N =
+  when (frames) {
+    is MultishotContinuationImpl -> frames.invokeCopied(completion.frames, context, result)
+    is MultishotSuspendLambda -> frames.invokeCopied(completion.frames, context, result)
+    is MultishotRestrictedContinuationImpl -> frames.invokeCopied(completion.frames, context, result)
+    is MultishotRestrictedSuspendLambda -> frames.invokeCopied(completion.frames, context, result)
+    else ->
+      CloningUtils.invokeSuspend(reflectiveCopy(completion, context), result.getOrElse(CloningUtils::createFailure))
+  }
+    as N

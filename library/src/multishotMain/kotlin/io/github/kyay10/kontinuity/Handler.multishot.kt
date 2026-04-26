@@ -5,7 +5,8 @@ import kotlin.jvm.JvmInline
 
 @JvmInline
 public value class SubCont<in T, out R> internal constructor(private val init: Segment<T, R>) {
-  public val final: SubContFinal<T, R> get() = SubContFinal(init)
+  public val final: SubContFinal<T, R>
+    get() = SubContFinal(init)
 
   @ResetDsl
   public suspend fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, rest ->
@@ -18,12 +19,15 @@ public value class SubCont<in T, out R> internal constructor(private val init: S
   }
 
   public suspend operator fun invoke(value: T): R = resumeWith(Result.success(value))
+
   public suspend fun resumeWithException(exception: Throwable): R = resumeWith(Result.failure(exception))
 }
 
 @ResetDsl
 public suspend inline fun <T, R> Handler<R>.use(crossinline body: suspend (SubCont<T, R>) -> R): T =
-  split { stack, init -> suspend { body(init) }.startCoroutineIntercepted(stack) }
+  split { stack, init ->
+    suspend { body(init) }.startCoroutineIntercepted(stack)
+  }
 
 // Acts like shift { it(body()) }
 // guarantees that the continuation will be resumed at least once
@@ -34,16 +38,18 @@ public suspend inline fun <T, P> Handler<P>.useTailResumptive(crossinline body: 
 }
 
 @PublishedApi
-internal val Handler<*>.rest: SplitCont<*> get() = prompt.rest as? SplitCont<*> ?: error("$this is not on the stack")
+internal val Handler<*>.rest: SplitCont<*>
+  get() = prompt.rest as? SplitCont<*> ?: error("$this is not on the stack")
 
 @PublishedApi
 internal fun <T, R> makeUnder(init: SubContFinal<T, R>, stack: Stack<R>, rest: SplitCont<*>): Stack<T> =
   Stack(Under(init.init, stack, rest))
 
-@PublishedApi
-internal fun <T, R> makeSubCont(init: SubContFinal<T, R>): SubCont<T, R> = SubCont(init.init)
+@PublishedApi internal fun <T, R> makeSubCont(init: SubContFinal<T, R>): SubCont<T, R> = SubCont(init.init)
 
 context(p: Handler<R>)
 @PublishedApi
 internal suspend inline fun <T, R> split(crossinline block: Trampoline.(Stack<R>, SubCont<T, R>) -> Unit): T =
-  splitOnce { stack, init -> block(stack, makeSubCont(init)) }
+  splitOnce { stack, init ->
+    block(stack, makeSubCont(init))
+  }

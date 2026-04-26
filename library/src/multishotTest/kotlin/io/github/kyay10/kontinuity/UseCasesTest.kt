@@ -32,14 +32,12 @@ suspend fun number(): Int {
 }
 
 context(_: Exc)
-suspend fun <R> String.stringReader(block: suspend Input.() -> R): R = runState(0) {
-  block { get(value++.also { ensure(it < length) }) }
-}
+suspend fun <R> String.stringReader(block: suspend Input.() -> R): R =
+  runState(0) { block { get(value++.also { ensure(it < length) }) } }
 
-suspend fun <E> nondet(block: suspend context(Amb, Exc) () -> E): List<E> = handle {
-  listOf(block(amb, exc))
-}
+suspend fun <E> nondet(block: suspend context(Amb, Exc) () -> E): List<E> = handle { listOf(block(amb, exc)) }
 
-suspend fun <R> backtrack(block: suspend context(Amb, Exc) () -> R): Option<R> = handle {
-  block(amb, exc).some()
-}
+suspend fun <R> backtrack(block: suspend context(Amb, Exc) () -> R): Option<R> = handle { block(amb, exc).some() }
+
+val <E> Handler<Option<E>>.amb: Amb
+  get() = Amb { use { resume -> resume(true).handleErrorWith { resume(false) } } }

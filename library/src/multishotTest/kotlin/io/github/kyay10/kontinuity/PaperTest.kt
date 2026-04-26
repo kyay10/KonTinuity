@@ -13,16 +13,8 @@ class PaperTest {
 
   @Test
   fun ex4dot1() = runTestCC {
-    ambList {
-      maybe {
-        drunkFlip()
-      }
-    } shouldEq listOf(Some("Heads"), Some("Tails"), None)
-    maybe {
-      ambList {
-        drunkFlip()
-      }
-    } shouldEq None
+    ambList { maybe { drunkFlip() } } shouldEq listOf(Some("Heads"), Some("Tails"), None)
+    maybe { ambList { drunkFlip() } } shouldEq None
   }
 
   @Suppress("UnusedLambdaExpression")
@@ -70,30 +62,20 @@ class PaperTest {
       val r = p.await()
       appendLine("Main with result $r")
     }
-    str shouldEq """
+    str shouldEq
+      """
       Async 1
       Main
       Async 2
       Main with result 42
-      
-    """.trimIndent()
+
+      """
+        .trimIndent()
   }
 
-  @Test
-  fun ex4dot5dot4() = runTestCC {
-    backtrack { drunkFlip() } shouldEq Some("Heads")
-  }
+  @Test fun ex4dot5dot4() = runTestCC { backtrack { drunkFlip() } shouldEq Some("Heads") }
 
-  @Test
-  fun ex4dot5dot6() = runTestCC {
-    listRegion {
-      fiber {
-        poll {
-          asyncExample()
-        }
-      }
-    }
-  }
+  @Test fun ex4dot5dot6() = runTestCC { listRegion { fiber { poll { asyncExample() } } } }
 }
 
 context(fiber: SchedulerMultishot)
@@ -101,6 +83,7 @@ suspend fun yield() = fiber.yield()
 
 interface Async {
   suspend fun <T> async(body: suspend () -> T): Promise<T>
+
   fun interface Promise<T> {
     suspend fun await(): T
   }
@@ -110,33 +93,40 @@ context(async: Async)
 suspend fun <T> async(body: suspend () -> T): Async.Promise<T> = async.async(body)
 
 context(_: Region)
-suspend fun SchedulerMultishot.poll(block: suspend Async.() -> Unit) = block(object : Async {
-  override suspend fun <T> async(body: suspend () -> T): Async.Promise<T> {
-    val p = field<T>()
-    fork { p.value = body() }
-    return object : Async.Promise<T> {
-      override tailrec suspend fun await(): T = p.getOrPut {
-        yield()
-        return await()
+suspend fun SchedulerMultishot.poll(block: suspend Async.() -> Unit) =
+  block(
+    object : Async {
+      override suspend fun <T> async(body: suspend () -> T): Async.Promise<T> {
+        val p = field<T>()
+        fork { p.value = body() }
+        return object : Async.Promise<T> {
+          override tailrec suspend fun await(): T = p.getOrPut {
+            yield()
+            return await()
+          }
+        }
       }
     }
-  }
-})
+  )
 
-suspend fun fiber(block: suspend SchedulerMultishot.() -> Unit) = runQueue<suspend () -> Unit, Unit> {
-  handle {
-    block(object : SchedulerMultishot {
-      override suspend fun exit(): Nothing = discard {}
-      override suspend fun fork(): Boolean = use { resume ->
-        push { resume(false) }
-        push { resume(true) }
-        while (isNotEmpty()) dequeue()()
-      }
+suspend fun fiber(block: suspend SchedulerMultishot.() -> Unit) =
+  runQueue<suspend () -> Unit, Unit> {
+    handle {
+      block(
+        object : SchedulerMultishot {
+          override suspend fun exit(): Nothing = discard {}
 
-      override suspend fun yield() = use { resume ->
-        enqueue { resume(Unit) }
-        while (isNotEmpty()) dequeue()()
-      }
-    })
+          override suspend fun fork(): Boolean = use { resume ->
+            push { resume(false) }
+            push { resume(true) }
+            while (isNotEmpty()) dequeue()()
+          }
+
+          override suspend fun yield() = use { resume ->
+            enqueue { resume(Unit) }
+            while (isNotEmpty()) dequeue()()
+          }
+        }
+      )
+    }
   }
-}

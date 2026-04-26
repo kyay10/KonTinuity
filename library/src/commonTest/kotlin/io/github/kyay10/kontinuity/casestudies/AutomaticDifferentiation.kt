@@ -5,8 +5,8 @@ import io.github.kyay10.kontinuity.handle
 import io.github.kyay10.kontinuity.runTestCC
 import io.github.kyay10.kontinuity.shouldEq
 import io.github.kyay10.kontinuity.useOnce
-import kotlin.test.Test
 import kotlin.math.exp as mathExp
+import kotlin.test.Test
 
 class AutomaticDifferentiationTest {
   @Test
@@ -23,7 +23,6 @@ class AutomaticDifferentiationTest {
     backwards(0.0) { prog(it) } shouldEq 3.0
     backwardsAutoClose(0.0) { prog(it) } shouldEq 3.0
 
-
     forwards(1.0) { progExp(it) } shouldEq 25.522100580105757
     backwards(1.0) { progExp(it) } shouldEq 25.522100580105757
     backwardsAutoClose(1.0) { progExp(it) } shouldEq 25.522100580105757
@@ -34,13 +33,8 @@ class AutomaticDifferentiationTest {
     val one = 1.0
 
     showString { x ->
-      forwardsHigher(x) { x ->
-        forwardsHigher(x) { y ->
-          forwardsHigher(y) { z -> prog(z) }
-        }
-      }
+      forwardsHigher(x) { x -> forwardsHigher(x) { y -> forwardsHigher(y) { z -> prog(z) } } }
     } shouldEq "((($one + $one) + (($one + $one) * $one)) + (($one + $one) * $one))"
-
 
     // we have the same pertubation confusion as in Lantern
     forwards(1.0) { x ->
@@ -72,9 +66,13 @@ class AutomaticDifferentiationTest {
 
 interface AD<Num> {
   val Double.num: Num
-  val Int.num: Num get() = toDouble().num
+  val Int.num: Num
+    get() = toDouble().num
+
   suspend operator fun Num.plus(other: Num): Num
+
   suspend operator fun Num.times(other: Num): Num
+
   suspend fun exp(x: Num): Num
 }
 
@@ -86,71 +84,93 @@ suspend fun <Num> AD<Num>.progExp(x: Num): Num = 0.5.num * exp(1.num + 2.num * x
 
 data class NumF(val value: Double, val d: Double)
 
-suspend fun forwards(x: Double, prog: suspend AD<NumF>.(NumF) -> NumF) = object : AD<NumF> {
-  override val Double.num: NumF get() = NumF(this, 0.0)
-  override suspend fun NumF.plus(other: NumF) = NumF(value + other.value, d + other.d)
-  override suspend fun NumF.times(other: NumF) = NumF(value * other.value, value * other.d + d * other.value)
-  override suspend fun exp(x: NumF) = NumF(mathExp(x.value), mathExp(x.value) * x.d)
-}.prog(NumF(x, 1.0)).d
+suspend fun forwards(x: Double, prog: suspend AD<NumF>.(NumF) -> NumF) =
+  object : AD<NumF> {
+      override val Double.num: NumF
+        get() = NumF(this, 0.0)
+
+      override suspend fun NumF.plus(other: NumF) = NumF(value + other.value, d + other.d)
+
+      override suspend fun NumF.times(other: NumF) = NumF(value * other.value, value * other.d + d * other.value)
+
+      override suspend fun exp(x: NumF) = NumF(mathExp(x.value), mathExp(x.value) * x.d)
+    }
+    .prog(NumF(x, 1.0))
+    .d
 
 data class NumH<N>(val value: N, val d: N)
 
-suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend AD<NumH<N>>.(NumH<N>) -> NumH<N>) = object : AD<NumH<N>> {
-  override val Double.num: NumH<N> get() = with(this@forwardsHigher) { NumH(this@num.num, 0.num) }
-  override suspend fun NumH<N>.plus(other: NumH<N>) = NumH(value + other.value, d + other.d)
-  override suspend fun NumH<N>.times(other: NumH<N>) = NumH(value * other.value, d * other.value + other.d * value)
-  override suspend fun exp(x: NumH<N>) =
-    NumH(this@forwardsHigher.exp(x.value), this@forwardsHigher.exp(x.value) * x.d)
-}.prog(NumH(x, 1.0.num)).d
+suspend fun <N> AD<N>.forwardsHigher(x: N, prog: suspend AD<NumH<N>>.(NumH<N>) -> NumH<N>) =
+  object : AD<NumH<N>> {
+      override val Double.num: NumH<N>
+        get() = with(this@forwardsHigher) { NumH(this@num.num, 0.num) }
 
-suspend fun showString(prog: suspend AD<String>.(String) -> String) = object : AD<String> {
-  override val Double.num: String get() = toString()
+      override suspend fun NumH<N>.plus(other: NumH<N>) = NumH(value + other.value, d + other.d)
 
-  @Suppress("EXTENSION_SHADOWED_BY_MEMBER")
-  override suspend fun String.plus(other: String) = when {
-    this == 0.0.toString() -> other
-    other == 0.0.toString() -> this
-    else -> "($this + $other)"
-  }
+      override suspend fun NumH<N>.times(other: NumH<N>) = NumH(value * other.value, d * other.value + other.d * value)
 
-  override suspend fun String.times(other: String) = when {
-    this == 0.0.toString() || other == 0.0.toString() -> 0.0.toString()
-    this == 1.0.toString() -> other
-    else -> "($this * $other)"
-  }
+      override suspend fun exp(x: NumH<N>) =
+        NumH(this@forwardsHigher.exp(x.value), this@forwardsHigher.exp(x.value) * x.d)
+    }
+    .prog(NumH(x, 1.0.num))
+    .d
 
-  override suspend fun exp(x: String) = "exp($x)"
-}.prog("x")
+suspend fun showString(prog: suspend AD<String>.(String) -> String) =
+  object : AD<String> {
+      override val Double.num: String
+        get() = toString()
+
+      @Suppress("EXTENSION_SHADOWED_BY_MEMBER")
+      override suspend fun String.plus(other: String) =
+        when {
+          this == 0.0.toString() -> other
+          other == 0.0.toString() -> this
+          else -> "($this + $other)"
+        }
+
+      override suspend fun String.times(other: String) =
+        when {
+          this == 0.0.toString() || other == 0.0.toString() -> 0.0.toString()
+          this == 1.0.toString() -> other
+          else -> "($this * $other)"
+        }
+
+      override suspend fun exp(x: String) = "exp($x)"
+    }
+    .prog("x")
 
 data class NumB(val value: Double, var d: Double)
 
 suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double {
   val input = NumB(x, 0.0)
   handle {
-    val res = object : AD<NumB> {
-      override val Double.num: NumB get() = NumB(this, 0.0)
-      override suspend fun NumB.plus(other: NumB) = useOnce { resume ->
-        val z = NumB(value + other.value, 0.0)
-        resume(z)
-        d += z.d
-        other.d += z.d
-      }
+    val res =
+      object : AD<NumB> {
+          override val Double.num: NumB
+            get() = NumB(this, 0.0)
 
-      override suspend fun NumB.times(other: NumB) = useOnce { resume ->
-        val z = NumB(value * other.value, 0.0)
-        resume(z)
-        d += other.value * z.d
-        other.d += value * z.d
+          override suspend fun NumB.plus(other: NumB) = useOnce { resume ->
+            val z = NumB(value + other.value, 0.0)
+            resume(z)
+            d += z.d
+            other.d += z.d
+          }
 
-      }
+          override suspend fun NumB.times(other: NumB) = useOnce { resume ->
+            val z = NumB(value * other.value, 0.0)
+            resume(z)
+            d += other.value * z.d
+            other.d += value * z.d
+          }
 
-      override suspend fun exp(x: NumB) = useOnce { resume ->
-        val xExp = mathExp(x.value)
-        val z = NumB(xExp, 0.0)
-        resume(z)
-        x.d += xExp * z.d
-      }
-    }.prog(input)
+          override suspend fun exp(x: NumB) = useOnce { resume ->
+            val xExp = mathExp(x.value)
+            val z = NumB(xExp, 0.0)
+            resume(z)
+            x.d += xExp * z.d
+          }
+        }
+        .prog(input)
     res.d += 1
   }
   return input.d
@@ -159,29 +179,35 @@ suspend fun backwards(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double 
 suspend fun backwardsAutoClose(x: Double, prog: suspend AD<NumB>.(NumB) -> NumB): Double {
   val input = NumB(x, 0.0)
   autoCloseScope {
-    val res = object : AD<NumB> {
-      override val Double.num: NumB get() = NumB(this, 0.0)
-      override suspend fun NumB.plus(other: NumB) = NumB(value + other.value, 0.0).also { z ->
-        onClose {
-          this.d += z.d
-          other.d += z.d
-        }
-      }
+    val res =
+      object : AD<NumB> {
+          override val Double.num: NumB
+            get() = NumB(this, 0.0)
 
-      override suspend fun NumB.times(other: NumB) = NumB(value * other.value, 0.0).also { z ->
-        onClose {
-          d += other.value * z.d
-          other.d += value * z.d
-        }
-      }
+          override suspend fun NumB.plus(other: NumB) =
+            NumB(value + other.value, 0.0).also { z ->
+              onClose {
+                this.d += z.d
+                other.d += z.d
+              }
+            }
 
-      override suspend fun exp(x: NumB): NumB {
-        val xExp = mathExp(x.value)
-        val z = NumB(xExp, 0.0)
-        onClose { x.d += xExp * z.d }
-        return z
-      }
-    }.prog(input)
+          override suspend fun NumB.times(other: NumB) =
+            NumB(value * other.value, 0.0).also { z ->
+              onClose {
+                d += other.value * z.d
+                other.d += value * z.d
+              }
+            }
+
+          override suspend fun exp(x: NumB): NumB {
+            val xExp = mathExp(x.value)
+            val z = NumB(xExp, 0.0)
+            onClose { x.d += xExp * z.d }
+            return z
+          }
+        }
+        .prog(input)
     res.d += 1
   }
   return input.d

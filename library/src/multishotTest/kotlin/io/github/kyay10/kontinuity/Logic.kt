@@ -38,31 +38,26 @@ suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>? = lo
 context(logic: Logic, _: Amb, _: Exc)
 suspend fun <A> interleave(
   first: suspend context(Amb, Exc) () -> A,
-  second: suspend context(Amb, Exc) () -> A
+  second: suspend context(Amb, Exc) () -> A,
 ): A {
   val branch = split(first) ?: return second()
   return if (flip()) branch.value
-  else if (branch.next == null) second()
-  else interleaveImpl(Producer { split(second) }, branch.next)
+  else if (branch.next == null) second() else interleaveImpl(Producer { split(second) }, branch.next)
 }
 
-// could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some block
+// could we make this return Boolean? maybe would need access to the o.g. prompt I guess, or we can do this in some
+// block
 // likely no because interleave delimits its arguments
 context(_: Amb, _: Exc)
-private tailrec suspend fun <A> interleaveImpl(
-  first: Producer<Stream<A>?>,
-  second: Producer<Stream<A>?>
-): A {
+private tailrec suspend fun <A> interleaveImpl(first: Producer<Stream<A>?>, second: Producer<Stream<A>?>): A {
   val (value, next) = first() ?: return second().reflect()
-  return if (flip()) value
-  else if (next == null) second().reflect()
-  else interleaveImpl(second, next)
+  return if (flip()) value else if (next == null) second().reflect() else interleaveImpl(second, next)
 }
 
 context(_: Logic, _: Amb, _: Exc)
 suspend fun <A, B> fairBind(
   first: suspend context(Amb, Exc) () -> A,
-  second: suspend context(Amb, Exc) (A) -> B
+  second: suspend context(Amb, Exc) (A) -> B,
 ): B {
   val (value, next) = split(first).bind()
   if (next == null) return second(value)
@@ -72,25 +67,20 @@ suspend fun <A, B> fairBind(
 context(_: Logic, _: Amb, _: Exc)
 private suspend fun <A, B> fairBindImpl(
   first: Producer<Stream<A>?>,
-  second: suspend context(Amb, Exc) (A) -> B
+  second: suspend context(Amb, Exc) (A) -> B,
 ): B {
   val (value, next) = first().bind()
-  return if (next == null) second(value)
-  else interleave({ second(value) }) { fairBindImpl(next, second) }
+  return if (next == null) second(value) else interleave({ second(value) }) { fairBindImpl(next, second) }
 }
 
 context(_: Exc)
 suspend inline fun <A> once(crossinline block: suspend context(Amb, Exc) () -> A): A = handle {
-  effectfulLogic {
-    discardWithFast(Result.success(block()))
-  }
+  effectfulLogic { discardWithFast(Result.success(block())) }
   raise()
 }
 
 suspend inline fun <A> onceOrNull(crossinline block: suspend context(Amb, Exc) () -> A): A? = handle {
-  effectfulLogic {
-    discardWithFast(Result.success(block()))
-  }
+  effectfulLogic { discardWithFast(Result.success(block())) }
   null
 }
 
@@ -123,23 +113,25 @@ object LogicDeep : Logic {
             val branch = removeLastOrNull() ?: this@split.discardWithFast(Result.success(null))
             branch()
           }
-          block({
-            use { resume ->
-              add { resume.final(false) }
-              resume(true)
-            }
-          }, object : Exc {
-            override suspend fun raise() = discardFast(discardAction)
-            override fun raise(r: Unit) = discard(discardAction)
-          })
+          block(
+            {
+              use { resume ->
+                add { resume.final(false) }
+                resume(true)
+              }
+            },
+            object : Exc {
+              override suspend fun raise() = discardFast(discardAction)
+
+              override fun raise(r: Unit) = discard(discardAction)
+            },
+          )
         }
       }
       while (isNotEmpty()) {
         val result = removeLast()()
         val isLast = isEmpty()
-        useOnce {
-          if (isLast) Stream(result, null) else Stream(result) { it(Unit) }
-        }
+        useOnce { if (isLast) Stream(result, null) else Stream(result) { it(Unit) } }
       }
       null
     }
@@ -147,10 +139,11 @@ object LogicDeep : Logic {
 }
 
 object LogicTree : Logic {
-  override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A) = handle<Stream<A>?> {
-    val amb = Amb { use { resume -> composeTrees(resume(true), Producer { resume.final(false) }) } }
-    Stream(block(amb, constantExc(null)), null)
-  }
+  override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A) =
+    handle<Stream<A>?> {
+      val amb = Amb { use { resume -> composeTrees(resume(true), Producer { resume.final(false) }) } }
+      Stream(block(amb, constantExc(null)), null)
+    }
 
   private suspend fun <A> composeTrees(stream: Stream<A>?, next: Producer<Stream<A>?>): Stream<A>? {
     val (value, nextPrime) = stream ?: return next()
@@ -163,19 +156,20 @@ object LogicSimple : Logic {
   override suspend fun <A> split(block: suspend context(Amb, Exc) () -> A): Stream<A>? = handle {
     effectfulLogic {
       val res = block()
-      useOnce {
-        Stream(res) { it(Unit) }
-      }
+      useOnce { Stream(res) { it(Unit) } }
     }
     null
   }
 }
 
 suspend fun effectfulLogic(block: suspend context(Amb, Exc) () -> Unit): Unit = handle {
-  block({
-    useTailResumptive { resume ->
-      resume(true)
-      false
-    }
-  }, constantExc(Unit))
+  block(
+    {
+      useTailResumptive { resume ->
+        resume(true)
+        false
+      }
+    },
+    constantExc(Unit),
+  )
 }

@@ -1,19 +1,28 @@
 package io.github.kyay10.kontinuity
 
-import kotlinx.collections.immutable.toPersistentHashMap
 import kotlin.math.max
 import kotlin.test.Test
+import kotlinx.collections.immutable.toPersistentHashMap
 
-enum class Bit { Zero, One }
+enum class Bit {
+  Zero,
+  One,
+}
 
 operator fun Bit.plus(other: Int) = this.ordinal + other
+
 operator fun Int.plus(other: Bit) = this + other.ordinal
+
 operator fun Bit.plus(other: Bit) = this.ordinal + other.ordinal
+
 operator fun Bit.times(other: Int) = this.ordinal * other
+
 operator fun Int.times(other: Bit) = this * other.ordinal
+
 operator fun Bit.times(other: Bit) = this.ordinal * other.ordinal
 
 typealias Baire = suspend (Int) -> Int
+
 typealias Cantor = suspend (Int) -> Bit
 
 class ImpossibleTest {
@@ -27,17 +36,18 @@ class ImpossibleTest {
     exists { it(10) == Bit.Zero && it(10) != Bit.Zero } shouldEq false
   }
 
-  //https://math.andrej.com/2007/09/28/seemingly-impossible-functional-programs/
+  // https://math.andrej.com/2007/09/28/seemingly-impossible-functional-programs/
   @Test
   fun articleExamples() = runTestCC {
     suspend fun f(a: Cantor): Bit = a(7 * a(4) + 4 * a(7) + 4)
     suspend fun g(a: Cantor): Bit = a(a(4) + 11 * a(7))
-    suspend fun h(a: Cantor): Bit = when {
-      a(7) == Bit.Zero && a(4) == Bit.Zero -> a(4)
-      a(7) == Bit.Zero -> a(11)
-      a(4) == Bit.One -> a(15)
-      else -> a(8)
-    }
+    suspend fun h(a: Cantor): Bit =
+      when {
+        a(7) == Bit.Zero && a(4) == Bit.Zero -> a(4)
+        a(7) == Bit.Zero -> a(11)
+        a(4) == Bit.One -> a(15)
+        else -> a(8)
+      }
     ::f cantorEq ::g shouldEq false
     ::f cantorEq ::h shouldEq true
     ::g cantorEq ::h shouldEq false
@@ -67,7 +77,6 @@ class ImpossibleTest {
     suspend fun elementMaxInt(a: Cantor) = a project Int.MAX_VALUE
     ::elementMaxInt cantorEq ::elementMaxInt shouldEq true
     ::elementMaxInt cantorEq { it project (Int.MAX_VALUE - 1) } shouldEq false
-
   }
 
   @Test
@@ -85,34 +94,35 @@ class ImpossibleTest {
   }
 }
 
-/**
- * @return k s.t. `forall beta: Baire. beta(0..k) = alpha(0..k) => f(beta) = f(alpha)`
- */
-private suspend fun mu(f: suspend (Baire) -> Int, alpha: Baire): Int = runState(0) {
-  val _ = f { n ->
-    value = max(value, n)
-    alpha(n)
+/** @return k s.t. `forall beta: Baire. beta(0..k) = alpha(0..k) => f(beta) = f(alpha)` */
+private suspend fun mu(f: suspend (Baire) -> Int, alpha: Baire): Int =
+  runState(0) {
+    val _ = f { n ->
+      value = max(value, n)
+      alpha(n)
+    }
+    value
   }
-  value
-}
 
-private suspend fun findNeighborhood(predicate: suspend (Cantor) -> Boolean): Map<Int, Bit> =
-  buildMapLocally {
-    // TODO this gives us `exists` for free!
-    val _ = handle {
-      predicate { i ->
-        get(i) ?: use { k ->
-          val current = map.toPersistentHashMap()
-          k(Bit.One) || run {
-            // reset state
-            clear()
-            putAll(current)
-            k(Bit.Zero)
+private suspend fun findNeighborhood(predicate: suspend (Cantor) -> Boolean): Map<Int, Bit> = buildMapLocally {
+  // TODO this gives us `exists` for free!
+  val _ = handle {
+    predicate { i ->
+      get(i)
+        ?: use { k ->
+            val current = map.toPersistentHashMap()
+            k(Bit.One) ||
+              run {
+                // reset state
+                clear()
+                putAll(current)
+                k(Bit.Zero)
+              }
           }
-        }.also { set(i, it) }
-      }
+          .also { set(i, it) }
     }
   }
+}
 
 private suspend fun epsilon(predicate: suspend (Cantor) -> Boolean): Cantor {
   val neighborhood = findNeighborhood(predicate)
@@ -123,15 +133,12 @@ private suspend fun exists(predicate: suspend (Cantor) -> Boolean): Boolean = pr
 
 private suspend fun forAll(predicate: suspend (Cantor) -> Boolean): Boolean = !exists { !predicate(it) }
 
-private suspend infix fun <T> (suspend (Cantor) -> T).cantorEq(other: suspend (Cantor) -> T): Boolean =
-  forAll { a -> this(a) == other(a) }
+private suspend infix fun <T> (suspend (Cantor) -> T).cantorEq(other: suspend (Cantor) -> T): Boolean = forAll { a ->
+  this(a) == other(a)
+}
 
 private suspend fun modulus(f: suspend (Cantor) -> Int): Int = least { n ->
-  forAll { a ->
-    forAll { b ->
-      eq(n, a, b) implies (f(a) == f(b))
-    }
-  }
+  forAll { a -> forAll { b -> eq(n, a, b) implies (f(a) == f(b)) } }
 }
 
 private inline fun least(p: (Int) -> Boolean): Int {

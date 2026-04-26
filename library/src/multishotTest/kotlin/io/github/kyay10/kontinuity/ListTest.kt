@@ -1,8 +1,8 @@
 package io.github.kyay10.kontinuity
 
 import io.kotest.matchers.sequences.shouldContainExactly
-import kotlinx.collections.immutable.persistentListOf
 import kotlin.test.Test
+import kotlinx.collections.immutable.persistentListOf
 
 class ListTest {
   @Test
@@ -63,13 +63,12 @@ class ListTest {
       thirdCounter++
       first to second
     }
-    result shouldEq list1.filter { it != Int.MAX_VALUE }.flatMap { first ->
-      list2.filter { it != Int.MAX_VALUE }.flatMap { second ->
-        list3.map { _ ->
-          first to second
+    result shouldEq
+      list1
+        .filter { it != Int.MAX_VALUE }
+        .flatMap { first ->
+          list2.filter { it != Int.MAX_VALUE }.flatMap { second -> list3.map { _ -> first to second } }
         }
-      }
-    }
     noObservedCounter shouldEq 1
     firstCounter shouldEq 3
     secondCounter shouldEq 9
@@ -103,17 +102,14 @@ class ListTest {
         twoElements.bind()
         "firstBranch"
       } else {
-        repeatIteratorless(2) {
-          twoElements.bind()
-        }
+        repeatIteratorless(2) { twoElements.bind() }
         "secondBranch"
       }
     }
-    result shouldEq list.flatMap {
-      if (it == 2) twoElements.map { "firstBranch" } else twoElements.flatMap {
-        twoElements.map { "secondBranch" }
+    result shouldEq
+      list.flatMap {
+        if (it == 2) twoElements.map { "firstBranch" } else twoElements.flatMap { twoElements.map { "secondBranch" } }
       }
-    }
   }
 
   @Test
@@ -127,33 +123,30 @@ class ListTest {
 
   @Test
   fun allEightBitPatterns() = runTestCC {
-    val result = runList {
-      replicate(8) {
-        choose(0, 1)
-      }
-    }
+    val result = runList { replicate(8) { choose(0, 1) } }
     result.map { it.joinToString("").toInt(2) } shouldEq (0..255).toList()
   }
 
   @Test
   fun allEightBitPatternsWithOnlyChange() = runTestCC {
-    val result = buildString {
-      val _ = runList {
-        repeatIteratorless(8) { append(choose(0, 1)) }
-        appendLine()
-      }
-    }.lines().drop(1).dropLast(1)
-    result shouldEq List(256) { it.toString(2).padStart(8, '0') }.zipWithNext { a, b ->
-      b.removePrefix(a.commonPrefixWith(b))
-    }
+    val result =
+      buildString {
+          val _ = runList {
+            repeatIteratorless(8) { append(choose(0, 1)) }
+            appendLine()
+          }
+        }
+        .lines()
+        .drop(1)
+        .dropLast(1)
+    result shouldEq
+      List(256) { it.toString(2).padStart(8, '0') }.zipWithNext { a, b -> b.removePrefix(a.commonPrefixWith(b)) }
   }
 
   @Test
   fun permutations() = runTestCC {
     val numbers = (1..5).toList()
-    val result = runList {
-      numbers.foldRightIteratorless(persistentListOf<Int>()) { i, acc -> acc.insert(i) }
-    }
+    val result = runList { numbers.foldRightIteratorless(persistentListOf<Int>()) { i, acc -> acc.insert(i) } }
     result.asSequence().shouldContainExactly(numbers.permutations())
   }
 }

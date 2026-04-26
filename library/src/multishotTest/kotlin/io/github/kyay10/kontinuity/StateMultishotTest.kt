@@ -59,7 +59,7 @@ class StateMultishotTest {
       s5: StateT<Int>,
       s6: StateT<Int>,
       s7: StateT<Int>,
-      s8: StateT<Int>
+      s8: StateT<Int>,
     ): Boolean {
       while (s1.read() > 0) {
         s1.put(s1.read() - 1)
@@ -100,34 +100,37 @@ class StateMultishotTest {
 
 interface CrazyState : StateT<Int> {
   suspend fun foo()
+
   suspend fun bar()
 }
 
-suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R = specialState(init) {
-  handle {
-    block(object : CrazyState, StateT<Int> by this@specialState {
-      override suspend fun foo() {
-        put(2)
-        use { k ->
-          val _ = k(Unit)
-          put(13)
-          k(Unit)
-        }
-      }
+suspend fun <R> myState(init: Int, block: suspend CrazyState.() -> R): R =
+  specialState(init) {
+    handle {
+      block(
+        object : CrazyState, StateT<Int> by this@specialState {
+          override suspend fun foo() {
+            put(2)
+            use { k ->
+              val _ = k(Unit)
+              put(13)
+              k(Unit)
+            }
+          }
 
-      override suspend fun bar() {
-        put(2)
-        use { k ->
-          put(read() + 1)
-          val _ = k(Unit)
-          put(read() + 1)
-          k(Unit)
+          override suspend fun bar() {
+            put(2)
+            use { k ->
+              put(read() + 1)
+              val _ = k(Unit)
+              put(read() + 1)
+              k(Unit)
+            }
+          }
         }
-      }
-    })
+      )
+    }
   }
-}
 
-suspend fun <R, S> specialState(init: S, block: suspend StateT<S>.() -> R): R = runState(init) {
-  block(SpecialState(this))
-}
+suspend fun <R, S> specialState(init: S, block: suspend StateT<S>.() -> R): R =
+  runState(init) { block(SpecialState(this)) }

@@ -1,25 +1,17 @@
 package io.github.kyay10.kontinuity
 
 import io.kotest.matchers.nulls.shouldNotBeNull
+import kotlin.test.Test
 import kotlinx.collections.immutable.PersistentList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toPersistentList
 import kotlinx.coroutines.yield
-import kotlin.test.Test
 
 class LogicTest {
   @Test
   fun reader() = runTestCC {
-    runReader(0) {
-      bagOfN {
-        runReader(value + 5) { value }
-      } shouldEq listOf(5)
-    }
-    runReader(0) {
-      bagOfN {
-        runReader(value + 5) { value } to value
-      } shouldEq listOf(5 to 0)
-    }
+    runReader(0) { bagOfN { runReader(value + 5) { value } } shouldEq listOf(5) }
+    runReader(0) { bagOfN { runReader(value + 5) { value } to value } shouldEq listOf(5 to 0) }
 
     runReader(0) {
       bagOfN {
@@ -35,11 +27,8 @@ class LogicTest {
   @Test
   fun infinites() = runTestCC {
     bagOfN(5) { nats() } shouldEq (0..4).toList()
-    bagOfN(5) {
-      runReader(0) { nats() }
-    } shouldEq (0..4).toList()
+    bagOfN(5) { runReader(0) { nats() } } shouldEq (0..4).toList()
   }
-
 
   @Test
   fun more() = runTestCC {
@@ -55,9 +44,8 @@ class LogicTest {
     bagOfN(2) { raise() } shouldEq listOf()
     withLogic {
       bagOfN { fairBind({ sample() }) { raise() } } shouldEq bagOfN { raise() }
-      bagOfN {
-        fairBind({ sample() }) { it + listOf(100, 200, 300).choose() }
-      } shouldEq bagOfN { listOf(101, 102, 201, 103, 301, 202, 203, 302, 303).choose() }
+      bagOfN { fairBind({ sample() }) { it + listOf(100, 200, 300).choose() } } shouldEq
+        bagOfN { listOf(101, 102, 201, 103, 301, 202, 203, 302, 303).choose() }
       bagOfN {
         fairBind({ sample() }) {
           ensure(it % 2 == 1)
@@ -92,27 +80,19 @@ class LogicTest {
   fun fairConjunctionLaws() = runTestCC {
     withLogic {
       bagOfN(4) {
-        val x = fairBind({ if (flip()) 0 else 1 }) {
-          odds() + it
-        }
+        val x = fairBind({ if (flip()) 0 else 1 }) { odds() + it }
         ensure(x % 2 == 0)
         x
       } shouldEq (2..8 step 2).toList()
       bagOfN(4) {
-        fairBind({
-          fairBind({ if (flip()) 0 else 1 }) {
-            odds() + it
-          }
-        }) {
+        fairBind({ fairBind({ if (flip()) 0 else 1 }) { odds() + it } }) {
           ensure(it % 2 == 0)
           it
         }
       } shouldEq (2..8 step 2).toList()
       assertNonTerminatingCC {
         bagOfN(4) {
-          fairBind({
-            if (flip()) 0 else 1
-          }) { a ->
+          fairBind({ if (flip()) 0 else 1 }) { a ->
             fairBind({ odds() + a }) { x ->
               yield()
               ensure(x % 2 == 0)
@@ -123,9 +103,7 @@ class LogicTest {
       }
       assertNonTerminatingCC {
         bagOfN(4) {
-          fairBind({
-            if (flip()) 0 else 1
-          }) { a ->
+          fairBind({ if (flip()) 0 else 1 }) { a ->
             val x = odds() + a
             yield()
             ensure(x % 2 == 0)
@@ -181,20 +159,11 @@ class LogicTest {
     bagOfN { once { input.bogoSort() } } shouldEq listOf(input.sorted())
   }
 
-  @Test
-  fun ensure() = runTestCC {
-    bagOfN(5) {
-      nats().also { ensure(it % 2 == 1) }
-    } shouldEq (1..9 step 2).toList()
-  }
+  @Test fun ensure() = runTestCC { bagOfN(5) { nats().also { ensure(it % 2 == 1) } } shouldEq (1..9 step 2).toList() }
 
   @Test
   fun readerInside() = runTestCC {
-    withLogic {
-      bagOfN(2) {
-        runReader(0) { if (flip()) 0 else 1 }
-      } shouldEq (0..1).toList()
-    }
+    withLogic { bagOfN(2) { runReader(0) { if (flip()) 0 else 1 } } shouldEq (0..1).toList() }
   }
 }
 
@@ -248,10 +217,11 @@ private suspend fun oddsOrTwo(): Int {
 }
 
 context(_: Amb, _: Exc)
-private suspend fun odds5Down(): Int = when {
-  flip() -> 5
-  flip() -> raise()
-  flip() -> raise()
-  flip() -> 3
-  else -> 1
-}
+private suspend fun odds5Down(): Int =
+  when {
+    flip() -> 5
+    flip() -> raise()
+    flip() -> raise()
+    flip() -> 3
+    else -> 1
+  }
