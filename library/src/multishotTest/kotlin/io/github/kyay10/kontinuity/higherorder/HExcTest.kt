@@ -176,7 +176,7 @@ suspend fun <A> recoverSubJump(block: suspend context(Recover) () -> A) = subJum
   block(
     object : Recover {
       override suspend fun <A> recover(block: suspend context(Exc) () -> A, recover: suspend () -> A): A =
-        sub({ jump -> maybe(block).getOrElse { jump(Unit) } }, { recover() })
+        sub({ jump -> maybe(block).getOrElse { jump(Unit) } }) { recover() }
     }
   )
 }

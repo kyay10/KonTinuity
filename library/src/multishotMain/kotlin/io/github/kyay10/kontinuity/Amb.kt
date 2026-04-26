@@ -13,4 +13,4 @@ public suspend fun flip(): Boolean = amb.flip()
 public val <E> Handler<List<E>>.amb: Amb
   get() = Amb { use { resume -> resume(true) + resume(false) } }
 
-public suspend fun <E> ambList(block: suspend Amb.() -> E): List<E> = handle { listOf(block(amb)) }
+public suspend fun <E> ambList(block: suspend context(Amb) () -> E): List<E> = handle { listOf(block(amb)) }

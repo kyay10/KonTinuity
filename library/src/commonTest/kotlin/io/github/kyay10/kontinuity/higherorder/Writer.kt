@@ -21,17 +21,23 @@ class WriterTest {
 interface Writer<T> {
   suspend fun tell(t: T)
 
-  suspend fun <R> listen(block: suspend Writer<T>.() -> R): Pair<T, R>
+  suspend fun <R> listen(block: suspend context(Writer<T>) () -> R): Pair<T, R>
 }
 
-suspend fun <T, R> runWriter(initial: T, combine: (T, T) -> T, block: suspend Writer<T>.() -> R): Pair<T, R> {
+context(w: Writer<T>)
+suspend fun <T> tell(t: T) = w.tell(t)
+
+context(w: Writer<T>)
+suspend fun <T, R> listen(block: suspend Writer<T>.() -> R): Pair<T, R> = w.listen(block)
+
+suspend fun <T, R> runWriter(initial: T, combine: (T, T) -> T, block: suspend context(Writer<T>) () -> R): Pair<T, R> {
   class WriterListener(val state: State<T>, val delegate: Writer<T>? = null) : Writer<T> {
     override suspend fun tell(t: T) {
       state.value = combine(state.value, t)
       delegate?.tell(t)
     }
 
-    override suspend fun <R> listen(block: suspend Writer<T>.() -> R): Pair<T, R> =
+    override suspend fun <R> listen(block: suspend context(Writer<T>) () -> R): Pair<T, R> =
       runState(initial) {
         val res = block(WriterListener(this, this@WriterListener))
         value to res

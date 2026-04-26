@@ -2,6 +2,7 @@ package io.github.kyay10.kontinuity.casestudies
 
 import arrow.core.Either.Right
 import arrow.core.raise.Raise
+import arrow.core.raise.context.ensureNotNull
 import arrow.core.raise.either
 import arrow.core.raise.ensureNotNull
 import io.github.kyay10.kontinuity.runMapBuilder
@@ -83,9 +84,10 @@ suspend fun example1(key: Key): Val =
     else -> needInput(key)
   }
 
-suspend fun build(target: Key, tasks: suspend Need.(Key) -> Val): Val = Need { build(it, tasks) }.tasks(target)
+suspend fun build(target: Key, tasks: suspend context(Need) (Key) -> Val): Val = tasks({ build(it, tasks) }, target)
 
-suspend fun <R> Need.memo(block: suspend Need.() -> R): R = runMapBuilder {
+context(_: Need)
+suspend fun <R> memo(block: suspend context(Need) () -> R): R = runMapBuilder {
   block { key -> getOrPut(key) { need(key) } }
 }
 
@@ -99,7 +101,7 @@ suspend fun example2(key: Key): Val =
 
 data class KeyNotFound(val key: Key)
 
-suspend fun <R> Raise<KeyNotFound>.supplyInput(store: Map<Key, Val>, block: suspend NeedInput.() -> R): R =
-  block { key ->
-    ensureNotNull(store[key]) { KeyNotFound(key) }
-  }
+context(_: Raise<KeyNotFound>)
+suspend fun <R> supplyInput(store: Map<Key, Val>, block: suspend context(NeedInput) () -> R): R = block { key ->
+  ensureNotNull(store[key]) { KeyNotFound(key) }
+}

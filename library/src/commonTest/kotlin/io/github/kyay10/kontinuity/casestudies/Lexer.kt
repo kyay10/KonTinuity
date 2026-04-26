@@ -1,8 +1,9 @@
 package io.github.kyay10.kontinuity.casestudies
 
 import arrow.core.raise.Raise
+import arrow.core.raise.context.ensure
 import arrow.core.raise.context.ensureNotNull
-import arrow.core.raise.ensure
+import arrow.core.raise.context.raise
 import arrow.core.raise.recover
 import io.github.kyay10.kontinuity.*
 import kotlin.test.Test
@@ -79,7 +80,8 @@ data class LexerError(val msg: String, val pos: Position)
 
 val dummyPosition = Position(0, 0, 0)
 
-suspend fun <R> Raise<LexerError>.lexerFromList(
+context(_: Raise<LexerError>)
+suspend fun <R> lexerFromList(
   l: List<Token>,
   block: suspend context(Lexer) () -> R,
 ) =
@@ -96,7 +98,7 @@ suspend fun <R> Raise<LexerError>.lexerFromList(
     }
   }
 
-inline fun report(block: Raise<LexerError>.() -> Unit) =
+inline fun report(block: context(Raise<LexerError>) () -> Unit) =
   recover(block) { (msg, pos) -> error("LexerError: ${pos.line}:${pos.col} $msg") }
 
 private val tokenDescriptors =
@@ -107,7 +109,8 @@ private val tokenDescriptors =
     TokenKind.Space to "^[ \t\n]+".toRegex(),
   )
 
-suspend fun <R> Raise<LexerError>.lexer(
+context(_: Raise<LexerError>)
+suspend fun <R> lexer(
   input: String,
   block: suspend context(Lexer) () -> R,
 ): R {

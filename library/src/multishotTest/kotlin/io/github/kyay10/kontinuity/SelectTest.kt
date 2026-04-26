@@ -31,7 +31,8 @@ class SelectTest {
 class NQueens {
   var tries = 0
 
-  suspend fun Select.nqueens(n: Int): List<Pos> {
+  context(_: Select)
+  suspend fun nqueens(n: Int): List<Pos> {
     val ys = 1..n
     var queens = emptyList<Pos>()
     var x = 1
@@ -54,27 +55,30 @@ class NQueens {
 data class Pos(val x: Int, val y: Int)
 
 interface Select {
-  suspend fun <A> Iterable<A>.select(): A
+  suspend fun <A> List<A>.select(): A
 }
 
-suspend fun <R> selectAll(body: suspend Select.() -> R): List<R> = handle {
+context(s: Select)
+suspend fun <A> List<A>.select(): A = with(s) { this@select.select() }
+
+suspend fun <R> selectAll(body: suspend context(Select) () -> R): List<R> = handle {
   listOf(
     body(
       object : Select {
-        override suspend fun <A> Iterable<A>.select(): A = use { k ->
-          buildListLocally { this@select.forEach { addAll(k(it)) } }
+        override suspend fun <A> List<A>.select(): A = use { k ->
+          buildListLocally { this@select.forEachIteratorless { addAll(k(it)) } }
         }
       }
     )
   )
 }
 
-suspend fun <R> selectFirst(body: suspend Select.() -> R): Option<R> = handle {
+suspend fun <R> selectFirst(body: suspend context(Select) () -> R): Option<R> = handle {
   Some(
     body(
       object : Select {
-        override suspend fun <A> Iterable<A>.select(): A = use { k ->
-          forEach { e ->
+        override suspend fun <A> List<A>.select(): A = use { k ->
+          forEachIteratorless { e ->
             k(e).onSome {
               return@use it.some()
             }

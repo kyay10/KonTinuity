@@ -17,7 +17,8 @@ class ProbabilisticTest {
     }
   }
 
-  suspend fun Prob.falsePositive(): Boolean {
+  context(_: Amb, _: Exc, _: Prob)
+  suspend fun falsePositive(): Boolean {
     val sick = bernoulli(0.01)
     ensure(
       if (sick) {
@@ -30,26 +31,24 @@ class ProbabilisticTest {
   }
 
   @Test
-  fun falsePositive() = runTestCC {
+  fun falsePositiveTest() = runTestCC {
     probabilistic { falsePositive() } shouldEq listOf(Weighted(false, 0.099), Weighted(true, 0.0099))
   }
 }
 
-suspend fun <R> probabilistic(body: suspend Prob.() -> R): List<Weighted<R>> =
+suspend fun <R> probabilistic(body: suspend context(Amb, Exc, Prob) () -> R): List<Weighted<R>> =
   runState(1.0) {
     handle {
       val res =
         body(
-          object : Prob, Exc by exc {
-            override suspend fun flip(): Boolean = use { k ->
+          {
+            use { k ->
               val previous = value
               k(false).also { value = previous } + k(true)
             }
-
-            override fun factor(p: Double) {
-              value *= p
-            }
-          }
+          },
+          exc,
+          Prob { p -> value *= p },
         )
       listOf(Weighted(res, value))
     }
@@ -57,7 +56,7 @@ suspend fun <R> probabilistic(body: suspend Prob.() -> R): List<Weighted<R>> =
 
 data class Weighted<T>(val value: T, val weight: Double)
 
-suspend fun tracing(body: suspend Amb.() -> Int) =
+suspend fun tracing(body: suspend context(Amb) () -> Int) =
   runListBuilder<suspend () -> Int, _> {
     add {
       handle {
@@ -77,12 +76,16 @@ suspend fun tracing(body: suspend Amb.() -> Int) =
 
 fun <E> MutableList<E>.removeRandom() = removeAt(Random.nextInt(0, size))
 
-interface Prob : Amb, Exc {
+fun interface Prob {
   fun factor(p: Double)
 }
 
+context(prob: Prob)
+fun factor(p: Double) = prob.factor(p)
+
 // could also be the primitive effect op and `flip = bernoulli(0.5)`
-suspend fun Prob.bernoulli(p: Double): Boolean =
+context(_: Amb, _: Prob)
+suspend fun bernoulli(p: Double): Boolean =
   if (flip()) {
     factor(p)
     true

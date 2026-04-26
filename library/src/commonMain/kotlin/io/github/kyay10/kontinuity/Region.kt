@@ -75,15 +75,15 @@ public inline fun <T> Region.OptionalField<T>.getOrPut(defaultValue: () -> T): T
   return getOrNone().getOrElse { defaultValue().also { value = it } }
 }
 
-public suspend inline fun <R> region(crossinline body: suspend Region.() -> R): R = runMapBuilder {
+public suspend inline fun <R> region(crossinline body: suspend context(Region) () -> R): R = runMapBuilder {
   body(MapRegion(this))
 }
 
-public suspend inline fun <R> listRegion(crossinline body: suspend Region.() -> R): R = runListBuilder {
+public suspend inline fun <R> listRegion(crossinline body: suspend context(Region) () -> R): R = runListBuilder {
   body(ListRegion(this))
 }
 
-public suspend inline fun <R> intMapRegion(crossinline body: suspend Region.() -> R): R =
+public suspend inline fun <R> intMapRegion(crossinline body: suspend context(Region) () -> R): R =
   runState(Store()) { body(IntMapRegion(this)) }
 
 @PublishedApi

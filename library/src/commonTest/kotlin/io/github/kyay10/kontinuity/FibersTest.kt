@@ -6,7 +6,8 @@ import kotlin.test.Test
 class FibersTest {
   private val printed = StringBuilder()
 
-  suspend fun Scheduler2.user1() {
+  context(_: Scheduler2)
+  suspend fun user1() {
     fastFork {
       printed.appendLine("Hello from fork")
       yield()
@@ -68,7 +69,7 @@ interface Fibre<A> {
   val isDone: Boolean
 
   companion object {
-    fun <A> create(block: suspend Suspendable.() -> A): Fibre<A> {
+    fun <A> create(block: suspend context(Suspendable) () -> A): Fibre<A> {
       // set up the communication channel between the two components
       val fiber = CanResume<A>()
       // create first continuation by installing a ScheduledSuspendable handler
@@ -119,17 +120,23 @@ class CanResume<A> : Fibre<A>, Fibre.HasResult<A> {
 }
 
 interface Scheduler2 {
-  fun fastFork(task: suspend Scheduler2.() -> Unit)
+  fun fastFork(task: suspend context(Scheduler2) () -> Unit)
 
   // Since we only run on one thread, we need yield to allow cooperative multitasking
   suspend fun yield()
 }
 
-suspend fun scheduler2(block: suspend Scheduler2.() -> Unit) =
+context(s: Scheduler2)
+fun fastFork(task: suspend context(Scheduler2) () -> Unit) = s.fastFork(task)
+
+context(s: Scheduler2)
+suspend fun yield() = s.yield()
+
+suspend fun scheduler2(block: suspend context(Scheduler2) () -> Unit) =
   runQueue<Task, _> {
     fun Handler<Unit>.scheduler(): Scheduler2 =
       object : Scheduler2 {
-        override fun fastFork(task: suspend Scheduler2.() -> Unit) {
+        override fun fastFork(task: suspend context(Scheduler2) () -> Unit) {
           enqueue { handle { task(scheduler()) } }
         }
 
@@ -146,5 +153,8 @@ suspend fun scheduler2(block: suspend Scheduler2.() -> Unit) =
 fun interface Suspendable {
   suspend fun suspend()
 }
+
+context(s: Suspendable)
+suspend fun suspend() = s.suspend()
 
 typealias Task = suspend () -> Unit

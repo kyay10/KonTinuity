@@ -58,9 +58,17 @@ interface Await {
   suspend fun fork(): Boolean
 }
 
-suspend fun Await.yield() = await { it(Unit) }
+context(a: Await)
+suspend fun <A> await(body: suspend (suspend (A) -> Unit) -> Unit): A = a.await(body)
 
-suspend fun <A> Await.await(d: Deferred<A>): A {
+context(a: Await)
+suspend fun fork(): Boolean = a.fork()
+
+context(_: Await)
+suspend fun yield() = await { it(Unit) }
+
+context(_: Await)
+suspend fun <A> await(d: Deferred<A>): A {
   do {
     yield()
     yield() // so that the deferred has a chance to run if we're single threaded
@@ -69,7 +77,7 @@ suspend fun <A> Await.await(d: Deferred<A>): A {
   return d.await()
 }
 
-suspend fun mutableAwait(body: suspend Await.() -> Unit) =
+suspend fun mutableAwait(body: suspend context(Await) () -> Unit) =
   runQueue<suspend () -> Unit, _> {
     handle {
       body(

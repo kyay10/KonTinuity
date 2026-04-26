@@ -51,7 +51,8 @@ class StateMultishotTest {
 
   @Test
   fun countDown8() = runTestCC {
-    suspend fun Amb.countDown(
+    context(_: Amb)
+    suspend fun countDown(
       s1: StateT<Int>,
       s2: StateT<Int>,
       s3: StateT<Int>,

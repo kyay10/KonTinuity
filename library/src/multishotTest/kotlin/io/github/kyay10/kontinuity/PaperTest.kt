@@ -78,9 +78,6 @@ class PaperTest {
   @Test fun ex4dot5dot6() = runTestCC { listRegion { fiber { poll { asyncExample() } } } }
 }
 
-context(fiber: SchedulerMultishot)
-suspend fun yield() = fiber.yield()
-
 interface Async {
   suspend fun <T> async(body: suspend () -> T): Promise<T>
 
@@ -92,8 +89,8 @@ interface Async {
 context(async: Async)
 suspend fun <T> async(body: suspend () -> T): Async.Promise<T> = async.async(body)
 
-context(_: Region)
-suspend fun SchedulerMultishot.poll(block: suspend Async.() -> Unit) =
+context(_: Region, _: SchedulerMultishot)
+suspend fun poll(block: suspend context(Async) () -> Unit) =
   block(
     object : Async {
       override suspend fun <T> async(body: suspend () -> T): Async.Promise<T> {
@@ -109,7 +106,7 @@ suspend fun SchedulerMultishot.poll(block: suspend Async.() -> Unit) =
     }
   )
 
-suspend fun fiber(block: suspend SchedulerMultishot.() -> Unit) =
+suspend fun fiber(block: suspend context(SchedulerMultishot) () -> Unit) =
   runQueue<suspend () -> Unit, Unit> {
     handle {
       block(

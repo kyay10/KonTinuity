@@ -1,6 +1,7 @@
 package io.github.kyay10.kontinuity.higherorder
 
 import io.github.kyay10.kontinuity.ambList
+import io.github.kyay10.kontinuity.flip
 import io.github.kyay10.kontinuity.runTestCC
 import io.github.kyay10.kontinuity.shouldEq
 import kotlin.test.Test

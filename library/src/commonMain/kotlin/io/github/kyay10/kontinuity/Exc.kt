@@ -55,4 +55,4 @@ public inline fun <Error, R> Handler<R>.Raise(crossinline transform: (Error) -> 
     override fun raise(r: Error): Nothing = discard { transform(r) }
   }
 
-public suspend fun <R> maybe(block: suspend Exc.() -> R): Option<R> = handle { block(exc).some() }
+public suspend fun <R> maybe(block: suspend context(Exc) () -> R): Option<R> = handle { block(exc).some() }

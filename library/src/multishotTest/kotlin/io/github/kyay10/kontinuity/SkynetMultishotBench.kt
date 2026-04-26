@@ -11,7 +11,8 @@ open class SkynetMultishotBench {
   fun skynetScheduler(bh: Blackhole) = runSuspendCC {
     data class SkynetData(var sum: Long, var returned: Int)
 
-    suspend fun SchedulerMultishot.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: SchedulerMultishot)
+    suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
       repeatIteratorless(div) {
@@ -34,7 +35,8 @@ open class SkynetMultishotBench {
   fun skynetFlippedScheduler(bh: Blackhole) = runSuspendCC {
     data class SkynetData(var sum: Long, var returned: Int)
 
-    suspend fun SchedulerMultishot.skynet(num: Int, size: Int, div: Int): Long {
+    context(_: SchedulerMultishot)
+    suspend fun skynet(num: Int, size: Int, div: Int): Long {
       if (size <= 1) return num.toLong()
       val data = SkynetData(0, 0)
       repeatIteratorless(div) {
@@ -62,7 +64,16 @@ interface SchedulerMultishot {
   suspend fun yield()
 }
 
-suspend fun schedulerMultishot(block: suspend SchedulerMultishot.() -> Unit) =
+context(s: SchedulerMultishot)
+suspend fun fork() = s.fork()
+
+context(s: SchedulerMultishot)
+suspend fun exit(): Nothing = s.exit()
+
+context(s: SchedulerMultishot)
+suspend fun yield() = s.yield()
+
+suspend fun schedulerMultishot(block: suspend context(SchedulerMultishot) () -> Unit) =
   runQueue<Task, _> {
     handle {
       block(
@@ -81,14 +92,16 @@ suspend fun schedulerMultishot(block: suspend SchedulerMultishot.() -> Unit) =
     dequeueAll { it() }
   }
 
-suspend inline fun SchedulerMultishot.forkFlipped(task: Task) {
+context(_: SchedulerMultishot)
+suspend inline fun forkFlipped(task: Task) {
   if (!fork()) {
     task()
     exit()
   }
 }
 
-suspend inline fun SchedulerMultishot.fork(task: Task) {
+context(_: SchedulerMultishot)
+suspend inline fun fork(task: Task) {
   // TODO this reveals an inefficiency in the SplitSeq code
   //  because here the frames up to the prompt are never used
   //  so we should never have to copy them, but seemingly we copy

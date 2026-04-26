@@ -9,4 +9,5 @@ class HandlerTest {
   }
 }
 
-suspend fun Generator<Int>.numbers(upto: Int) = repeatIteratorless(upto + 1) { yield(it) }
+context(_: Generator<Int>)
+suspend fun numbers(upto: Int) = repeatIteratorless(upto + 1) { yield(it) }

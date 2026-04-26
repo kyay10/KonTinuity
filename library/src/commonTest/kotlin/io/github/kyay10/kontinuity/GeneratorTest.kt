@@ -3,7 +3,8 @@ package io.github.kyay10.kontinuity
 import kotlin.test.Test
 
 class GeneratorTest {
-  suspend fun Generator<Int>.numbers(to: Int) = repeatIteratorless(to + 1) { yield(it) }
+  context(_: Generator<Int>)
+  suspend fun numbers(to: Int) = repeatIteratorless(to + 1) { yield(it) }
 
   @Test
   fun countTo10() = runTestCC {
@@ -26,7 +27,7 @@ fun interface EffectfulIterable<A> {
   suspend operator fun iterator(): EffectfulIterator<A>
 }
 
-fun <A> effectfulIterable(block: suspend Generator<A>.() -> Unit) = EffectfulIterable {
+fun <A> effectfulIterable(block: suspend context(Generator<A>) () -> Unit) = EffectfulIterable {
   runState<(suspend (Unit) -> A)?, _>(null) {
     handle {
       block { element ->

@@ -3,8 +3,8 @@ package io.github.kyay10.kontinuity
 import kotlin.test.Test
 
 class GeneratorMultishotTest {
-  context(amb: Amb)
-  suspend fun Generator<Int>.numbersFlip(to: Int) = repeatIteratorless(to + 1) { yield(if (amb.flip()) it else -it) }
+  context(_: Amb, _: Generator<Int>)
+  suspend fun numbersFlip(to: Int) = repeatIteratorless(to + 1) { yield(if (flip()) it else -it) }
 
   @Test
   fun flipCount() = runTestCC {

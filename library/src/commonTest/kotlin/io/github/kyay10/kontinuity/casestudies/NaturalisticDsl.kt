@@ -70,11 +70,12 @@ fun interface Quantification {
   suspend fun quantify(who: Predicate): Person
 }
 
-suspend fun Quantification.every(who: Predicate) = quantify(who)
+context(q: Quantification)
+suspend fun every(who: Predicate) = q.quantify(who)
 
 suspend fun s2() = scoped { John said { every(Woman) loves me } }
 
-suspend fun scoped(s: suspend Quantification.() -> Sentence): Sentence =
+suspend fun scoped(s: suspend context(Quantification) () -> Sentence): Sentence =
   runState(0) {
     handle {
       s { who ->

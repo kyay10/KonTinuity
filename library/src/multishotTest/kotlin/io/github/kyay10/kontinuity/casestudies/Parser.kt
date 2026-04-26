@@ -160,10 +160,14 @@ suspend fun <R> parse(
   input: String,
   block: suspend context(Amb, Lexer, Raise<String>) () -> R,
 ): ParseResult<R> = handle {
-  Raise<LexerError, _> { Left("${it.msg}: ${it.pos}") }
-    .lexer(input) {
-      skipWhitespace {
-        block({ use { k -> k(true).handleErrorWith { k(false) } } }, contextOf<Lexer>(), Raise { it.left() }).right()
-      }
-    }
+  with(Raise<LexerError, _> { Left("${it.msg}: ${it.pos}") }) {
+    lexer(
+      input,
+      {
+        skipWhitespace {
+          block({ use { k -> k(true).handleErrorWith { k(false) } } }, contextOf<Lexer>(), Raise { it.left() }).right()
+        }
+      },
+    )
+  }
 }
