@@ -18,17 +18,17 @@ public annotation class ResetDsl
 public value class SubContFinal<in T, out R> internal constructor(internal val init: Segment<T, R>) {
   @ResetDsl
   public suspend fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, rest ->
-    init.prependToFinal(stack, rest).resumeWithIntercepted(value, rest.trampoline)
+    init.prependToFinal(stack, rest).resumeWithIntercepted(value)
   }
 
   @ResetDsl
   public suspend infix fun locally(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, rest ->
-    value.startCoroutineIntercepted(init.prependToFinal(stack, rest), rest.trampoline)
+    value.startCoroutineIntercepted(init.prependToFinal(stack, rest))
   }
 
   @ResetDsl
   public suspend infix fun protect(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, rest ->
-    value.startCoroutineIntercepted(Stack(Under(init, stack, rest)), rest.trampoline)
+    value.startCoroutineIntercepted(Stack(Under(init, stack, rest)))
   }
 
   public suspend operator fun invoke(value: T): R = resumeWith(Result.success(value))
@@ -45,31 +45,31 @@ public suspend fun <R> handle(body: suspend Handler<R>.() -> R): R = suspendCoro
 }
 
 @ResetDsl
-public suspend fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoline { stack, rest ->
-  stack.resumeWithIntercepted(Result.success(Unit), rest.trampoline)
+public suspend fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoline { stack, _ ->
+  stack.resumeWithIntercepted(Result.success(Unit))
 }
 
 @ResetDsl
 public suspend inline fun <T, R> Handler<R>.useOnce(crossinline body: suspend (SubContFinal<T, R>) -> R): T =
-  splitOnce { stack, init, trampoline -> suspend { body(init) }.startCoroutineIntercepted(stack, trampoline) }
+  splitOnce { stack, init -> suspend { body(init) }.startCoroutineIntercepted(stack) }
 
 public fun <R> Handler<R>.discardWith(value: Result<R>): Nothing {
-  prompt.underflow().resumeWithIntercepted(value, prompt.trampoline)
+  prompt.underflow { it.resumeWithIntercepted(value) }
   throw SuspendedException
 }
 
 public suspend fun <R> Handler<R>.discardWithFast(value: Result<R>): Nothing = suspendCoroutineUninterceptedOrReturn {
-  prompt.underflow().resumeWithIntercepted(value, prompt.trampoline)
+  prompt.underflow { it.resumeWithIntercepted(value) }
   COROUTINE_SUSPENDED
 }
 
 public fun <R> Handler<R>.discard(value: suspend () -> R): Nothing {
-  value.startCoroutineIntercepted(prompt.underflow(), prompt.trampoline)
+  prompt.underflow { value.startCoroutineIntercepted(it) }
   throw SuspendedException
 }
 
 public suspend fun <R> Handler<R>.discardFast(value: suspend () -> R): Nothing = suspendCoroutineUninterceptedOrReturn {
-  value.startCoroutineIntercepted(prompt.underflow(), prompt.trampoline)
+  prompt.underflow { value.startCoroutineIntercepted(it) }
   COROUTINE_SUSPENDED
 }
 
@@ -116,8 +116,8 @@ public suspend fun <R> Finalize<*>.finalize(body: suspend () -> R): R =
 
 context(p: Handler<R>)
 @PublishedApi
-internal suspend inline fun <T, R> splitOnce(crossinline block: (Stack<R>, SubContFinal<T, R>, Trampoline) -> Unit): T =
-  suspendCoroutineToTrampoline { stack, rest -> block(p.stack, stack.makeSubContFinal(rest), rest.trampoline) }
+internal suspend inline fun <T, R> splitOnce(crossinline block: Trampoline.(Stack<R>, SubContFinal<T, R>) -> Unit): T =
+  suspendCoroutineToTrampoline { stack, rest -> block(p.stack, stack.makeSubContFinal(rest)) }
 
 @PublishedApi
 internal val <T> Handler<T>.stack: Stack<T> get() = prompt.stack
@@ -129,9 +129,9 @@ internal fun <T, R> Stack<T>.makeSubContFinal(rest: SplitCont<*>): SubContFinal<
 
 @PublishedApi
 internal suspend inline fun <T> suspendCoroutineToTrampoline(
-  crossinline block: (Stack<T>, SplitCont<*>) -> Unit
+  crossinline block: Trampoline.(Stack<T>, SplitCont<*>) -> Unit
 ): T = collectStack { stack, rest ->
-  rest.onErrorResume { block(stack, rest) }
+  rest.trampoline.onErrorResume { block(stack, rest) }
   COROUTINE_SUSPENDED
 }
 

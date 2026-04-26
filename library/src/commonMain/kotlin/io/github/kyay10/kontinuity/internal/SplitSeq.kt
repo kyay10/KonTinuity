@@ -18,7 +18,7 @@ internal expect fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T>
 
 internal abstract class SplitSeq<in T> : Continuation<T>, CoroutineStackFrame {
   final override fun resumeWith(result: Result<T>) {
-    if (result.exceptionOrNull() !== SuspendedException) context.onErrorResume { resume(result) }
+    if (result.exceptionOrNull() !== SuspendedException) context.trampoline.onErrorResume { resume(result) }
   }
 
   final override val callerFrame: CoroutineStackFrame? get() = stack.frames as? CoroutineStackFrame
@@ -84,6 +84,8 @@ internal class Prompt<T>(public override var stack: Stack<T>, rest: SplitCont<*>
   override fun onResume(state: Continuation<T>, rest: Marker<*, *>, isFinal: Boolean) {
     stack = if (isFinal) Stack(state) else Stack(state).copy(rest)
   }
+
+  inline fun underflow(block: Trampoline.(Stack<T>) -> Unit) = trampoline.block(underflow())
 }
 
 internal abstract class Finalizer<T, S>(override val stack: Stack<T>, override val rest: Marker<*, *>) :

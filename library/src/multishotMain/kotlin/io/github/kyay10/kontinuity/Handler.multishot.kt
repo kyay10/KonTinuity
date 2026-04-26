@@ -9,12 +9,12 @@ public value class SubCont<in T, out R> internal constructor(private val init: S
 
   @ResetDsl
   public suspend fun resumeWith(value: Result<T>): R = suspendCoroutineToTrampoline { stack, rest ->
-    init.prependTo(stack, rest).resumeWithIntercepted(value, rest.trampoline)
+    init.prependTo(stack, rest).resumeWithIntercepted(value)
   }
 
   @ResetDsl
   public suspend infix fun locally(value: suspend () -> T): R = suspendCoroutineToTrampoline { stack, rest ->
-    value.startCoroutineIntercepted(init.prependTo(stack, rest), rest.trampoline)
+    value.startCoroutineIntercepted(init.prependTo(stack, rest))
   }
 
   public suspend operator fun invoke(value: T): R = resumeWith(Result.success(value))
@@ -23,16 +23,14 @@ public value class SubCont<in T, out R> internal constructor(private val init: S
 
 @ResetDsl
 public suspend inline fun <T, R> Handler<R>.use(crossinline body: suspend (SubCont<T, R>) -> R): T =
-  split { stack, init, trampoline -> suspend { body(init) }.startCoroutineIntercepted(stack, trampoline) }
+  split { stack, init -> suspend { body(init) }.startCoroutineIntercepted(stack) }
 
 // Acts like shift { it(body()) }
 // guarantees that the continuation will be resumed at least once
 @ResetDsl
 public suspend inline fun <T, P> Handler<P>.useTailResumptive(crossinline body: suspend (SubCont<T, P>) -> T): T {
   val rest = rest
-  return split { stack, init, trampoline ->
-    suspend { body(init) }.startCoroutineIntercepted(makeUnder(init.final, stack, rest), trampoline)
-  }
+  return split { stack, init -> suspend { body(init) }.startCoroutineIntercepted(makeUnder(init.final, stack, rest)) }
 }
 
 @PublishedApi
@@ -47,5 +45,5 @@ internal fun <T, R> makeSubCont(init: SubContFinal<T, R>): SubCont<T, R> = SubCo
 
 context(p: Handler<R>)
 @PublishedApi
-internal suspend inline fun <T, R> split(crossinline block: (Stack<R>, SubCont<T, R>, Trampoline) -> Unit): T =
-  splitOnce { stack, init, trampoline -> block(stack, makeSubCont(init), trampoline) }
+internal suspend inline fun <T, R> split(crossinline block: Trampoline.(Stack<R>, SubCont<T, R>) -> Unit): T =
+  splitOnce { stack, init -> block(stack, makeSubCont(init)) }
