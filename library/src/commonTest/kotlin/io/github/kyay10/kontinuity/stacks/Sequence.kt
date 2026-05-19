@@ -1,7 +1,7 @@
 package io.github.kyay10.kontinuity.stacks
 
 fun interface Sequence<out T> {
-  suspend operator fun iterator(): SuspendIterator<T>
+  operator fun iterator(): SuspendIterator<T>
 }
 
 fun <T> sequence(block: suspend SequenceScope<T>.() -> Unit): Sequence<T> = Sequence { iterator(block) }
@@ -19,42 +19,37 @@ abstract class SequenceScope<in T> internal constructor() {
   suspend fun yieldAll(sequence: Sequence<T>) = yieldAll(sequence.iterator())
 }
 
-suspend fun <T> iterator(block: suspend SequenceScope<T>.() -> Unit): SuspendIterator<T> =
+fun <T> iterator(block: suspend SequenceScope<T>.() -> Unit): SuspendIterator<T> =
   object : AbstractSuspendIterator<T>() {
-      var queued: SuspendIterator<T>? = null
-      lateinit var stack: PausingStack
+    var queued: SuspendIterator<T>? = null
+    val stack: PausingStack = PausingStack { pause ->
+      val scope =
+        object : SequenceScope<T>() {
+          override suspend fun yield(value: T) {
+            setNext(value)
+            pause()
+          }
 
-      override suspend fun computeNext() {
-        queued?.let {
-          if (it.hasNext()) {
-            setNext(it.next())
-            return
-          } else {
-            queued = null
+          override suspend fun yieldAll(iterator: SuspendIterator<T>) {
+            if (iterator.hasNext()) {
+              queued = iterator
+              yield(iterator.next())
+            }
           }
         }
-        val _ = stack.progress()
-      }
+      scope.block()
+      done()
+    }
 
-      suspend fun init() {
-        stack = PausingStack { pause ->
-          val scope =
-            object : SequenceScope<T>() {
-              override suspend fun yield(value: T) {
-                setNext(value)
-                pause()
-              }
-
-              override suspend fun yieldAll(iterator: SuspendIterator<T>) {
-                if (iterator.hasNext()) {
-                  queued = iterator
-                  yield(iterator.next())
-                }
-              }
-            }
-          scope.block()
-          done()
+    override suspend fun computeNext() {
+      queued?.let {
+        if (it.hasNext()) {
+          setNext(it.next())
+          return
+        } else {
+          queued = null
         }
       }
+      val _ = stack.progress()
     }
-    .apply { init() }
+  }

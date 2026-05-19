@@ -1,14 +1,15 @@
 package io.github.kyay10.kontinuity.stacks
 
-import arrow.core.raise.merge
 import io.github.kyay10.kontinuity.Handler
+import io.github.kyay10.kontinuity.State
 import io.github.kyay10.kontinuity.SubContFinal
 import io.github.kyay10.kontinuity.handle
+import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.useOnce
+import io.github.kyay10.kontinuity.yieldToTrampoline
+import kotlin.properties.Delegates
 
-typealias Request<E> = suspend (E) -> Nothing
-
-class StackSuspension<in E> internal constructor(internal val cont: SubContFinal<Nothing, Request<E>>) {
+sealed class StackSuspension {
   enum class State {
     Pending,
     Available,
@@ -16,35 +17,24 @@ class StackSuspension<in E> internal constructor(internal val cont: SubContFinal
   }
 
   internal var state = State.Pending
+
+  internal class Initial : StackSuspension()
+
+  internal class Cont(val cont: SubContFinal<Nothing, Nothing>) : StackSuspension()
 }
 
-class StackContinuation<in E, out R>(val suspension: StackSuspension<E>, val resumer: R)
+class StackContinuation<out R>(val suspension: StackSuspension, val resumer: R)
 
-fun <E, T> ignoreInput(
-  continuation: StackContinuation<E, suspend () -> Nothing>
-): StackContinuation<E, suspend (T) -> Nothing> =
+fun <T> ignoreInput(continuation: StackContinuation<suspend () -> Nothing>): StackContinuation<suspend (T) -> Nothing> =
   StackContinuation(continuation.suspension) { _ -> continuation.resumer() }
 
-class StackMount<E>
-private constructor(
-  internal val handler: Handler<suspend (E) -> Nothing>,
-  internal val initialSuspension: StackSuspension<E>,
-) {
-  fun <R> new(resumer: R): StackContinuation<E, R> = StackContinuation(initialSuspension, resumer)
+class StackMount<E> {
+  internal lateinit var state: State<E>
+  internal var handler: Handler<Nothing> by Delegates.notNull()
+
+  fun <R> new(resumer: R): StackContinuation<R> = StackContinuation(StackSuspension.Initial(), resumer)
 
   internal var isMounted = false
-
-  companion object {
-    // this hacky workaround is needed because I explicitly don't allow new Handlers
-    // to be created willy-nilly. Instead, they arise naturally from `handle`.
-    // There's likely some lateinit alternative I could explore, but alas, this'll do.
-    suspend operator fun <E> invoke(): StackMount<E> = merge {
-      val req = handle<Request<E>> { useOnce { raise(StackMount(this, StackSuspension(it))) } }
-      // This can never happen since `useOnce` immediately `raise`s out
-      // I wonder if I can convince the type system of that somehow?
-      error("can't handle $req")
-    }
-  }
 }
 
 suspend fun <R> restack(block: suspend StackRestacker.() -> R): R = block(StackRestacker())
@@ -53,28 +43,45 @@ class StackRestacker internal constructor() {
   suspend fun <E> mount(
     environment: E,
     mount: StackMount<E>,
-    suspension: StackSuspension<E>,
+    suspension: StackSuspension,
     block: suspend StackRestacker.() -> Nothing,
   ): Nothing {
     require(!mount.isMounted)
     require(suspension.state != StackSuspension.State.Expired)
     mount.isMounted = true
     suspension.state = StackSuspension.State.Expired
-    suspension.cont.locally { block() }(environment)
+    when (suspension) {
+      is StackSuspension.Initial ->
+        runState(environment) {
+          handle {
+            // As a performance optimization, `handle` doesn't unwind the stack,
+            // but we can force it.
+            // this is needed for DeepRecursiveFunction to work
+            yieldToTrampoline()
+            mount.state = this@runState
+            mount.handler = this
+            block()
+          }
+        }
+      is StackSuspension.Cont -> {
+        mount.state.value = environment
+        suspension.cont.locally { block() }
+      }
+    }
   }
 
   suspend fun <E> dismount(
     mount: StackMount<E>,
-    block: suspend StackRestacker.(environment: E, StackSuspension<E>) -> Nothing,
+    block: suspend StackRestacker.(environment: E, StackSuspension) -> Nothing,
   ): Nothing {
     require(mount.isMounted)
     mount.isMounted = false
-    mount.handler.useOnce { cont -> { e -> block(e, StackSuspension(cont)) } }
+    mount.handler.useOnce { cont -> block(mount.state.value, StackSuspension.Cont(cont)) }
   }
 
-  suspend fun <E1, E2> switchTo(
-    suspension: StackSuspension<E1>,
-    block: suspend StackRestacker.(StackSuspension<E2>) -> Nothing,
+  suspend fun switchTo(
+    suspension: StackSuspension,
+    block: suspend StackRestacker.(StackSuspension) -> Nothing,
   ): Nothing {
     require(suspension.state != StackSuspension.State.Expired)
     suspension.state = StackSuspension.State.Expired
@@ -89,14 +96,14 @@ class StackRestacker internal constructor() {
 fun <E, O> StackMount<E>.new(
   after: suspend (E, O) -> Nothing,
   block: suspend () -> O,
-): StackContinuation<E, suspend () -> Nothing> = new {
+): StackContinuation<suspend () -> Nothing> = new {
   val output = block()
   restack { dismount(this@new) { environment, _ -> finish { after(environment, output) } } }
 }
 
 suspend fun <E, R> StackMount<E>.resume(
   environment: E,
-  continuation: StackContinuation<E, R>,
+  continuation: StackContinuation<R>,
   block: suspend (R) -> Nothing,
 ): Nothing {
   restack { mount(environment, this@resume, continuation.suspension) { finish { block(continuation.resumer) } } }
@@ -104,7 +111,7 @@ suspend fun <E, R> StackMount<E>.resume(
 
 suspend fun <E, R> StackMount<E>.suspend(
   resumer: R,
-  block: suspend (E, StackContinuation<E, R>) -> Nothing,
+  block: suspend (E, StackContinuation<R>) -> Nothing,
 ): Nothing {
   restack {
     dismount(this@suspend) { environment, suspension ->
