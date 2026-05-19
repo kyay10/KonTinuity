@@ -9,7 +9,7 @@ import io.github.kyay10.kontinuity.useOnce
 import io.github.kyay10.kontinuity.yieldToTrampoline
 import kotlin.properties.Delegates
 
-sealed class StackSuspension {
+sealed class StackSuspension(internal val mount: StackMount<*>) {
   enum class State {
     Pending,
     Available,
@@ -18,9 +18,9 @@ sealed class StackSuspension {
 
   internal var state = State.Pending
 
-  internal class Initial : StackSuspension()
+  internal class Initial(mount: StackMount<*>) : StackSuspension(mount)
 
-  internal class Cont(val cont: SubContFinal<Nothing, Nothing>) : StackSuspension()
+  internal class Cont(val cont: SubContFinal<Nothing, Nothing>, mount: StackMount<*>) : StackSuspension(mount)
 }
 
 class StackContinuation<out R>(val suspension: StackSuspension, val resumer: R)
@@ -28,11 +28,12 @@ class StackContinuation<out R>(val suspension: StackSuspension, val resumer: R)
 fun <T> ignoreInput(continuation: StackContinuation<suspend () -> Nothing>): StackContinuation<suspend (T) -> Nothing> =
   StackContinuation(continuation.suspension) { _ -> continuation.resumer() }
 
+// TODO support multiple stacks that all refer to StackMount
 class StackMount<E> {
   internal lateinit var state: State<E>
   internal var handler: Handler<Nothing> by Delegates.notNull()
 
-  fun <R> new(resumer: R): StackContinuation<R> = StackContinuation(StackSuspension.Initial(), resumer)
+  fun <R> new(resumer: R): StackContinuation<R> = StackContinuation(StackSuspension.Initial(this), resumer)
 
   internal var isMounted = false
 }
@@ -76,17 +77,19 @@ class StackRestacker internal constructor() {
   ): Nothing {
     require(mount.isMounted)
     mount.isMounted = false
-    mount.handler.useOnce { cont -> block(mount.state.value, StackSuspension.Cont(cont)) }
+    mount.handler.useOnce { cont -> block(mount.state.value, StackSuspension.Cont(cont, mount)) }
   }
 
+  // This could be made a primitive for Handler as an optimization
   suspend fun switchTo(
     suspension: StackSuspension,
     block: suspend StackRestacker.(StackSuspension) -> Nothing,
-  ): Nothing {
-    require(suspension.state != StackSuspension.State.Expired)
-    suspension.state = StackSuspension.State.Expired
-    TODO() // not sure what this corresponds to?
-  }
+  ): Nothing = suspension.mount.switchTo(suspension, block)
+
+  private suspend fun <E> StackMount<E>.switchTo(
+    suspension: StackSuspension,
+    block: suspend StackRestacker.(StackSuspension) -> Nothing,
+  ): Nothing = dismount(this) { e, suspension2 -> mount(e, this@switchTo, suspension) { block(suspension2) } }
 
   suspend fun finish(block: suspend () -> Nothing): Nothing {
     block()
