@@ -51,7 +51,7 @@ internal class Copied<T>(override var stack: Stack<T>, override val context: Mar
         // inlined version of completion.resumeWith(outcome)
         val underflow = completion.frames.underflow().frames
         return if (underflow is Copied) underflow.stack.resumeCopied(outcome, underflow, underflow.context)
-        else underflow.resumeWith(outcome)
+        else with(completion.frames.trampoline) { Stack(underflow).resumeWithIntercepted(outcome) }
       }
       @Suppress("UNCHECKED_CAST")
       next as Copied<N>

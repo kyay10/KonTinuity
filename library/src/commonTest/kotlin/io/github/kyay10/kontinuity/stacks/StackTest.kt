@@ -2,7 +2,6 @@ package io.github.kyay10.kontinuity.stacks
 
 import io.github.kyay10.kontinuity.runTestCC
 import io.github.kyay10.kontinuity.shouldEq
-import kotlin.test.Ignore
 import kotlin.test.Test
 
 class StackTest {
@@ -13,11 +12,10 @@ class StackTest {
       listOf(2 to 2, 3 to 3, 4 to 2, 5 to 5, 6 to 2, 7 to 7, 8 to 2, 9 to 3, 10 to 2)
   }
 
-  @Ignore // Currently failing because it creates n Prompts, and Prompt.resume ends up consuming stack space.
   @Test
   fun testStackSafety() = runTestCC {
     val foo = DeepRecursiveFunction { i: Int -> if (i == 0) i else callRecursive(i - 1) + 1 }
-    foo(10_000) shouldEq 10_000
+    foo(100_000) shouldEq 100_000
   }
 }
 

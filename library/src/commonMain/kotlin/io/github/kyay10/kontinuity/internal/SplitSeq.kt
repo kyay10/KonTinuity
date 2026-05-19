@@ -48,7 +48,7 @@ internal class EmptyCont<T>(override val stack: Stack<T>, trampoline: Trampoline
     trampoline.emptyCont = this
   }
 
-  override fun resume(result: Result<T>) = stack.frames.resumeWith(result)
+  override fun resume(result: Result<T>) = with(trampoline) { stack.resumeWithIntercepted(result) }
 }
 
 internal typealias Stack<T> = Frames<T, *>
@@ -67,7 +67,8 @@ internal class Under<T, R>(
   public override val stack: Stack<R>,
   override val context: SplitCont<*>,
 ) : SplitSeq<T>() {
-  override fun resume(result: Result<T>) = captured.prependToFinal(stack, context).frames.resumeWith(result)
+  override fun resume(result: Result<T>) =
+    with(context.trampoline) { captured.prependToFinal(stack, context).resumeWithIntercepted(result) }
 }
 
 internal sealed class Marker<T, S>(trampoline: Trampoline) : SplitCont<T>(trampoline) {
@@ -77,7 +78,7 @@ internal sealed class Marker<T, S>(trampoline: Trampoline) : SplitCont<T>(trampo
 
   open fun underflow(): Stack<T> = stack
 
-  final override fun resume(result: Result<T>): Unit = underflow().frames.resumeWith(result)
+  final override fun resume(result: Result<T>): Unit = with(trampoline) { underflow().resumeWithIntercepted(result) }
 
   abstract fun onSuspend(): S
 
