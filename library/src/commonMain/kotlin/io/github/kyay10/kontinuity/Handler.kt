@@ -45,6 +45,13 @@ public suspend fun <R> handle(body: suspend Handler<R>.() -> R): R = suspendCoro
 }
 
 @ResetDsl
+public suspend fun <R> Handler<R>.rehandle(body: suspend () -> R): R = suspendCoroutineHere { stack, rest ->
+  prompt.stack = stack
+  prompt.rest = rest
+  body.startCoroutineUninterceptedOrReturn(prompt)
+}
+
+@ResetDsl
 public suspend fun yieldToTrampoline(): Unit = suspendCoroutineToTrampoline { stack, _ ->
   stack.resumeWithIntercepted(Result.success(Unit))
 }
@@ -90,7 +97,6 @@ internal inline fun <R> runCatching(block: () -> R, onSuspend: () -> Nothing): R
   }
 }
 
-@OptIn(ExperimentalStdlibApi::class)
 @Suppress("SuspendCoroutineLacksCancellationGuarantees")
 public suspend fun <R> runCC(body: suspend () -> R): R = suspendCoroutine { c ->
   body.startCoroutine(EmptyCont(Stack(c), Trampoline(c.context)))
@@ -119,8 +125,8 @@ public suspend fun <R> Finalize<*>.finalize(body: suspend () -> R): R = suspendC
   )
 }
 
-context(p: Handler<R>)
 @PublishedApi
+context(p: Handler<R>)
 internal suspend inline fun <T, R> splitOnce(crossinline block: Trampoline.(Stack<R>, SubContFinal<T, R>) -> Unit): T =
   suspendCoroutineToTrampoline { stack, rest ->
     block(p.stack, stack.makeSubContFinal(rest))
@@ -130,8 +136,8 @@ internal suspend inline fun <T, R> splitOnce(crossinline block: Trampoline.(Stac
 internal val <T> Handler<T>.stack: Stack<T>
   get() = prompt.stack
 
-context(p: Handler<R>)
 @PublishedApi
+context(p: Handler<R>)
 internal fun <T, R> Stack<T>.makeSubContFinal(rest: SplitCont<*>): SubContFinal<T, R> =
   SubContFinal(Segment(p.prompt, this, rest as? Marker<*, *> ?: error("$p is not present in the stack")))
 

@@ -4,6 +4,7 @@ import io.github.kyay10.kontinuity.Handler
 import io.github.kyay10.kontinuity.State
 import io.github.kyay10.kontinuity.SubContFinal
 import io.github.kyay10.kontinuity.handle
+import io.github.kyay10.kontinuity.rehandle
 import io.github.kyay10.kontinuity.runState
 import io.github.kyay10.kontinuity.useOnce
 import io.github.kyay10.kontinuity.yieldToTrampoline
@@ -35,6 +36,9 @@ class StackMount<E> {
   fun <R> new(resumer: R): StackContinuation<R> = StackContinuation(StackSuspension.Initial(), resumer)
 
   internal var isMounted = false
+
+  internal val isInitialized
+    get() = ::state.isInitialized
 }
 
 suspend fun <R> restack(block: suspend StackRestacker.() -> R): R = block(StackRestacker())
@@ -51,7 +55,7 @@ class StackRestacker internal constructor() {
     mount.isMounted = true
     suspension.state = StackSuspension.State.Expired
     when (suspension) {
-      is StackSuspension.Initial ->
+      is StackSuspension.Initial if !mount.isInitialized ->
         runState(environment) {
           handle {
             // As a performance optimization, `handle` doesn't unwind the stack,
@@ -63,6 +67,13 @@ class StackRestacker internal constructor() {
             block()
           }
         }
+      is StackSuspension.Initial -> {
+        mount.state.value = environment
+        mount.handler.rehandle {
+          yieldToTrampoline()
+          block()
+        }
+      }
       is StackSuspension.Cont -> {
         mount.state.value = environment
         suspension.cont.locally { block() }
