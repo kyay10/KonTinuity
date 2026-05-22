@@ -1,8 +1,8 @@
 package io.github.kyay10.kontinuity.internal
 internal actual class MultishotProof(val nothing: Nothing)
 
-context(_: MultishotProof)
-internal actual fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T> = contextOf<MultishotProof>().nothing
+context(proof: MultishotProof)
+internal actual fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T> = proof.nothing
 
 internal actual fun <T, R> Segment<T, R>.prependToFinal(stack: Stack<R>, rest: SplitCont<*>) = start.also {
   if (values === SEGMENT_USED) error(SEGMENT_ALREADY_USED)

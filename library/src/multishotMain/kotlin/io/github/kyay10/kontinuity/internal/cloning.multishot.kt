@@ -20,7 +20,7 @@ private fun <T, R> Under<T, R>.underflowCopied(): Stack<T> {
 
 internal actual typealias MultishotProof = Unit
 
-context(_: MultishotProof)
+context(proof: MultishotProof)
 internal actual fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T> = Stack(Copied(unwrapCopied, rest))
 
 internal class Copied<T>(override var stack: Stack<T>, override val context: Marker<*, *>) : SplitSeq<T>() {

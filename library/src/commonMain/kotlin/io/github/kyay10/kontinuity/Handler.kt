@@ -116,6 +116,7 @@ internal class ClauseFinalizer<T, S>(stack: Stack<T>, rest: Marker<*, *>, val cl
   Finalizer<T, S>(stack, rest) {
   override fun onSuspend(): S = clauses.suspend()
 
+  context(_: MultishotProof)
   override fun onResume(state: S, rest: Marker<*, *>, isFinal: Boolean) = clauses.resume(state, isFinal)
 }
 

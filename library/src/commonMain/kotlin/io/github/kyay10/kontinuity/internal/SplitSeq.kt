@@ -18,7 +18,7 @@ internal expect interface CoroutineStackFrame {
 
 internal expect class MultishotProof
 
-context(_: MultishotProof)
+context(proof: MultishotProof)
 internal expect fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T>
 
 internal abstract class SplitSeq<in T> : Continuation<T>, CoroutineStackFrame {
