@@ -18,6 +18,9 @@ private fun <T, R> Under<T, R>.underflowCopied(): Stack<T> {
   return captured.start.also { captured.reattach(false, stack, context) }
 }
 
+internal actual typealias MultishotProof = Unit
+
+context(_: MultishotProof)
 internal actual fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T> = Stack(Copied(unwrapCopied, rest))
 
 internal class Copied<T>(override var stack: Stack<T>, override val context: Marker<*, *>) : SplitSeq<T>() {
@@ -88,7 +91,7 @@ internal actual fun <T, R> Segment<T, R>.prependToFinal(stack: Stack<R>, rest: S
 }
 
 internal fun <T, R> Segment<T, R>.prependTo(stack: Stack<R>, rest: SplitCont<*>) =
-  start.copy(startRest).also { reattach(false, stack, rest) }
+  with(MultishotProof) { start.copy(startRest).also { reattach(false, stack, rest) } }
 
 private fun collectValues(from: Marker<*, *>, until: Prompt<*>): Array<Any?> {
   var values = arrayOfNulls<Any?>(SMALL_DATA_BUFFER_SIZE)
@@ -125,6 +128,6 @@ private tailrec fun revalidate(rest: Marker<*, *>, values: Array<Any?>, isFinal:
     current.invalidateAndCollectValues()
     current.rest = rest
   }
-  current.onResume(state, rest, isFinal)
+  with(MultishotProof) { current.onResume(state, rest, isFinal) }
   revalidate(current, values, isFinal, index - 2)
 }

@@ -16,6 +16,9 @@ internal expect interface CoroutineStackFrame {
   fun getStackTraceElement(): StackTraceElement?
 }
 
+internal expect class MultishotProof
+
+context(_: MultishotProof)
 internal expect fun <T> Stack<T>.copy(rest: Marker<*, *>): Stack<T>
 
 internal abstract class SplitSeq<in T> : Continuation<T>, CoroutineStackFrame {
@@ -82,6 +85,7 @@ internal sealed class Marker<T, S>(trampoline: Trampoline) : SplitCont<T>(trampo
 
   abstract fun onSuspend(): S
 
+  context(_: MultishotProof)
   abstract fun onResume(state: S, rest: Marker<*, *>, isFinal: Boolean)
 }
 
@@ -93,6 +97,7 @@ internal class Prompt<T>(public override var stack: Stack<T>, rest: SplitCont<*>
 
   override fun onSuspend() = stack.frames
 
+  context(_: MultishotProof)
   override fun onResume(state: Continuation<T>, rest: Marker<*, *>, isFinal: Boolean) {
     stack = if (isFinal) Stack(state) else Stack(state).copy(rest)
   }
