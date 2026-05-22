@@ -1,7 +1,5 @@
 package io.github.kyay10.kontinuity.stacks
 
-import io.github.kyay10.kontinuity.runTestCC
-import io.github.kyay10.kontinuity.shouldEq
 import kotlin.test.Test
 
 class StackTest {

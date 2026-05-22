@@ -1,8 +1,5 @@
-package io.github.kyay10.kontinuity.internal
+package io.github.kyay10.kontinuity.stacks
 
-import io.github.kyay10.kontinuity.runCatching
-import kotlin.contracts.InvocationKind
-import kotlin.contracts.contract
 import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.ContinuationInterceptor
@@ -10,9 +7,11 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
+import kotlin.jvm.JvmInline
+
+@JvmInline internal value class Stack(val frames: Continuation<Nothing>)
 
 @OptIn(InternalCoroutinesApi::class)
-@PublishedApi
 internal class Trampoline private constructor(context: CoroutineContext) : CoroutineContext by context {
   companion object {
     operator fun invoke(context: CoroutineContext): Trampoline {
@@ -24,36 +23,40 @@ internal class Trampoline private constructor(context: CoroutineContext) : Corou
     }
   }
 
-  lateinit var emptyCont: EmptyCont<*>
-
-  var nextFrames: Continuation<Any?>? = null
-  var nextResult: Result<Any?> = Result.success(null)
+  private var nextFrames: Continuation<Unit>? = null
+  private var nextResult: Throwable? = null
 
   @Suppress("UNCHECKED_CAST")
-  @PublishedApi
-  internal fun <T> (suspend () -> T).startCoroutineIntercepted(stack: Stack<T>): Unit =
-    stack.resumeWithIntercepted(
-      runCatching({ startCoroutineUninterceptedOrReturn(stack.frames) as T }) {
+  internal fun (suspend () -> Nothing).startCoroutineIntercepted(stack: Stack): Unit =
+    stack.resumeIntercepted(
+      try {
+        val _ = startCoroutineUninterceptedOrReturn(stack.frames)
         return
+      } catch (e: Throwable) {
+        e
       }
     )
 
-  internal fun <T> Stack<T>.resumeWithIntercepted(result: Result<T>) {
+  @Suppress("UNCHECKED_CAST")
+  internal fun <T> (suspend (T) -> Nothing).startCoroutineIntercepted(t: T, stack: Stack): Unit =
+    stack.resumeIntercepted(
+      try {
+        val _ = startCoroutineUninterceptedOrReturn(t, stack.frames)
+        return
+      } catch (e: Throwable) {
+        e
+      }
+    )
+
+  internal fun Stack.resumeIntercepted(result: Throwable) {
     @Suppress("UNCHECKED_CAST")
-    nextFrames = this@resumeWithIntercepted.frames as Continuation<Any?>
+    nextFrames = frames as Continuation<Unit>
     nextResult = result
   }
 
-  @PublishedApi
-  internal inline fun onErrorResume(block: Trampoline.() -> Unit) {
-    contract { callsInPlace(block, InvocationKind.AT_MOST_ONCE) }
-    return try {
-      block()
-    } catch (exception: Throwable) {
-      @Suppress("UNCHECKED_CAST")
-      nextFrames = emptyCont as Continuation<Any?>
-      nextResult = Result.failure(exception)
-    }
+  internal fun Continuation<Unit>.resumeIntercepted() {
+    nextFrames = this
+    nextResult = null
   }
 
   @InternalCoroutinesApi
@@ -67,7 +70,7 @@ internal class Trampoline private constructor(context: CoroutineContext) : Corou
     override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> =
       trampoline.Cont(continuation).let { interceptor?.interceptContinuation(it) ?: it }
 
-    override fun releaseInterceptedContinuation(continuation: Continuation<*>) = trampoline.onErrorResume {
+    override fun releaseInterceptedContinuation(continuation: Continuation<*>) {
       interceptor?.releaseInterceptedContinuation(continuation)
     }
   }
@@ -77,7 +80,9 @@ internal class Trampoline private constructor(context: CoroutineContext) : Corou
 
     override fun resumeWith(result: Result<T>) {
       cont.resumeWith(result)
-      while (true) (nextFrames ?: break).also { nextFrames = null }.resumeWith(nextResult)
+      while (true) (nextFrames ?: break)
+        .also { nextFrames = null }
+        .resumeWith(nextResult?.let(Result.Companion::failure) ?: Result.success(Unit))
     }
   }
 }
