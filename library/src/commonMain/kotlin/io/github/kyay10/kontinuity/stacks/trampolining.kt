@@ -4,10 +4,9 @@ import kotlin.coroutines.AbstractCoroutineContextElement
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
-import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
+import kotlin.jvm.JvmInline
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
-import kotlin.jvm.JvmInline
 
 @JvmInline internal value class Stack(val frames: Continuation<Nothing>)
 
@@ -26,36 +25,14 @@ internal class Trampoline private constructor(context: CoroutineContext) : Corou
   private var nextFrames: Continuation<Unit>? = null
   private var nextResult: Throwable? = null
 
-  @Suppress("UNCHECKED_CAST")
-  internal fun (suspend () -> Nothing).startCoroutineIntercepted(stack: Stack): Unit =
-    stack.resumeIntercepted(
-      try {
-        val _ = startCoroutineUninterceptedOrReturn(stack.frames)
-        return
-      } catch (e: Throwable) {
-        e
-      }
-    )
-
-  @Suppress("UNCHECKED_CAST")
-  internal fun <T> (suspend (T) -> Nothing).startCoroutineIntercepted(t: T, stack: Stack): Unit =
-    stack.resumeIntercepted(
-      try {
-        val _ = startCoroutineUninterceptedOrReturn(t, stack.frames)
-        return
-      } catch (e: Throwable) {
-        e
-      }
-    )
-
-  internal fun Stack.resumeIntercepted(result: Throwable) {
+  internal fun resumeIntercepted(stack: Stack, result: Throwable) {
     @Suppress("UNCHECKED_CAST")
-    nextFrames = frames as Continuation<Unit>
+    nextFrames = stack.frames as Continuation<Unit>
     nextResult = result
   }
 
-  internal fun Continuation<Unit>.resumeIntercepted() {
-    nextFrames = this
+  internal fun yield(continuation: Continuation<Unit>) {
+    nextFrames = continuation
     nextResult = null
   }
 

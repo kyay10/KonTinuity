@@ -1,55 +1,73 @@
 package io.github.kyay10.kontinuity.stacks
 
-public class StackSuspension internal constructor(internal val cont: SubCont) {
+import kotlin.coroutines.Continuation
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
+import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
+import kotlin.coroutines.startCoroutine
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+
+public suspend fun <R> runCC(body: suspend () -> R): R = suspendCancellableCoroutine { c ->
+  body.startCoroutine(Continuation(Trampoline(c.context), c::resumeWith))
+}
+
+public sealed class StackSuspension(internal var state: State) {
   internal enum class State {
     Pending,
     Available,
     Expired,
   }
 
-  internal var state = State.Pending
+  internal class Cont(val stack: Stack) : StackSuspension(State.Pending)
+
+  internal class Initial(val mount: StackMount<*>) : StackSuspension(State.Available)
 }
 
 public class StackContinuation<out R>(public val suspension: StackSuspension, public val resumer: R)
 
-public fun <T> ignoreInput(
-  continuation: StackContinuation<suspend () -> Nothing>
-): StackContinuation<suspend (T) -> Nothing> =
-  StackContinuation(continuation.suspension) { _ -> continuation.resumer() }
-
 public class StackMount<E> {
   @Suppress("UNCHECKED_CAST") internal var state: E = null as E
-  internal val handler: Handler = Handler()
+  internal var stack: Stack? = null
 
-  public fun <R> new(resumer: R): StackContinuation<R> = StackContinuation(StackSuspension(SubCont(handler, Stack(handler))), resumer)
+  public fun <R> new(resumer: R): StackContinuation<R> = StackContinuation(StackSuspension.Initial(this), resumer)
 
-  internal var isMounted = false
+  private var asStack: Stack? = null
+
+  internal fun asStack(trampoline: Trampoline): Stack =
+    asStack
+      ?: Continuation(trampoline) { result -> trampoline.resumeIntercepted(stack!!, result.fold({ it }, { it })) }
+        .let(::Stack)
 }
 
-public suspend fun <R> restack(block: suspend StackRestacker.() -> R): R = block(StackRestacker())
+public suspend fun <R> restack(block: suspend StackRestacker.() -> R): R =
+  block(StackRestacker(currentCoroutineContext() as Trampoline))
 
-public class StackRestacker internal constructor() {
+public class StackRestacker internal constructor(internal val trampoline: Trampoline) {
   public suspend fun <E> mount(
     environment: E,
     mount: StackMount<E>,
     suspension: StackSuspension,
     block: suspend StackRestacker.() -> Nothing,
   ): Nothing {
-    require(!mount.isMounted)
-    require(suspension.state != StackSuspension.State.Expired)
-    mount.isMounted = true
-    suspension.state = StackSuspension.State.Expired
+    require(mount.stack == null)
+    require(suspension.state != Expired)
+    suspension.state = Expired
     mount.state = environment
-    suspension.cont.locally { block() }
+    suspension.stack.swap {
+      mount.stack = it
+      block()
+    }
   }
 
   public suspend fun <E> dismount(
     mount: StackMount<E>,
     block: suspend StackRestacker.(environment: E, StackSuspension) -> Nothing,
   ): Nothing {
-    require(mount.isMounted)
-    mount.isMounted = false
-    mount.handler.use { cont -> block(mount.state, StackSuspension(cont).apply { state = StackSuspension.State.Pending }) }
+    val stack = mount.stack
+    requireNotNull(stack)
+    mount.stack = null
+    stack.swap { block(mount.state, StackSuspension.Cont(it)) }
   }
 
   public suspend fun switchTo(
@@ -58,11 +76,30 @@ public class StackRestacker internal constructor() {
   ): Nothing {
     require(suspension.state != StackSuspension.State.Expired)
     suspension.state = StackSuspension.State.Expired
-    TODO() // not sure what this corresponds to?
+    suspension.stack.swap { block(StackSuspension.Cont(it)) }
+  }
+
+  private val StackSuspension.stack: Stack
+    get() =
+      when (this) {
+        is Initial -> mount.asStack(trampoline)
+        is Cont -> stack
+      }
+
+  private suspend fun Stack.swap(block: suspend (Stack) -> Nothing): Nothing = suspendCoroutineUninterceptedOrReturn {
+    try {
+      val _ = block.startCoroutineUninterceptedOrReturn(Stack(it), this@swap.frames)
+    } catch (e: Throwable) {
+      trampoline.resumeIntercepted(this@swap, e)
+    }
+    COROUTINE_SUSPENDED
   }
 
   public suspend fun finish(block: suspend () -> Nothing): Nothing {
-    yieldToTrampoline()
+    suspendCoroutineUninterceptedOrReturn {
+      trampoline.yield(it)
+      COROUTINE_SUSPENDED
+    }
     block()
   }
 }
