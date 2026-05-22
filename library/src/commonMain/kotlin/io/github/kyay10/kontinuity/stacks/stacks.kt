@@ -1,16 +1,10 @@
 package io.github.kyay10.kontinuity.stacks
 
+import kotlinx.coroutines.currentCoroutineContext
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
-import kotlin.coroutines.startCoroutine
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.suspendCancellableCoroutine
-
-public suspend fun <R> runCC(body: suspend () -> R): R = suspendCancellableCoroutine { c ->
-  body.startCoroutine(Continuation(Trampoline(c.context), c::resumeWith))
-}
 
 public sealed class StackSuspension(internal var state: State) {
   internal enum class State {

@@ -7,6 +7,12 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.jvm.JvmInline
 import kotlinx.coroutines.Delay
 import kotlinx.coroutines.InternalCoroutinesApi
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.startCoroutine
+
+public suspend fun <R> runCC(body: suspend () -> R): R = suspendCancellableCoroutine { c ->
+  body.startCoroutine(Continuation(Trampoline(c.context), c::resumeWith))
+}
 
 @JvmInline internal value class Stack(val frames: Continuation<Nothing>)
 
