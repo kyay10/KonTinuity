@@ -11,7 +11,7 @@ import kotlinx.coroutines.test.runTest as coroutinesRunTest
 fun runTestCC(
   context: CoroutineContext = EmptyCoroutineContext,
   timeout: Duration? = null,
-  testBody: suspend () -> Unit,
+  testBody: suspend context(Locality) () -> Unit,
 ) = runTest(context, timeout) { runCC(testBody) }
 
 fun runTest(

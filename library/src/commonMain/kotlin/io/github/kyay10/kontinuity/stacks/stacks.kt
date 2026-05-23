@@ -1,10 +1,7 @@
 package io.github.kyay10.kontinuity.stacks
 
-import kotlinx.coroutines.currentCoroutineContext
 import kotlin.coroutines.Continuation
-import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
-import kotlin.coroutines.intrinsics.startCoroutineUninterceptedOrReturn
-import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
+import kotlin.coroutines.EmptyCoroutineContext
 
 public sealed class StackSuspension(internal var state: State) {
   internal enum class State {
@@ -28,21 +25,25 @@ public class StackMount<E> {
 
   private var asStack: Stack? = null
 
-  internal fun asStack(trampoline: Trampoline): Stack =
+  context(trampoline: Trampoline)
+  internal fun asStack(): Stack =
     asStack
-      ?: Continuation(trampoline) { result -> trampoline.resumeIntercepted(stack!!, result.fold({ it }, { it })) }
+      ?: Continuation(EmptyCoroutineContext) { result ->
+          trampoline.resumeIntercepted(stack!!, result.fold({ it }, { it }))
+        }
         .let(::Stack)
 }
 
-public suspend fun <R> restack(block: suspend StackRestacker.() -> R): R =
-  block(StackRestacker(currentCoroutineContext() as Trampoline))
+context(_: Locality)
+public suspend fun <R> restack(block: suspend context(Locality) StackRestacker.() -> R): R = block(StackRestacker())
 
-public class StackRestacker internal constructor(internal val trampoline: Trampoline) {
+public class StackRestacker internal constructor() {
+  context(_: Locality)
   public suspend fun <E> mount(
     environment: E,
     mount: StackMount<E>,
     suspension: StackSuspension,
-    block: suspend StackRestacker.() -> Nothing,
+    block: suspend context(Locality) StackRestacker.() -> Nothing,
   ): Nothing {
     require(mount.stack == null)
     require(suspension.state != Expired)
@@ -54,9 +55,10 @@ public class StackRestacker internal constructor(internal val trampoline: Trampo
     }
   }
 
+  context(_: Locality)
   public suspend fun <E> dismount(
     mount: StackMount<E>,
-    block: suspend StackRestacker.(environment: E, StackSuspension) -> Nothing,
+    block: suspend context(Locality) StackRestacker.(environment: E, StackSuspension) -> Nothing,
   ): Nothing {
     val stack = mount.stack
     requireNotNull(stack)
@@ -64,59 +66,57 @@ public class StackRestacker internal constructor(internal val trampoline: Trampo
     stack.swap { block(mount.state, StackSuspension.Cont(it)) }
   }
 
+  context(_: Locality)
   public suspend fun switchTo(
     suspension: StackSuspension,
-    block: suspend StackRestacker.(StackSuspension) -> Nothing,
+    block: suspend context(Locality) StackRestacker.(StackSuspension) -> Nothing,
   ): Nothing {
     require(suspension.state != StackSuspension.State.Expired)
     suspension.state = StackSuspension.State.Expired
     suspension.stack.swap { block(StackSuspension.Cont(it)) }
   }
 
+  context(locality: Locality)
   private val StackSuspension.stack: Stack
     get() =
-      when (this) {
-        is Initial -> mount.asStack(trampoline)
-        is Cont -> stack
+      when (locality) {
+        is Trampoline ->
+          when (this) {
+            is Initial -> mount.asStack()
+            is Cont -> stack
+          }
       }
 
-  private suspend fun Stack.swap(block: suspend (Stack) -> Nothing): Nothing = suspendCoroutineUninterceptedOrReturn {
-    try {
-      val _ = block.startCoroutineUninterceptedOrReturn(Stack(it), this@swap.frames)
-    } catch (e: Throwable) {
-      trampoline.resumeIntercepted(this@swap, e)
-    }
-    COROUTINE_SUSPENDED
-  }
-
-  public suspend fun finish(block: suspend () -> Nothing): Nothing {
-    suspendCoroutineUninterceptedOrReturn {
-      trampoline.yield(it)
-      COROUTINE_SUSPENDED
+  context(locality: Locality)
+  public suspend fun finish(block: suspend context(Locality) () -> Nothing): Nothing {
+    when (locality) {
+      is Trampoline -> locality.yield()
     }
     block()
   }
 }
 
 public fun <E, O> StackMount<E>.new(
-  after: suspend (E, O) -> Nothing,
-  block: suspend () -> O,
-): StackContinuation<suspend () -> Nothing> = new {
+  after: suspend context(Locality) (E, O) -> Nothing,
+  block: suspend context(Locality) () -> O,
+): StackContinuation<suspend context(Locality) () -> Nothing> = new {
   val output = block()
   restack { dismount(this@new) { environment, _ -> finish { after(environment, output) } } }
 }
 
+context(locality: Locality)
 public suspend fun <E, R> StackMount<E>.resume(
   environment: E,
   continuation: StackContinuation<R>,
-  block: suspend (R) -> Nothing,
+  block: suspend context(Locality) (R) -> Nothing,
 ): Nothing {
   restack { mount(environment, this@resume, continuation.suspension) { finish { block(continuation.resumer) } } }
 }
 
+context(locality: Locality)
 public suspend fun <E, R> StackMount<E>.suspend(
   resumer: R,
-  block: suspend (E, StackContinuation<R>) -> Nothing,
+  block: suspend context(Locality) (E, StackContinuation<R>) -> Nothing,
 ): Nothing {
   restack {
     dismount(this@suspend) { environment, suspension ->

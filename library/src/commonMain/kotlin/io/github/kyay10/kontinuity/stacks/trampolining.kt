@@ -1,31 +1,40 @@
 package io.github.kyay10.kontinuity.stacks
 
-import kotlin.coroutines.AbstractCoroutineContextElement
-import kotlin.coroutines.Continuation
-import kotlin.coroutines.ContinuationInterceptor
-import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.*
+import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
+import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmInline
-import kotlinx.coroutines.Delay
-import kotlinx.coroutines.InternalCoroutinesApi
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.startCoroutine
 
-public suspend fun <R> runCC(body: suspend () -> R): R = suspendCancellableCoroutine { c ->
-  body.startCoroutine(Continuation(Trampoline(c.context), c::resumeWith))
+public suspend fun <R> runCC(body: suspend Locality.() -> R): R = suspendCancellableCoroutine { c ->
+  suspend fun Locality.realBody(): R {
+    bridge {}
+    return body()
+  }
+  Locality::realBody.startCoroutine(Trampoline(c.context), Continuation(EmptyCoroutineContext, c::resumeWith))
 }
 
 @JvmInline internal value class Stack(val frames: Continuation<Nothing>)
 
-@OptIn(InternalCoroutinesApi::class)
-internal class Trampoline private constructor(context: CoroutineContext) : CoroutineContext by context {
-  companion object {
-    operator fun invoke(context: CoroutineContext): Trampoline {
-      val interceptor =
-        context[ContinuationInterceptor]
-          .let { if (it is Interceptor) it.interceptor else it }
-          .let { if (it is Delay) InterceptorWithDelay(it, it) else Interceptor(it) }
-      return Trampoline(context + interceptor).also { interceptor.trampoline = it }
+@RestrictsSuspension public sealed interface Locality
+
+internal class Trampoline internal constructor(private val context: CoroutineContext) : Locality {
+  suspend fun <R> bridge(block: suspend () -> R): R = suspendCancellableCoroutine { block.startCoroutine(Cont(it)) }
+
+  suspend fun swap(stack: Stack, block: suspend context(Locality) (Stack) -> Nothing): Nothing =
+    suspendCoroutineUninterceptedOrReturn {
+      try {
+        @Suppress("UNCHECKED_CAST")
+        val _ = (block as Function3<Locality, Stack, Continuation<*>, Any?>)(this@Trampoline, Stack(it), stack.frames)
+      } catch (e: Throwable) {
+        resumeIntercepted(stack, e)
+      }
+      COROUTINE_SUSPENDED
     }
+
+  internal suspend fun yield() = suspendCoroutineUninterceptedOrReturn {
+    yield(it)
+    COROUTINE_SUSPENDED
   }
 
   private var nextFrames: Continuation<Unit>? = null
@@ -42,24 +51,8 @@ internal class Trampoline private constructor(context: CoroutineContext) : Corou
     nextResult = null
   }
 
-  @InternalCoroutinesApi
-  private class InterceptorWithDelay(interceptor: ContinuationInterceptor?, delay: Delay) :
-    Interceptor(interceptor), Delay by delay
-
-  private open class Interceptor(val interceptor: ContinuationInterceptor?) :
-    AbstractCoroutineContextElement(ContinuationInterceptor), ContinuationInterceptor {
-    lateinit var trampoline: Trampoline
-
-    override fun <T> interceptContinuation(continuation: Continuation<T>): Continuation<T> =
-      trampoline.Cont(continuation).let { interceptor?.interceptContinuation(it) ?: it }
-
-    override fun releaseInterceptedContinuation(continuation: Continuation<*>) {
-      interceptor?.releaseInterceptedContinuation(continuation)
-    }
-  }
-
-  private inner class Cont<T>(val cont: Continuation<T>) : Continuation<T> {
-    override val context: CoroutineContext = cont.context
+  inner class Cont<T>(val cont: Continuation<T>) : Continuation<T> {
+    override val context: CoroutineContext = this@Trampoline.context
 
     override fun resumeWith(result: Result<T>) {
       cont.resumeWith(result)
@@ -69,3 +62,15 @@ internal class Trampoline private constructor(context: CoroutineContext) : Corou
     }
   }
 }
+
+context(locality: Locality)
+public suspend fun <R> bridge(block: suspend () -> R): R =
+  when (locality) {
+    is Trampoline -> locality.bridge(block)
+  }
+
+context(locality: Locality)
+internal suspend fun Stack.swap(block: suspend context(Locality) (Stack) -> Nothing): Nothing =
+  when (locality) {
+    is Trampoline -> locality.swap(this@swap, block)
+  }

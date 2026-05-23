@@ -6,20 +6,25 @@
 package io.github.kyay10.kontinuity.stacks
 
 interface SuspendIterator<out T> {
+  context(_: Locality)
   suspend operator fun next(): T
 
+  context(_: Locality)
   suspend operator fun hasNext(): Boolean
 }
 
 fun <T> Iterator<T>.asSuspendIterator(): SuspendIterator<T> =
   object : SuspendIterator<T> {
+    context(_: Locality)
     override suspend fun next(): T = next()
 
+    context(_: Locality)
     override suspend fun hasNext(): Boolean = hasNext()
   }
 
 operator fun <T> SuspendIterator<T>.iterator(): SuspendIterator<T> = this
 
+context(_: Locality)
 suspend inline fun <T> SuspendIterator<T>.forEach(block: (T) -> Unit) {
   for (e in this) block(e)
 }
@@ -48,6 +53,7 @@ abstract class AbstractSuspendIterator<T> : SuspendIterator<T> {
   private var state = State.NOT_READY
   private var nextValue: T? = null
 
+  context(_: Locality)
   override suspend fun hasNext(): Boolean {
     return when (state) {
       State.DONE -> false
@@ -57,6 +63,7 @@ abstract class AbstractSuspendIterator<T> : SuspendIterator<T> {
     }
   }
 
+  context(_: Locality)
   override suspend fun next(): T {
     if (state == State.READY) {
       state = State.NOT_READY
@@ -71,6 +78,7 @@ abstract class AbstractSuspendIterator<T> : SuspendIterator<T> {
     return nextValue as T
   }
 
+  context(_: Locality)
   private suspend fun tryToComputeNext(): Boolean {
     state = State.FAILED
     computeNext()
@@ -87,6 +95,7 @@ abstract class AbstractSuspendIterator<T> : SuspendIterator<T> {
    *
    * Failure to call either method will result in the iteration terminating with a failed state
    */
+  context(_: Locality)
   protected abstract suspend fun computeNext()
 
   /** Sets the next value in the iteration, called from the [computeNext] function */
