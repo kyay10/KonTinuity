@@ -6,31 +6,34 @@ import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
 import kotlin.jvm.JvmInline
 import kotlinx.coroutines.suspendCancellableCoroutine
 
-public suspend fun <R> runCC(body: suspend Locality.() -> R): R = suspendCancellableCoroutine { c ->
-  suspend fun Locality.realBody(): R {
+public suspend fun <R> runCC(body: suspend Locality<*>.() -> R): R = suspendCancellableCoroutine { c ->
+  suspend fun Locality<*>.realBody(): R {
     bridge {}
     return body()
   }
-  Locality::realBody.startCoroutine(Trampoline(c.context), Continuation(EmptyCoroutineContext, c::resumeWith))
+  Locality<*>::realBody.startCoroutine(Trampoline<Any?>(c.context), Continuation(EmptyCoroutineContext, c::resumeWith))
 }
 
-@JvmInline internal value class Stack(val frames: Continuation<Nothing>)
+@JvmInline internal value class Stack<out resumption>(val frames: Continuation<Nothing>)
 
-@RestrictsSuspension public sealed interface Locality
+@RestrictsSuspension public sealed interface Locality<out local>
 
-internal class Trampoline internal constructor(private val context: CoroutineContext) : Locality {
+internal class Trampoline<local> internal constructor(private val context: CoroutineContext) : Locality<local> {
   suspend fun <R> bridge(block: suspend () -> R): R = suspendCancellableCoroutine { block.startCoroutine(Cont(it)) }
 
-  suspend fun swap(stack: Stack, block: suspend context(Locality) (Stack) -> Nothing): Nothing =
-    suspendCoroutineUninterceptedOrReturn {
-      try {
-        @Suppress("UNCHECKED_CAST")
-        val _ = (block as Function3<Locality, Stack, Continuation<*>, Any?>)(this@Trampoline, Stack(it), stack.frames)
-      } catch (e: Throwable) {
-        resumeIntercepted(stack, e)
-      }
-      COROUTINE_SUSPENDED
+  suspend fun <that> swap(
+    stack: Stack<that>,
+    block: suspend context(Locality<that>) (Stack<local>) -> Nothing,
+  ): Nothing = suspendCoroutineUninterceptedOrReturn {
+    try {
+      @Suppress("UNCHECKED_CAST")
+      val _ =
+        (block as Function3<Locality<*>, Stack<local>, Continuation<*>, Any?>)(this@Trampoline, Stack(it), stack.frames)
+    } catch (e: Throwable) {
+      resumeIntercepted(stack, e)
     }
+    COROUTINE_SUSPENDED
+  }
 
   internal suspend fun yield() = suspendCoroutineUninterceptedOrReturn {
     yield(it)
@@ -40,7 +43,7 @@ internal class Trampoline internal constructor(private val context: CoroutineCon
   private var nextFrames: Continuation<Unit>? = null
   private var nextResult: Throwable? = null
 
-  internal fun resumeIntercepted(stack: Stack, result: Throwable) {
+  internal fun resumeIntercepted(stack: Stack<*>, result: Throwable) {
     @Suppress("UNCHECKED_CAST")
     nextFrames = stack.frames as Continuation<Unit>
     nextResult = result
@@ -63,14 +66,11 @@ internal class Trampoline internal constructor(private val context: CoroutineCon
   }
 }
 
-context(locality: Locality)
+context(locality: Locality<*>)
 public suspend fun <R> bridge(block: suspend () -> R): R =
   when (locality) {
     is Trampoline -> locality.bridge(block)
   }
 
-context(locality: Locality)
-internal suspend fun Stack.swap(block: suspend context(Locality) (Stack) -> Nothing): Nothing =
-  when (locality) {
-    is Trampoline -> locality.swap(this@swap, block)
-  }
+// Contravariant HKTs!
+public interface Local<out F, in local>

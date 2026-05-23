@@ -5,27 +5,27 @@
 
 package io.github.kyay10.kontinuity.stacks
 
-interface SuspendIterator<out T> {
-  context(_: Locality)
+interface SuspendIterator<out T, in local> {
+  context(_: Locality<local>)
   suspend operator fun next(): T
 
-  context(_: Locality)
+  context(_: Locality<local>)
   suspend operator fun hasNext(): Boolean
 }
 
-fun <T> Iterator<T>.asSuspendIterator(): SuspendIterator<T> =
-  object : SuspendIterator<T> {
-    context(_: Locality)
+fun <T> Iterator<T>.asSuspendIterator(): SuspendIterator<T, Any?> =
+  object : SuspendIterator<T, Any?> {
+    context(_: Locality<Any?>)
     override suspend fun next(): T = next()
 
-    context(_: Locality)
+    context(_: Locality<Any?>)
     override suspend fun hasNext(): Boolean = hasNext()
   }
 
-operator fun <T> SuspendIterator<T>.iterator(): SuspendIterator<T> = this
+operator fun <T, local> SuspendIterator<T, local>.iterator(): SuspendIterator<T, local> = this
 
-context(_: Locality)
-suspend inline fun <T> SuspendIterator<T>.forEach(block: (T) -> Unit) {
+context(_: Locality<local>)
+suspend inline fun <T, local> SuspendIterator<T, local>.forEach(block: (T) -> Unit) {
   for (e in this) block(e)
 }
 
@@ -49,11 +49,11 @@ private object State {
  * A base class to simplify implementing iterators so that implementations only have to implement [computeNext] to
  * implement the iterator, calling [done] when the iteration is complete.
  */
-abstract class AbstractSuspendIterator<T> : SuspendIterator<T> {
+abstract class AbstractSuspendIterator<T, in local> : SuspendIterator<T, local> {
   private var state = State.NOT_READY
   private var nextValue: T? = null
 
-  context(_: Locality)
+  context(_: Locality<local>)
   override suspend fun hasNext(): Boolean {
     return when (state) {
       State.DONE -> false
@@ -63,7 +63,7 @@ abstract class AbstractSuspendIterator<T> : SuspendIterator<T> {
     }
   }
 
-  context(_: Locality)
+  context(_: Locality<local>)
   override suspend fun next(): T {
     if (state == State.READY) {
       state = State.NOT_READY
@@ -78,7 +78,7 @@ abstract class AbstractSuspendIterator<T> : SuspendIterator<T> {
     return nextValue as T
   }
 
-  context(_: Locality)
+  context(_: Locality<local>)
   private suspend fun tryToComputeNext(): Boolean {
     state = State.FAILED
     computeNext()
@@ -95,7 +95,7 @@ abstract class AbstractSuspendIterator<T> : SuspendIterator<T> {
    *
    * Failure to call either method will result in the iteration terminating with a failed state
    */
-  context(_: Locality)
+  context(_: Locality<local>)
   protected abstract suspend fun computeNext()
 
   /** Sets the next value in the iteration, called from the [computeNext] function */

@@ -17,19 +17,37 @@ class StackTest {
   }
 }
 
-fun leastPrimeFactorSequence(): Sequence<Pair<Int, Int>> = sequence {
-  var primes = iterator {
-    var i = 1
-    while (i != Int.MAX_VALUE) yield(++i)
-  }
-  while (true) {
-    val candidates = primes
-    val prime = candidates.next()
-    yield(Pair(prime, prime))
-    primes = iterator {
-      candidates.forEach { candidate ->
-        if (candidate % prime == 0) this@sequence.yield(Pair(candidate, prime)) else yield(candidate)
+fun leastPrimeFactorSequence(): Sequence<Pair<Int, Int>, Any?> =
+  sequence(
+    object : SequenceFun<Pair<Int, Int>, Any?> {
+      context(_: Locality<scope>)
+      override suspend fun <scope> SequenceScope<Pair<Int, Int>, Any?, scope>.invoke() {
+        val outerScope = this
+        var primes =
+          iterator(
+            object : SequenceFun<Int, scope> {
+              context(_: Locality<scope2>)
+              override suspend fun <scope2 : scope> SequenceScope<Int, scope, scope2>.invoke() {
+                var i = 1
+                while (i != Int.MAX_VALUE) yield(++i)
+              }
+            }
+          )
+        while (true) {
+          val candidates = primes
+          val prime = candidates.next()
+          yield(Pair(prime, prime))
+          primes =
+            iterator(
+              object : SequenceFun<Int, scope> {
+                context(_: Locality<scope2>)
+                override suspend fun <scope2 : scope> SequenceScope<Int, scope, scope2>.invoke() =
+                  candidates.forEach { candidate ->
+                    if (candidate % prime == 0) outerScope.yield(Pair(candidate, prime)) else yield(candidate)
+                  }
+              }
+            )
+        }
       }
     }
-  }
-}
+  )
