@@ -43,7 +43,7 @@ kotlin {
   // Matching the targets from Arrow
   jvm()
   jvmToolchain(25)
-  js(IR) {
+  js {
     compilerOptions {
       freeCompilerArgs.add("-Xes-generators=false")
       target = "es2015"
@@ -60,7 +60,6 @@ kotlin {
   wasmJs {
     browser()
     nodejs()
-    d8()
   }
   // androidTarget() TODO
   // Native: https://kotlinlang.org/docs/native-target-support.html
