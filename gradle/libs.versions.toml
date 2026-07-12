@@ -1,14 +1,14 @@
 [versions]
 arrow = "2.2.1.1"
 kotest = "5.9.1"
-kotlin = "2.4.0-RC"
+kotlin = "2.4.20-dev-6138"
 kotlinxCoroutinesCore = "1.10.1"
 kotlinxImmutable = "0.3.8"
-ktfmt = "0.63-SNAPSHOT"
+ktfmt = "0.64"
 nexus-publish = "2.0.0"
 turbine = "1.2.0"
 kotlinxBenchmark = "0.4.16"
-spotless = "8.4.0"
+spotless = "8.8.0"
 [libraries]
 arrow-core = { module = "io.arrow-kt:arrow-core", version.ref = "arrow" }
 arrow-fx-coroutines = { module = "io.arrow-kt:arrow-fx-coroutines", version.ref = "arrow" }

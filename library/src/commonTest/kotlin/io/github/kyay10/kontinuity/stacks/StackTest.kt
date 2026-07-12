@@ -12,42 +12,26 @@ class StackTest {
 
   @Test
   fun testStackSafety() = runTestCC {
-    val foo = DeepRecursiveFunction { i: Int -> if (i == 0) i else callRecursive(i - 1) + 1 }
+    val foo = DeepRecursiveFunction<_, _, Any?> { i: Int -> if (i == 0) i else callRecursive(i - 1) + 1 }
     foo(100_000) shouldEq 100_000
   }
 }
 
-fun leastPrimeFactorSequence(): Sequence<Pair<Int, Int>, Any?> =
-  sequence(
-    object : SequenceFun<Pair<Int, Int>, Any?> {
-      context(_: Locality<scope>)
-      override suspend fun <scope> SequenceScope<Pair<Int, Int>, Any?, scope>.invoke() {
-        val outerScope = this
-        var primes =
-          iterator(
-            object : SequenceFun<Int, scope> {
-              context(_: Locality<scope2>)
-              override suspend fun <scope2 : scope> SequenceScope<Int, scope, scope2>.invoke() {
-                var i = 1
-                while (i != Int.MAX_VALUE) yield(++i)
-              }
-            }
-          )
-        while (true) {
-          val candidates = primes
-          val prime = candidates.next()
-          yield(Pair(prime, prime))
-          primes =
-            iterator(
-              object : SequenceFun<Int, scope> {
-                context(_: Locality<scope2>)
-                override suspend fun <scope2 : scope> SequenceScope<Int, scope, scope2>.invoke() =
-                  candidates.forEach { candidate ->
-                    if (candidate % prime == 0) outerScope.yield(Pair(candidate, prime)) else yield(candidate)
-                  }
-              }
-            )
-        }
+fun leastPrimeFactorSequence(): Sequence<Pair<Int, Int>, Any?> = sequence {
+  val outerScope = this
+  var primes =
+    iterator<_, sequence_scope> {
+      var i = 1
+      while (i != Int.MAX_VALUE) yield(++i)
+    }
+  while (true) {
+    val candidates = primes
+    val prime = candidates.next()
+    yield(Pair(prime, prime))
+    primes = iterator {
+      candidates.forEach { candidate ->
+        if (candidate % prime == 0) outerScope.yield(Pair(candidate, prime)) else yield(candidate)
       }
     }
-  )
+  }
+}

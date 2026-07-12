@@ -1,5 +1,6 @@
 package io.github.kyay10.kontinuity.stacks
 
+import io.github.kyay10.regional.Regional
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
 
@@ -59,9 +60,10 @@ public class StackMount<arena, E, mounted : arena, in `this`> {
         .let(::Stack)
 }
 
-public interface RestackerFun0<out R, in resumption> {
+@Regional
+public fun interface RestackerFun0<out R, in resumption> {
   context(_: Locality<local>)
-  public suspend operator fun <local : resumption> StackRestacker<resumption, local>.invoke(): R
+  public suspend operator fun <local : resumption> StackRestacker<resumption, local>.invoke(): R = _impl()
 }
 
 context(_: Locality<local>, restacker: StackRestacker<resumption, local>)
@@ -94,13 +96,13 @@ public suspend fun <resumption : arena, local : resumption, arena, E, that : mou
   }
 }
 
-public interface DismountFun<in E, in S, in arena> {
+@Regional
+public fun interface DismountFun<in E, in S, in arena> {
   context(_: Locality<local>)
   public suspend operator fun <local : environment, environment : arena> StackRestacker<environment, local>.invoke(
     environment: Local<E, environment>,
     s: S,
-  ): Nothing
-
+  ): Nothing = _impl(environment, s)
 }
 
 context(_: Locality<local>, restacker: StackRestacker<environment, local>)
@@ -124,9 +126,10 @@ public suspend fun <resumption : mounted, local : resumption, arena, E, mounted 
   @Suppress("UNCHECKED_CAST") stack.swap { block(mount.state as Local<E, arena>, StackSuspension.Cont(it)) }
 }
 
-public interface SwitchToFun<in A, in resumption> {
+@Regional
+public fun interface SwitchToFun<in A, in resumption> {
   context(_: Locality<local>)
-  public suspend operator fun <local : resumption> StackRestacker<resumption, local>.invoke(a: A): Nothing
+  public suspend operator fun <local : resumption> StackRestacker<resumption, local>.invoke(a: A): Nothing = _impl(a)
 }
 
 context(_: Locality<local>, restacker: StackRestacker<resumption, local>)
@@ -173,9 +176,11 @@ internal suspend fun <resumption, local : resumption, that> Stack<that>.swap(
     is Trampoline -> locality.swap(this@swap) { with(StackRestacker<that, that>()) { block(it) } }
   }
 
-public interface AfterFun<in E, in O, in arena> {
+@Regional
+public fun interface AfterFun<in E, in O, in arena> {
   context(_: Locality<environment>)
-  public suspend operator fun <environment : arena> invoke(environment: Local<E, environment>, o: O): Nothing
+  public suspend operator fun <environment : arena> invoke(environment: Local<E, environment>, o: O): Nothing =
+    _impl(environment, o)
 }
 
 public fun <arena, E, O, mounted : arena> StackMount<arena, E, mounted, mounted>.new(
@@ -185,32 +190,18 @@ public fun <arena, E, O, mounted : arena> StackMount<arena, E, mounted, mounted>
   new(
     LocalFun0 {
       val output = block()
-      restack(
-        object : RestackerFun0<Nothing, mounted> {
-          context(_: Locality<local>)
-          override suspend fun <local : mounted> StackRestacker<mounted, local>.invoke() =
-            dismount(
-              this@new,
-              object : DismountFun<E, StackSuspension<mounted, mounted>, arena> {
-                context(_: Locality<local>)
-                override suspend fun <local : environment, environment : arena> StackRestacker<environment, local>
-                  .invoke(
-                  environment: Local<E, environment>,
-                  s: StackSuspension<mounted, mounted>,
-                ) = finish { after(environment, output) }
-              },
-            )
-        }
-      )
+      restack { dismount(this@new) { environment, _ -> finish { after(environment, output) } } }
     }
   )
 
-public interface ResumeFun<in R, in mounted> {
+@Regional
+public fun interface ResumeFun<in R, in mounted> {
   context(_: Locality<resumption>)
-  public suspend operator fun <resumption : mounted> invoke(resumption: Local<R, resumption>): Nothing
+  public suspend operator fun <resumption : mounted> invoke(resumption: Local<R, resumption>): Nothing =
+    _impl(resumption)
 }
 
-context(locality: Locality<local>)
+context(_: Locality<local>)
 public suspend fun <arena, E, R, mounted : arena, resumption : mounted, local : arena> StackMount<
   arena,
   E,
@@ -222,28 +213,14 @@ public suspend fun <arena, E, R, mounted : arena, resumption : mounted, local : 
   continuation: StackContinuation<R, resumption, mounted>,
   block: ResumeFun<R, mounted>,
 ): Nothing {
-  restack(
-    object : RestackerFun0<Nothing, local> {
-      context(_: Locality<local2>)
-      override suspend fun <local2 : local> StackRestacker<local, local2>.invoke() =
-        mount(
-          environment,
-          this@resume,
-          continuation.suspension,
-          object : RestackerFun0<Nothing, resumption> {
-            context(_: Locality<local>)
-            override suspend fun <local : resumption> StackRestacker<resumption, local>.invoke() = finish {
-              block(continuation.resumer)
-            }
-          },
-        )
-    }
-  )
+  restack { mount(environment, this@resume, continuation.suspension) { finish { block(continuation.resumer) } } }
 }
 
-public interface SuspendFun<in E, in C, in arena> {
+@Regional
+public fun interface SuspendFun<in E, in C, in arena> {
   context(_: Locality<environment>)
-  public suspend operator fun <environment : arena> invoke(environment: Local<E, environment>, c: C): Nothing
+  public suspend operator fun <environment : arena> invoke(environment: Local<E, environment>, c: C): Nothing =
+    _impl(environment, c)
 }
 
 context(locality: Locality<local>)
@@ -251,20 +228,5 @@ public suspend fun <arena, E, R, mounted : arena, local : mounted> StackMount<ar
   resumer: Local<R, local>,
   block: SuspendFun<E, StackContinuation<R, local, mounted>, arena>,
 ): Nothing {
-  restack(
-    object : RestackerFun0<Nothing, local> {
-      context(_: Locality<local2>)
-      override suspend fun <local2 : local> StackRestacker<local, local2>.invoke() =
-        dismount(
-          this@suspend,
-          object : DismountFun<E, StackSuspension<local, mounted>, arena> {
-            context(_: Locality<local3>)
-            override suspend fun <local3 : environment, environment : arena> StackRestacker<environment, local3>.invoke(
-              environment: Local<E, environment>,
-              s: StackSuspension<local, mounted>,
-            ) = finish { block(environment, StackContinuation(s, resumer)) }
-          },
-        )
-    }
-  )
+  restack { dismount(this@suspend) { environment, s -> finish { block(environment, StackContinuation(s, resumer)) } } }
 }

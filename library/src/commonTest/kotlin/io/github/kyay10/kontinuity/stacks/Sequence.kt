@@ -1,12 +1,15 @@
 package io.github.kyay10.kontinuity.stacks
 
+import io.github.kyay10.regional.Regional
+
 fun interface Sequence<out T, in local> {
   operator fun iterator(): SuspendIterator<T, local>
 }
 
-interface SequenceFun<T, in local> {
+@Regional
+fun interface SequenceFun<T, in local> {
   context(_: Locality<scope>)
-  suspend operator fun <scope : local> SequenceScope<T, local, scope>.invoke()
+  suspend operator fun <scope : local> SequenceScope<T, local, scope>.invoke(): Unit = _impl()
 }
 
 context(_: Locality<scope>, scope: SequenceScope<T, local, scope>)
@@ -34,32 +37,30 @@ abstract class SequenceScope<in T, out owner, in local> internal constructor() {
 fun <T, block> iterator(block: SequenceFun<T, block>): SuspendIterator<T, block> =
   object : AbstractSuspendIterator<T, block>() {
     var queued: SuspendIterator<T, block>? = null
-    val stack: PausingStack<block> =
-      PausingStack(
-        object : PausingBlock<block> {
-          context(_: Locality<local2>)
-          override suspend fun <local2 : block> invoke(pause: suspend context(Locality<local2>) () -> Unit) {
-            val scope =
-              object : SequenceScope<T, block, local2>() {
-                context(_: Locality<local2>)
-                override suspend fun yield(value: T) {
-                  setNext(value)
-                  pause()
-                }
 
-                context(_: Locality<local2>)
-                override suspend fun yieldAll(iterator: SuspendIterator<T, block>) {
-                  if (iterator.hasNext()) {
-                    queued = iterator
-                    yield(iterator.next())
-                  }
-                }
-              }
-            with(scope) { block() }
-            done()
+    context(_: Locality<local>)
+    private fun <local : block> makeScope(pause: suspend context(Locality<local>) () -> Unit) =
+      object : SequenceScope<T, block, local>() {
+        context(_: Locality<local>)
+        override suspend fun yield(value: T) {
+          setNext(value)
+          pause()
+        }
+
+        context(_: Locality<local>)
+        override suspend fun yieldAll(iterator: SuspendIterator<T, block>) {
+          if (iterator.hasNext()) {
+            queued = iterator
+            yield(iterator.next())
           }
         }
-      )
+      }
+
+    val stack: PausingStack<block> = PausingStack {
+      val scope = makeScope(it)
+      with(scope) { block() }
+      done()
+    }
 
     context(_: Locality<block>)
     override suspend fun computeNext() {

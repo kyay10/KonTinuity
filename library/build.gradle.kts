@@ -1,16 +1,12 @@
 @file:OptIn(ExperimentalWasmDsl::class)
 
-import kotlinx.benchmark.gradle.BenchmarkConfiguration
-import kotlinx.benchmark.gradle.JsBenchmarkTarget
-import kotlinx.benchmark.gradle.JsBenchmarksExecutor
-import kotlinx.benchmark.gradle.JvmBenchmarkTarget
 import org.jetbrains.kotlin.gradle.ExperimentalWasmDsl
 
 plugins {
   alias(libs.plugins.kotlinMultiplatform)
-  alias(libs.plugins.kotlinxBenchmark)
   alias(libs.plugins.spotless)
   id("module.publication")
+  id("io.github.kyay10.regional") version "0.0.6"
 }
 
 repositories {
@@ -23,7 +19,6 @@ repositories {
 kotlin {
   compilerOptions {
     freeCompilerArgs.addAll(
-      "-Xcontext-parameters",
       "-opt-in=kotlin.contracts.ExperimentalContracts",
       "-Xwarning-level=DSL_MARKER_APPLIED_TO_WRONG_TARGET:disabled",
       "-Xreturn-value-checker=full",
@@ -71,7 +66,6 @@ kotlin {
   sourceSets {
     commonMain {
       dependencies {
-        implementation(libs.kotlinx.benchmark.runtime)
         implementation(libs.arrow.core)
         implementation(libs.arrow.fx.coroutines)
         implementation(libs.kotlinx.immutable.collections)
@@ -120,27 +114,5 @@ tasks.withType<JavaExec> { jvmArgs = myJvmArgs }
 publishing {
   publications.withType<MavenPublication> {
     artifactId = if (name == "kotlinMultiplatform") "kontinuity" else "kontinuity-$name"
-  }
-}
-
-fun BenchmarkConfiguration.defaults() {
-  mode = "AverageTime"
-  warmups = 10
-  iterations = 10
-  outputTimeUnit = TimeUnit.MILLISECONDS.name
-}
-
-benchmark {
-  targets {
-    register("jvmTest") {
-      this as JvmBenchmarkTarget
-      jmhVersion = "1.37"
-    }
-    register("jsTest") {
-      this as JsBenchmarkTarget
-      jsBenchmarksExecutor = JsBenchmarksExecutor.BuiltIn
-    }
-    register("wasmJsTest")
-    register("macosArm64Test")
   }
 }

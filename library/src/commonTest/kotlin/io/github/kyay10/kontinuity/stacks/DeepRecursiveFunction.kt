@@ -1,8 +1,11 @@
 package io.github.kyay10.kontinuity.stacks
 
-interface DeepRecursiveFunction<T, R, in local> {
+import io.github.kyay10.regional.Regional
+
+@Regional
+fun interface DeepRecursiveFunction<T, R, in local> {
   context(_: Locality<local2>)
-  suspend fun <local2 : local> DeepRecursiveScope<T, R, local2>.block(t: T): R
+  suspend fun <local2 : local> DeepRecursiveScope<T, R, local2>.block(t: T): R = _impl(t)
 }
 
 context(_: Locality<local2>, scope: DeepRecursiveScope<T, R, local2>)
@@ -33,31 +36,12 @@ private class DeepRecursiveScopeImpl<T, R, local>(private val function: DeepRecu
 object LocalUnit : Local<Unit, Any?>
 
 context(_: Locality<local>)
-suspend fun <R, local> onFreshStack(block: suspend context(Locality<local>) () -> R): R =
-  merge(
-    object : MergeFun<R, local> {
-      context(_: Locality<local2>, _: Raise<R, local2>)
-      override suspend fun <local2 : local> invoke(): R {
-        val mount = StackMount<local2, Unit, local2, local2>()
-        val continuation = mount.new(LocalUnit)
-        // : StackContinuation<Unit>_{mount.mounted}
-        restack(
-          object : RestackerFun0<Nothing, local2> {
-            context(_: Locality<local>)
-            override suspend fun <local : local2> StackRestacker<local2, local>.invoke() =
-              mount(
-                LocalUnit,
-                mount,
-                continuation.suspension,
-                object : RestackerFun0<Nothing, local2> {
-                  context(_: Locality<local>)
-                  override suspend fun <local : local2> StackRestacker<local2, local>.invoke() = finish {
-                    raise(block())
-                  }
-                },
-              )
-          }
-        )
-      }
-    }
-  )
+suspend fun <R, local> onFreshStack(block: suspend context(Locality<local>) () -> R): R = merge {
+  val mount = StackMount<_, Unit>()
+  val continuation = mount.new(LocalUnit)
+  // : StackContinuation<Unit>_{mount.mounted}
+  restack { mount(LocalUnit, mount, continuation.suspension) { finish { raise(block()) } } }
+}
+
+context(_: Locality<local>)
+fun <local, E> StackMount(): StackMount<local, E, local, local> = StackMount<_, _, _, _>()
