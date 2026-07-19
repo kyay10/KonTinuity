@@ -6,7 +6,8 @@ plugins {
   alias(libs.plugins.kotlinMultiplatform)
   alias(libs.plugins.spotless)
   id("module.publication")
-  id("io.github.kyay10.regional") version "0.0.6"
+  id("io.github.kyay10.regional") version "0.0.7"
+  id("io.github.kyay10.highkt") version "0.0.4"
 }
 
 repositories {

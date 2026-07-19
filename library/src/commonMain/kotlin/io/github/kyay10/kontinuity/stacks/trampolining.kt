@@ -1,5 +1,8 @@
 package io.github.kyay10.kontinuity.stacks
 
+import io.github.kyay10.highkt.Constructor
+import io.github.kyay10.highkt.Id
+import io.github.kyay10.highkt.K
 import kotlin.coroutines.*
 import kotlin.coroutines.intrinsics.COROUTINE_SUSPENDED
 import kotlin.coroutines.intrinsics.suspendCoroutineUninterceptedOrReturn
@@ -72,5 +75,8 @@ public suspend fun <R> bridge(block: suspend () -> R): R =
     is Trampoline -> locality.bridge(block)
   }
 
-// Contravariant HKTs!
-public interface Local<out F, in local>
+// HKTs!
+public typealias Local<F, local> = K<F, local>
+
+public typealias Constant<T, U> = Id<T>
+public typealias Global<T> = K<Constructor<Constant<*, *>>, T>

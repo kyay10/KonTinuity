@@ -1,5 +1,10 @@
 package io.github.kyay10.kontinuity.stacks
 
+import io.github.kyay10.highkt.Constructor
+import io.github.kyay10.highkt.K
+import io.github.kyay10.highkt.K2
+import io.github.kyay10.kontinuity.stacks.StackSuspension.Cont
+import io.github.kyay10.kontinuity.stacks.StackSuspension.Initial
 import io.github.kyay10.regional.Regional
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.EmptyCoroutineContext
@@ -23,31 +28,35 @@ public class StackContinuation<out R, resumption, in `this`>(
   public val resumer: Local<R, resumption>,
 )
 
-public fun interface LocalFun0<out R, in local> : Local<LocalFun0<R, *>, local> {
-  context(_: Locality<local>)
-  public suspend operator fun invoke(): R
-}
+public typealias LocalFun0<R, local> = suspend context(Locality<local>) () -> R
 
-public fun <R, local> Local<LocalFun0<R, *>, local>.fix(): LocalFun0<R, local> = this as LocalFun0
+public fun <R, local> LocalFun0(block: LocalFun0<R, local>): LocalFun0<R, local> = block
 
-public fun interface LocalFun1<in T, out R, in local> : Local<LocalFun1<T, R, *>, local> {
-  context(_: Locality<local>)
-  public suspend operator fun invoke(t: T): R
-}
+context(_: Locality<local>)
+public suspend operator fun <R, local> LocalFun0<R, local>.invoke(): R = this()
 
-public fun <T, R, local> Local<LocalFun1<T, R, *>, local>.fix(): LocalFun1<T, R, local> = this as LocalFun1
+public typealias LocalFun0Of<R> = K<Constructor<LocalFun0<*, *>>, R>
+
+public typealias LocalFun1<T, R, local> = suspend context(Locality<local>) (T) -> R
+
+public fun <T, R, local> LocalFun1(block: LocalFun1<T, R, local>): LocalFun1<T, R, local> = block
+
+context(_: Locality<local>)
+public suspend operator fun <T, R, local> LocalFun1<T, R, local>.invoke(t: T): R = this(t)
+
+public typealias LocalFun1Of<T, R> = K2<Constructor<LocalFun1<*, *, *>>, T, R>
 
 public fun <T, resumption, continuation> ignoreInput(
-  continuation: StackContinuation<LocalFun0<Nothing, *>, resumption, continuation>
-): StackContinuation<LocalFun1<T, Nothing, *>, resumption, continuation> =
-  StackContinuation(continuation.suspension, LocalFun1 { _ -> continuation.resumer.fix()() })
+  continuation: StackContinuation<LocalFun0Of<Nothing>, resumption, continuation>
+): StackContinuation<LocalFun1Of<T, Nothing>, resumption, continuation> =
+  StackContinuation(continuation.suspension, LocalFun1<_, _, resumption> { _ -> continuation.resumer() })
 
 public class StackMount<arena, E, mounted : arena, in `this`> {
   @Suppress("UNCHECKED_CAST") internal var state: Local<E, *>? = null
   internal var stack: Stack<arena>? = null
 
   public fun <R> new(resumer: Local<R, mounted>): StackContinuation<R, out mounted, mounted> =
-    StackContinuation(StackSuspension.Initial(this), resumer)
+    StackContinuation(Initial(this), resumer)
 
   private var asStack: Stack<mounted>? = null
 
@@ -123,7 +132,7 @@ public suspend fun <resumption : mounted, local : resumption, arena, E, mounted 
   val stack = mount.stack
   requireNotNull(stack)
   mount.stack = null
-  @Suppress("UNCHECKED_CAST") stack.swap { block(mount.state as Local<E, arena>, StackSuspension.Cont(it)) }
+  @Suppress("UNCHECKED_CAST") stack.swap { block(mount.state as Local<E, arena>, Cont(it)) }
 }
 
 @Regional
@@ -144,7 +153,7 @@ public suspend fun <resumption : suspension, local : resumption, that, suspensio
 ): Nothing {
   require(suspension.state != StackSuspension.State.Expired)
   suspension.state = StackSuspension.State.Expired
-  suspension.stack.swap { block(StackSuspension.Cont(it)) }
+  suspension.stack.swap { block(Cont(it)) }
 }
 
 context(locality: Locality<local>)
@@ -186,7 +195,7 @@ public fun interface AfterFun<in E, in O, in arena> {
 public fun <arena, E, O, mounted : arena> StackMount<arena, E, mounted, mounted>.new(
   after: AfterFun<E, O, arena>,
   block: suspend context(Locality<mounted>) () -> O,
-): StackContinuation<LocalFun0<Nothing, *>, out mounted, mounted> =
+): StackContinuation<LocalFun0Of<Nothing>, out mounted, mounted> =
   new(
     LocalFun0 {
       val output = block()

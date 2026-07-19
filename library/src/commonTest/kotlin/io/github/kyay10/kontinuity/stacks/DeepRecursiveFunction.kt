@@ -33,14 +33,12 @@ private class DeepRecursiveScopeImpl<T, R, local>(private val function: DeepRecu
     DeepRecursiveScopeImpl(this).callRecursive(value)
 }
 
-object LocalUnit : Local<Unit, Any?>
-
 context(_: Locality<local>)
 suspend fun <R, local> onFreshStack(block: suspend context(Locality<local>) () -> R): R = merge {
-  val mount = StackMount<_, Unit>()
-  val continuation = mount.new(LocalUnit)
+  val mount = StackMount<_, Global<Unit>>()
+  val continuation = mount.new<Global<Unit>>(Unit)
   // : StackContinuation<Unit>_{mount.mounted}
-  restack { mount(LocalUnit, mount, continuation.suspension) { finish { raise(block()) } } }
+  restack { mount(Unit, mount, continuation.suspension) { finish { raise(block()) } } }
 }
 
 context(_: Locality<local>)

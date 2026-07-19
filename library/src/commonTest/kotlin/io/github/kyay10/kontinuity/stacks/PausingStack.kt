@@ -15,14 +15,14 @@ class PausingStack<local> private constructor(private val block: PausingBlock<lo
   }
 
   private inner class WithMounted<mounted : local> {
-    private val mount: StackMount<local, LocalFun1<Boolean, Nothing, *>, mounted, local> = StackMount()
-    private var continuation: StackContinuation<LocalFun0<Nothing, *>, out mounted, mounted>? =
-      mount.new({ environment, _ -> environment.fix()(true) }) {
+    private val mount: StackMount<local, LocalFun1Of<Boolean, Nothing>, mounted, local> = StackMount()
+    private var continuation: StackContinuation<LocalFun0Of<Nothing>, out mounted, mounted>? =
+      mount.new({ environment, _ -> environment(true) }) {
         block pause@{
           merge {
             mount.suspend(LocalFun0 { raise(Unit) }) { environment, c ->
               continuation = c
-              environment.fix()(false)
+              environment(false)
             }
           }
         }
@@ -30,12 +30,11 @@ class PausingStack<local> private constructor(private val block: PausingBlock<lo
 
     context(_: Locality<local2>)
     suspend fun <local2 : local> progress(): Boolean = merge {
+      val f = LocalFun1 { it: Boolean -> raise(it) }
       mount.resume(
-        LocalFun1 { raise(it) },
+        f,
         (continuation ?: return@merge true).also { continuation = null },
-      ) {
-        it.fix()()
-      }
+      ) { it() }
     }
   }
 
